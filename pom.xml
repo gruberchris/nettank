@@ -3,8 +3,8 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.yourgame</groupId>
-    <artifactId>tank-battle</artifactId>
+    <groupId>org.chrisgruber.nettank</groupId>
+    <artifactId>nettank</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
@@ -17,7 +17,7 @@
         <lwjgl.version>3.3.3</lwjgl.version>
         <joml.version>1.10.5</joml.version>
         <!-- Determine OS type for LWJGL natives -->
-        <lwjgl.natives>natives-linux</lwjgl.natives> <!-- Default to Linux -->
+        <lwjgl.natives>natives-macos-arm64</lwjgl.natives> <!-- Default to Linux -->
     </properties>
 
     <profiles>
@@ -135,6 +135,18 @@
             <artifactId>joml</artifactId>
             <version>${joml.version}</version>
         </dependency>
+
+        <!-- Logging dependencies -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.9</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.4.14</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -194,6 +206,13 @@
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*.vert</include>
+                    <include>**/*.frag</include>
+                    <include>**/*.png</include>
+                    <include>logback.xml</include>
+                    <!-- Add any other resource types you need -->
+                </includes>
             </resource>
         </resources>
     </build>

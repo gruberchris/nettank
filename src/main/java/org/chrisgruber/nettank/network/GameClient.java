@@ -3,14 +3,17 @@ package org.chrisgruber.nettank.network;
 import org.chrisgruber.nettank.main.Game;
 import org.chrisgruber.nettank.util.GameState;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import javax.swing.*;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 
 public class GameClient implements Runnable {
-
+    private static final Logger logger = LoggerFactory.getLogger(GameClient.class);
     private final String serverIp;
     private final int serverPort;
     private final String playerName;
@@ -18,6 +21,8 @@ public class GameClient implements Runnable {
     private PrintWriter out;
     private BufferedReader in;
     private volatile boolean running = false;
+    private volatile boolean shuttingDown = false;
+    private final Object connectionLock = new Object();
     private final Game game; // Reference to the main game class for callbacks
 
     private long lastInputSendTime = 0;
@@ -32,48 +37,132 @@ public class GameClient implements Runnable {
 
     @Override
     public void run() {
+        Thread.currentThread().setName("NetworkClient");
         running = true;
+        logger.info("NetworkClient thread started.");
+
         try {
-            socket = new Socket(serverIp, serverPort);
-            out = new PrintWriter(socket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            // Socket setup remains the same...
+            Socket localSocket; // Use local vars within the try block scope
+            PrintWriter localOut;
+            BufferedReader localIn;
 
-            System.out.println("Connected to server: " + serverIp + ":" + serverPort);
-
-            // Send initial connect message
-            sendMessage(NetworkProtocol.CONNECT + ";" + playerName);
-
-            String serverMessage;
-            while (running && (serverMessage = in.readLine()) != null) {
-                parseServerMessage(serverMessage);
+            synchronized(connectionLock) {
+                socket = new Socket(serverIp, serverPort);
+                out = new PrintWriter(socket.getOutputStream(), true);
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                // Assign to local variables *inside* the lock
+                localSocket = socket;
+                localOut = out;
+                localIn = in;
             }
+
+            logger.info("Connected to server: {}:{}", serverIp, serverPort);
+
+            // Send initial connect message (using localOut reference)
+            if (localOut != null) {
+                // Use synchronized sendMessage method which handles locking internally now
+                sendMessage(NetworkProtocol.CONNECT + ";" + playerName);
+                logger.info("Sent initial connect message to server: {}", playerName);
+            }
+
+
+            String serverMessage = null;
+            while (running && !Thread.currentThread().isInterrupted()) {
+                // Reference localIn directly. It won't change unless stop() is called,
+                // and stop() will interrupt this thread by closing the socket.
+                if (localIn == null) {
+                    logger.warn("NetworkClient: Input stream reference is null, breaking loop.");
+                    break;
+                }
+
+                try { // Inner try for readLine and parse
+                    serverMessage = null; // Reset before read
+                    logger.debug("NetworkClient: Waiting for server message...");
+
+                    // *** CRITICAL CHANGE: Read OUTSIDE the lock ***
+                    serverMessage = localIn.readLine();
+
+                    logger.debug("NetworkClient: readLine() returned: {}", serverMessage == null ? "null" : "a message");
+
+                    // Check running flag *after* readLine potentially returns null or throws Exception
+                    if (!running) {
+                        logger.debug("NetworkClient: 'running' flag is false after readLine, exiting loop.");
+                        break;
+                    }
+
+                    if (serverMessage == null) {
+                        logger.info("Server closed connection (end of stream).");
+                        // Use SwingUtilities for safety if game might interact with UI immediately
+                        SwingUtilities.invokeLater(game::disconnected);
+                        break; // Exit loop on null message
+                    }
+
+                    logger.info("Client received message from server: {}", serverMessage);
+                    parseServerMessage(serverMessage);
+
+                } catch (SocketException e) {
+                    // Check running/shuttingDown flags more carefully here
+                    if (running && !shuttingDown) {
+                        logger.error("NetworkClient: Socket exception in loop: {}", e.getMessage());
+                        SwingUtilities.invokeLater(() -> game.connectionFailed("Network error: " + e.getMessage()));
+                        running = false; // Stop loop on error
+                    } else {
+                        // This is expected if stop() closed the socket
+                        logger.info("NetworkClient: SocketException during shutdown (likely intended): {}", e.getMessage());
+                    }
+                    break; // Exit loop on socket exception
+                } catch (IOException e) {
+                    if (running && !shuttingDown) {
+                        logger.error("NetworkClient: I/O error in loop: {}", e.getMessage(), e);
+                        SwingUtilities.invokeLater(() -> game.connectionFailed("I/O error: " + e.getMessage()));
+                        running = false; // Stop loop on error
+                    } else {
+                        logger.debug("NetworkClient: IOException during shutdown or after stop: {}", e.getMessage());
+                    }
+                    break; // Exit loop on IO exception
+                } catch (Exception e) {
+                    logger.error("NetworkClient: Unexpected exception in loop processing message '{}'", serverMessage, e);
+                    // Maybe try to continue? Or stop? For now, just break.
+                    break;
+                }
+            } // end while loop
 
         } catch (UnknownHostException e) {
-            System.err.println("Server not found: " + e.getMessage());
-            if (running) game.connectionFailed("Server not found: " + serverIp);
-        } catch (SocketException e) {
-            // Handle cases where the server might close the connection abruptly or socket is closed locally
-            if (running) {
-                System.err.println("SocketException: " + e.getMessage());
-                if (e.getMessage().toLowerCase().contains("connection reset")) {
-                    game.disconnected();
-                } else if (e.getMessage().toLowerCase().contains("socket closed")) {
-                    // Expected during shutdown
-                    System.out.println("Client socket closed.");
-                }
-                else {
-                    game.connectionFailed("Network error: " + e.getMessage());
-                }
-            }
-        } catch (IOException e) {
-            if (running) {
-                System.err.println("I/O error with server: " + e.getMessage());
-                e.printStackTrace();
-                game.disconnected(); // Treat as disconnection
+            logger.error("##### NetworkClient: Unknown host {} #####", serverIp, e);
+            SwingUtilities.invokeLater(() -> game.connectionFailed("Unknown host: " + serverIp));
+        } catch (IOException e) { // Catch connection errors
+            logger.error("##### NetworkClient: Failed to connect to {}:{} #####", serverIp, serverPort, e);
+            SwingUtilities.invokeLater(() -> game.connectionFailed("Connection failed: " + e.getMessage()));
+        } catch (Throwable t) { // Broadest catch
+            logger.error("##### NetworkClient: CRITICAL UNCAUGHT THROWABLE #####", t);
+            if (running && !shuttingDown) {
+                try {
+                    SwingUtilities.invokeLater(() -> game.connectionFailed("Critical network thread error: " + t.getMessage()));
+                } catch (Exception inner) {/* ignore */}
             }
         } finally {
-            stop(); // Ensure resources are cleaned up
-            System.out.println("Client network thread finished.");
+            logger.info("NetworkClient: Shutting down network client thread resources...");
+            if (!shuttingDown) {
+                stop();
+            } else {
+                // Ensure stream/socket cleanup happens even if stop() was already called,
+                // in case the loop broke before stop() finished. Best effort.
+                logger.debug("NetworkClient: Shutdown already initiated, ensuring resources closed in finally.");
+                // Simplified cleanup directly here, as stop() might be called recursively otherwise
+                Socket s = null;
+                PrintWriter o = null;
+                BufferedReader i = null;
+                synchronized (connectionLock) {
+                    s = socket; socket = null;
+                    o = out; out = null;
+                    i = in; in = null;
+                }
+                try { if (o != null) o.close(); } catch (Exception e) {}
+                try { if (i != null) i.close(); } catch (Exception e) {}
+                try { if (s != null && !s.isClosed()) s.close(); } catch (Exception e) {}
+            }
+            logger.info("NetworkClient thread finished.");
         }
     }
 
@@ -171,7 +260,7 @@ public class GameClient implements Runnable {
                             long timeData = Long.parseLong(parts[2]);
                             game.setGameState(state, timeData);
                         } catch (IllegalArgumentException e) {
-                            System.err.println("Received invalid game state: " + parts[1]);
+                            logger.error("Received invalid game state: {}", parts[1], e);
                         }
                     }
                     break;
@@ -190,32 +279,34 @@ public class GameClient implements Runnable {
                     break;
                 case NetworkProtocol.ERROR_MSG:
                     if(parts.length >= 2) {
+                        logger.error("Received error message from server: {}", parts[1]);
                         game.connectionFailed(parts[1]); // Show error from server
                         stop(); // Stop the client connection
+                        logger.info("Game disconnected due to error message from server.");
                     }
                     break;
                 // Add PING/PONG later if needed for connection checking
                 default:
-                    System.out.println("Unknown message from server: " + message);
+                    logger.error("Unknown message from server: {}", message);
             }
         } catch (NumberFormatException e) {
-            System.err.println("Failed to parse number in message: " + message + " - " + e.getMessage());
+            logger.error("Failed to parse number in message: {}", message, e);
         } catch (ArrayIndexOutOfBoundsException e) {
-            System.err.println("Malformed message received: " + message + " - " + e.getMessage());
+            logger.error("Malformed message received: {}", message, e);
         } catch (Exception e) { // Catch broader exceptions during parsing
-            System.err.println("Error parsing server message '" + message + "': " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Error parsing server message {}", message, e);
+        } finally {
+            logger.debug("Finished parsing server message."); // Log exit
         }
     }
 
-    public synchronized void sendMessage(String message) {
-        if (out != null && !out.checkError()) { // Check error prevents spamming logs if pipe is broken
-            out.println(message);
-            //System.out.println("Sent: " + message); // DEBUG
-        } else if (running) {
-            System.err.println("Cannot send message, PrintWriter is closed or in error state.");
-            // Maybe trigger disconnection logic here?
-            // stop(); game.disconnected();
+    public void sendMessage(String message) {
+        synchronized(connectionLock) {
+            if (out != null && running && !shuttingDown) {
+                out.println(message);
+                // Add immediate flush to ensure messages are sent
+                out.flush();
+            }
         }
     }
 
@@ -235,29 +326,60 @@ public class GameClient implements Runnable {
     }
 
 
-    public void stop() {
-        System.out.println("Stopping client network connection...");
-        running = false;
-        try {
-            // Close streams first
-            if (out != null) {
-                out.close();
-            }
-            if (in != null) {
-                in.close();
-            }
-            // Then close socket
-            if (socket != null && !socket.isClosed()) {
-                socket.close();
-            }
-        } catch (IOException e) {
-            System.err.println("Error closing client connection: " + e.getMessage());
-        } finally {
-            out = null;
-            in = null;
-            socket = null;
-            System.out.println("Client connection stopped.");
+    public synchronized void stop() { // Keep synchronized on the method for shutdown flag integrity
+        if (shuttingDown) {
+            logger.debug("Client already in shutdown process, ignoring duplicate stop call");
+            return;
         }
+        logger.info("Attempting to stop client network connection..."); // Changed log message
+        shuttingDown = true; // Mark that shutdown has started
+        running = false; // Signal the loop to stop
+
+        // --- Socket closing ---
+        Socket socketToClose = null;
+        logger.debug("Preparing to close socket...");
+        // Minimize time holding the lock, just get the socket reference
+        synchronized(connectionLock) {
+            socketToClose = this.socket;
+            this.socket = null; // Nullify under lock to prevent reuse
+        }
+        logger.debug("Socket reference obtained (lock released). Closing socket...");
+
+        if (socketToClose != null) {
+            try {
+                // Close socket *outside* the connectionLock to avoid holding lock during potentially blocking IO
+                socketToClose.close();
+                logger.debug("Client socket closed successfully.");
+            } catch (IOException e) {
+                logger.error("Error closing client socket", e);
+            }
+        } else {
+            logger.debug("Socket was already null before closing.");
+        }
+        logger.debug("Socket closing attempt finished.");
+
+        // --- Stream closing ---
+        // Also minimize lock time here, though less critical than socket
+        PrintWriter outToClose = null;
+        BufferedReader inToClose = null;
+        logger.debug("Preparing to close streams...");
+        synchronized(connectionLock) {
+            outToClose = this.out;
+            inToClose = this.in;
+            this.out = null;
+            this.in = null;
+        }
+        logger.debug("Stream references obtained (lock released). Closing streams...");
+
+        try {
+            if (outToClose != null) outToClose.close();
+        } catch (Exception e) { /* Ignore */ }
+        try {
+            if (inToClose != null) inToClose.close();
+        } catch (Exception e) { /* Ignore */ }
+        logger.debug("Streams closed.");
+
+        logger.info("Client network connection resources released."); // Final message
     }
 
     public boolean isConnected() {

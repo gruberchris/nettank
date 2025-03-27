@@ -9,6 +9,10 @@ import org.joml.Vector3f;
 
 import java.io.IOException;
 
+import static org.lwjgl.opengl.GL15.*;
+import static org.lwjgl.opengl.GL20.*;
+import static org.lwjgl.opengl.GL30.*;
+
 // Simple UI Manager using a bitmap font texture
 public class UIManager {
 
@@ -32,7 +36,7 @@ public class UIManager {
         // Load a specific UI shader or reuse the main one if suitable
         try {
             // Reuse the main shader - it has tint and texture support
-            this.uiShader = new Shader("src/main/resources/shaders/quad.vert", "src/main/resources/shaders/quad.frag");
+            this.uiShader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
         } catch (IOException e) {
             throw new RuntimeException("Failed to load UI shader", e);
         }
@@ -64,6 +68,46 @@ public class UIManager {
         drawText(text, screenX, screenY, scale, Colors.WHITE); // Default white
     }
 
+    public void drawText(String text, float screenX, float screenY, float scale, Vector3f color) {
+        if (fontTexture == null || uiRenderer == null || uiShader == null) return;
+
+        fontTexture.bind();
+        uiShader.setUniform3f("u_tintColor", color);
+
+        float charWidth = (fontTexture.getWidth() / FONT_COLS) * scale;
+        float charHeight = (fontTexture.getHeight() / FONT_ROWS) * scale;
+
+        float currentX = screenX;
+
+        for (char c : text.toCharArray()) {
+            if (c == ' ') { // Handle spaces
+                currentX += charWidth;
+                continue;
+            }
+            if (c < 32 || c > 126) { // Basic ASCII range check
+                c = '?'; // Replace unsupported characters
+            }
+
+            int charIndex = c - 32; // ASCII value offset to match font texture layout
+            int col = charIndex % FONT_COLS;
+            int row = charIndex / FONT_COLS;
+
+            float texX = col * charTexWidth;
+            float texY = row * charTexHeight;
+
+            // Use our new method to draw the character
+            uiRenderer.drawTexturedSubQuad(
+                    currentX, screenY, charWidth, charHeight,  // Position & Size
+                    texX, texY, charTexWidth, charTexHeight, // Texture Rect
+                    color, uiShader
+            );
+
+            currentX += charWidth; // Move to the next character position
+        }
+        uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+    }
+
+    /*
     public void drawText(String text, float screenX, float screenY, float scale, Vector3f color) {
         if (fontTexture == null || uiRenderer == null || uiShader == null) return;
 
@@ -137,6 +181,8 @@ public class UIManager {
         }
         uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
     }
+
+     */
 
     // Estimate text width - basic implementation
     public float getTextWidth(String text, float scale) {

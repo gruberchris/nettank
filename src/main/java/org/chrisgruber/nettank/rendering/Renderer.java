@@ -123,4 +123,61 @@ public class Renderer {
         glDeleteBuffers(vboId);
         glDeleteBuffers(eboId);
     }
+
+    public void drawTexturedSubQuad(float x, float y, float width, float height,
+                                    float texX, float texY, float texWidth, float texHeight,
+                                    Vector3f color, Shader shader) {
+        // Position is center of quad, so adjust
+        float left = x;
+        float right = x + width;
+        float top = y;
+        float bottom = y + height;
+
+        // Create vertex data with custom texture coordinates
+        float[] vertices = {
+                // positions            // texture coords
+                left, top, 0.0f,        texX, texY,                      // top-left
+                right, top, 0.0f,       texX + texWidth, texY,           // top-right
+                right, bottom, 0.0f,    texX + texWidth, texY + texHeight, // bottom-right
+                left, bottom, 0.0f,     texX, texY + texHeight            // bottom-left
+        };
+
+        // Use the shader and apply transformations
+        shader.bind();
+
+        // Create model matrix for this quad
+        Matrix4f model = new Matrix4f().identity();
+        shader.setUniformMat4f("u_model", model);
+
+        // Set color tint
+        shader.setUniform3f("u_tintColor", color);
+
+        // Create and bind a temporary VAO for this quad
+        int vao = glGenVertexArrays();
+        glBindVertexArray(vao);
+
+        // Create and bind VBO
+        int vbo = glGenBuffers();
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertices, GL_STATIC_DRAW);
+
+        // Position attribute
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 5 * Float.BYTES, 0);
+        glEnableVertexAttribArray(0);
+
+        // Texture coordinates attribute
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, 5 * Float.BYTES, 3 * Float.BYTES);
+        glEnableVertexAttribArray(1);
+
+        // Draw the quad
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+        // Clean up
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+        glDeleteBuffers(vbo);
+        glDeleteVertexArrays(vao);
+    }
 }

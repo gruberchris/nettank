@@ -7,8 +7,11 @@ import org.chrisgruber.nettank.util.Colors;
 import org.chrisgruber.nettank.util.GameState;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -20,7 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class GameServer {
-
+    private static final Logger logger = LoggerFactory.getLogger(GameServer.class);
     private final int port;
     private ServerSocket serverSocket;
     private boolean running = false;
@@ -39,7 +42,7 @@ public class GameServer {
     private long stateChangeTime = 0; // Time the current state started
     private static final long COUNTDOWN_SECONDS = 3;
     private static final long ROUND_END_DELAY_MS = 5000; // Time to show winner before new round
-    public static final int MIN_PLAYERS_TO_START = 2;
+    public static final int MIN_PLAYERS_TO_START = 1;
     public static final int MAX_PLAYERS = 6;
 
 
@@ -47,33 +50,67 @@ public class GameServer {
         this.port = port;
         this.gameMap = new GameMap(50, 50); // Same size as client
         Collections.shuffle(availableColors); // Shuffle colors initially
+        Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
+    }
+
+    public static void main(String[] args) {
+        if (args.length < 1) {
+            System.out.println("Usage: GameServer <port>");
+            System.exit(1);
+        }
+
+        int port = Integer.parseInt(args[0]);
+        try {
+            GameServer server = new GameServer(port);
+            System.out.println("Server started on 0.0.0.0:" + port);
+            server.start();
+        } catch (IOException e) {
+            System.err.println("Server failed: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    public void startClientThread(ClientHandler handler) {
+        Thread thread = new Thread(handler);
+        // Use socket port as identifier until player is registered
+        int tempId = handler.getSocket().getPort();
+        thread.setName("ServerClientHandler-" + tempId);
+        thread.setUncaughtExceptionHandler((t, e) -> {
+            logger.error("Uncaught exception in thread {}: {}", t.getName(), e.getMessage(), e);
+            handler.closeConnection("Internal error: " + e.getMessage());
+        });
+        thread.start();
+        logger.info("Started client handler thread: {}", thread.getName());
     }
 
     public void start() throws IOException {
-        serverSocket = new ServerSocket(port);
+        serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
         running = true;
-        System.out.println("Server started on port " + port);
-        System.out.println("Waiting for players...");
+        logger.info("Server started on {}:{}", serverSocket.getInetAddress().getHostAddress(), port);
+        logger.info("Waiting for client threads to start...");
 
         // Start game loop in a separate thread
-        new Thread(this::gameLoop).start();
+        Thread thread = new Thread(this::gameLoop);
+        thread.setName("GameLoop");
+        thread.start();
 
         // Accept client connections
         while (running) {
             try {
                 Socket clientSocket = serverSocket.accept();
-                System.out.println("Client connected: " + clientSocket.getInetAddress());
+                logger.info("Client connected: {}", clientSocket.getInetAddress().getHostAddress());
 
                 // Handle client connection in a new thread
                 ClientHandler clientHandler = new ClientHandler(clientSocket, this);
-                new Thread(clientHandler).start();
+                startClientThread(clientHandler);
                 // Player registration happens after receiving CONNECT message
 
             } catch (IOException e) {
                 if (running) {
-                    System.err.println("Error accepting client connection: " + e.getMessage());
+                    logger.error("Error accepting client connection", e);
                 } else {
-                    System.out.println("Server socket closed.");
+                    logger.info("Server socket closed.");
                 }
             }
         }
@@ -91,9 +128,9 @@ public class GameServer {
             clients.clear();
             tanks.clear();
             bullets.clear();
-            System.out.println("Server stopped.");
+            logger.info("Server stopped.");
         } catch (IOException e) {
-            System.err.println("Error stopping server: " + e.getMessage());
+            logger.error("Error stopping server.", e);
         }
     }
 
@@ -121,7 +158,7 @@ public class GameServer {
         clients.put(playerId, handler);
         tanks.put(playerId, newTank);
 
-        System.out.println("Player registered: ID=" + playerId + ", Name=" + playerName + ", Color=" + assignedColor);
+        logger.info("Player registered: ID={}, Name={}, Color={}", playerId, playerName, assignedColor);
 
         // 1. Send assigned ID and color to the new player
         handler.sendMessage(String.format("%s;%d;%f;%f;%f", NetworkProtocol.ASSIGN_ID, playerId, assignedColor.x, assignedColor.y, assignedColor.z));
@@ -155,7 +192,7 @@ public class GameServer {
         Tank tank = tanks.remove(playerId);
 
         if (handler != null && tank != null) {
-            System.out.println("Player removed: ID=" + playerId + ", Name=" + tank.getName());
+            logger.info("Player removed: ID={}, Name={}", playerId, tank.getName());
             // Return color to the pool
             availableColors.add(tank.getColor());
             Collections.shuffle(availableColors); // Re-shuffle
@@ -167,6 +204,9 @@ public class GameServer {
         }
     }
 
+    public boolean isRunning() {
+        return serverSocket != null && !serverSocket.isClosed();
+    }
 
     private void gameLoop() {
         long lastTime = System.nanoTime();
@@ -197,7 +237,7 @@ public class GameServer {
                 Thread.sleep(1); // Sleep briefly
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                System.err.println("Game loop interrupted.");
+                logger.error("Game loop interrupted.", e);
             }
         }
     }
@@ -305,7 +345,7 @@ public class GameServer {
 
     private void changeState(GameState newState, long currentTime) {
         if (currentGameState != newState) {
-            System.out.println("Server changing state from " + currentGameState + " to " + newState);
+            logger.info("Server changing state from {} to {}", currentGameState, newState);
             currentGameState = newState;
             stateChangeTime = currentTime;
 
@@ -325,7 +365,7 @@ public class GameServer {
     }
 
     private void resetPlayersForNewRound() {
-        System.out.println("Resetting players for new round.");
+        logger.info("Resetting players for new round.");
         bullets.clear();
         for(Tank tank : tanks.values()) {
             Vector2f spawnPos = gameMap.getRandomSpawnPoint();
@@ -346,7 +386,7 @@ public class GameServer {
         String shooterName = (shooter != null) ? shooter.getName() : "Unknown";
         String targetName = target.getName();
 
-        System.out.println("Hit registered: " + shooterName + " -> " + targetName);
+        logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
         target.takeHit();
         broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.getPlayerId(), bullet.getOwnerId()), -1);
@@ -357,7 +397,7 @@ public class GameServer {
 
 
         if (!target.isAlive()) {
-            System.out.println(targetName + " was defeated.");
+            logger.info("{} was defeated.", targetName);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), bullet.getOwnerId()), -1);
             broadcastAnnouncement(targetName + " HAS BEEN DEFEATED!", -1);
 
@@ -380,18 +420,18 @@ public class GameServer {
 
         // Win condition: 1 player left alive, OR 0 players left alive (draw?), OR only 1 player connected total
         if (aliveCount <= 1 && tanks.size() >= 1) { // Allow win even if only 1 player started
-            System.out.println("Round over condition met.");
+            logger.info("Round over condition met.");
             long finalTime = System.currentTimeMillis() - roundStartTimeMillis;
             changeState(GameState.ROUND_OVER, System.currentTimeMillis());
 
             String winnerName = "NO ONE";
             if (lastAliveTank != null) {
                 winnerName = lastAliveTank.getName();
-                System.out.println("Winner: " + winnerName);
+                logger.info("Winner: {}.", winnerName);
                 broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.ROUND_OVER, lastAliveTank.getPlayerId(), winnerName, finalTime), -1);
                 broadcastAnnouncement(winnerName + " WINS! FINAL TIME: " + formatTime(finalTime), -1);
             } else {
-                System.out.println("Round ended in a draw.");
+                logger.info("Round ended in a draw.");
                 broadcast(String.format("%s;-1;DRAW;%d", NetworkProtocol.ROUND_OVER, finalTime), -1); // -1 for winner ID indicates draw
                 broadcastAnnouncement("DRAW! FINAL TIME: " + formatTime(finalTime), -1);
             }
@@ -461,10 +501,21 @@ public class GameServer {
 
     // Send a message to all connected clients
     public void broadcast(String message, int excludePlayerId) {
-        // System.out.println("Broadcasting (exclude " + excludePlayerId + "): " + message); // DEBUG
+        logger.debug("Broadcasting (exclude {}): {}", excludePlayerId, message); // Log the broadcast attempt
+        if (clients.isEmpty()) {
+            logger.warn("Broadcast requested but no clients connected.");
+            return;
+        }
+        // Use ConcurrentHashMap's entrySet for potentially safer iteration if needed,
+        // though values() is generally okay for read-only iteration.
         for (ClientHandler handler : clients.values()) {
+            if (handler == null) continue; // Shouldn't happen, but safe check
             if (handler.getPlayerId() != excludePlayerId) {
+                // Add logging inside the loop for specific handler sends
+                logger.debug("Sending to client ID {}: {}", handler.getPlayerId(), message);
                 handler.sendMessage(message);
+            } else {
+                logger.debug("Excluding client ID {} from broadcast.", excludePlayerId);
             }
         }
     }

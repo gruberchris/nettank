@@ -1,18 +1,18 @@
 package org.chrisgruber.nettank.rendering;
 
+import org.chrisgruber.nettank.main.Game;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL20;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
 import java.nio.FloatBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
 import static org.lwjgl.opengl.GL20.*;
+import static org.lwjgl.opengl.GL30.*;
 
 public class Shader {
 
@@ -36,14 +36,24 @@ public class Shader {
             throw new RuntimeException("Could not link shader program: " + glGetProgramInfoLog(programId));
         }
 
+        // Create a temporary VAO for validation
+        int tempVAO = glGenVertexArrays();
+        glBindVertexArray(tempVAO);
+
+        // Now validate with a bound VAO
         glValidateProgram(programId);
-        // Check for validation errors (optional but good practice)
+
+        // Check for validation errors
         if (glGetProgrami(programId, GL_VALIDATE_STATUS) == GL_FALSE) {
-            System.err.println("Shader program validation failed: " + glGetProgramInfoLog(programId));
+            System.err.println("Warning: " + glGetProgramInfoLog(programId));
+            // Don't throw exception here, as validation may fail for legitimate reasons
         }
 
+        // Clean up temporary VAO
+        glBindVertexArray(0);
+        glDeleteVertexArrays(tempVAO);
 
-        // Detach shaders after successful linking (optional, frees up resources slightly earlier)
+        // Detach shaders after successful linking
         glDetachShader(programId, vertexShaderId);
         glDetachShader(programId, fragmentShaderId);
         glDeleteShader(vertexShaderId);
@@ -52,11 +62,15 @@ public class Shader {
 
     private int loadShader(String filepath, int type) throws IOException {
         StringBuilder shaderSource = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(filepath))) {
+
+        try (InputStream is = Game.class.getResourceAsStream(filepath);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 shaderSource.append(line).append("//\n");
             }
+        } catch (NullPointerException e) {
+            throw new IOException("Could not find shader file: " + filepath);
         }
 
         int shaderId = glCreateShader(type);
@@ -65,7 +79,7 @@ public class Shader {
 
         // Check for compilation errors
         if (glGetShaderi(shaderId, GL_COMPILE_STATUS) == GL_FALSE) {
-            throw new IOException("Could not compile shader " + filepath + ": " + glGetShaderInfoLog(shaderId));
+            throw new IOException("Could not compile shader: " + glGetShaderInfoLog(shaderId));
         }
 
         return shaderId;

@@ -15,9 +15,12 @@ import org.chrisgruber.nettank.util.Colors;
 import org.chrisgruber.nettank.util.GameState;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
+import org.lwjgl.Version;
 import org.lwjgl.glfw.*;
 import org.lwjgl.opengl.*;
 import org.lwjgl.system.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.io.IOException;
@@ -27,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.lwjgl.glfw.Callbacks.*;
 import static org.lwjgl.glfw.GLFW.*;
@@ -37,7 +42,7 @@ import static org.lwjgl.system.MemoryStack.*;
 import static org.lwjgl.system.MemoryUtil.*;
 
 public class Game {
-
+    private static final Logger logger = LoggerFactory.getLogger(Game.class);
     private long window;
     private InputHandler inputHandler;
     private Shader shader;
@@ -91,6 +96,9 @@ public class Game {
     public void run() {
         init();
         loop();
+
+        logger.info("Main game loop finished. Calling cleanup...");
+
         cleanup();
     }
 
@@ -106,6 +114,10 @@ public class Game {
 
         // Configure GLFW
         glfwDefaultWindowHints(); // optional, the current window hints are already the default
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE); // Required on macOS
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // the window will stay hidden after creation
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // the window will be resizable
 
@@ -154,6 +166,7 @@ public class Game {
         GL.createCapabilities();
 
         System.out.println("OpenGL Version: " + glGetString(GL_VERSION));
+        //System.out.println("LWJGL Version: " + Version.getVersion());
 
         // Set the clear color
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f); // Black background
@@ -164,10 +177,10 @@ public class Game {
 
         // Load shaders
         try {
-            shader = new Shader("src/main/resources/shaders/quad.vert", "src/main/resources/shaders/quad.frag");
+            shader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
             shader.bind();
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load shaders", e);
+            throw new RuntimeException("Failed to load shaders: " + e.getMessage(), e);
         }
 
         // Create renderer and camera
@@ -177,13 +190,13 @@ public class Game {
 
         // Load textures (provide actual paths)
         try {
-            tankTexture = new Texture("src/main/resources/textures/tank.png");
-            bulletTexture = new Texture("src/main/resources/textures/bullet.png");
-            grassTexture = new Texture("src/main/resources/textures/grass.png");
-            dirtTexture = new Texture("src/main/resources/textures/dirt.png");
-            uiManager.loadFontTexture("src/main/resources/textures/font.png"); // Assuming a font texture exists
+            grassTexture = new Texture("textures/grass.png");
+            dirtTexture = new Texture("textures/dirt.png");
+            bulletTexture = new Texture("textures/bullet.png");
+            tankTexture = new Texture("textures/tank.png");
+            uiManager.loadFontTexture("textures/font.png"); // Assuming a font texture exists
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load textures", e);
+            throw new RuntimeException("Failed to load textures: " + e.getMessage(), e);
         }
 
         // Initialize Map (hardcoded for now)
@@ -201,6 +214,7 @@ public class Game {
     private void startNetworkClient() {
         gameClient = new GameClient(serverIp, serverPort, playerName, this);
         new Thread(gameClient).start();
+        logger.info("Started network client");
     }
 
     private void loop() {
@@ -221,6 +235,7 @@ public class Game {
 
             // --- Update ---
             update(deltaTime);
+            inputHandler.poll();
 
             // --- Render ---
             render();
@@ -287,11 +302,13 @@ public class Game {
 
         // Close on Escape
         if (inputHandler.isKeyDown(GLFW_KEY_ESCAPE)) {
+            logger.info("Escape key pressed. Closing window.");
             glfwSetWindowShouldClose(window, true);
         }
     }
 
     private void update(float deltaTime) {
+        logger.trace("Game update start");
         // Update local bullet positions (client-side prediction)
         // Bullets are simpler to predict locally as they move linearly
         List<Bullet> bulletsToRemove = new ArrayList<>();
@@ -324,9 +341,11 @@ public class Game {
                 lastAnnouncementTime = 0; // No more announcements
             }
         }
+        logger.trace("Game update end");
     }
 
     private void render() {
+        logger.trace("Game render start");
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // clear the framebuffer
 
         shader.bind();
@@ -364,9 +383,9 @@ public class Game {
             }
         }
 
-
         // --- Render UI ---
         renderUI();
+        logger.trace("Game render end");
     }
 
     private boolean isTankVisible(Vector2f objectPos, Vector2f playerPos, float rangeSq) {
@@ -401,7 +420,6 @@ public class Game {
             // Message is handled via announcements
         }
 
-
         // Render Announcements (centered)
         if (!announcements.isEmpty()) {
             String announcement = announcements.get(0); // Show the oldest current announcement
@@ -435,63 +453,100 @@ public class Game {
             uiManager.drawText(stateMessage, x, y, 2.0f, Colors.WHITE);
         }
 
-
         uiManager.endUIRendering();
     }
 
+    public void cleanup() {
+        logger.info("Cleaning up game resources...");
 
-    private void cleanup() {
-        System.out.println("Cleaning up game resources...");
-        // Stop network client
+        // 1. Stop network client first
+        logger.debug("Stopping network client...");
         if (gameClient != null) {
-            gameClient.stop();
+            try {
+                gameClient.stop(); // Signal the client thread to stop and close resources
+                Thread.sleep(100); // Optional short pause
+            } catch (Exception e) {
+                logger.error("Error during game client stop", e);
+            } finally {
+                gameClient = null; // Dereference
+                logger.debug("Network client stopped.");
+            }
+        } else {
+            logger.debug("Network client was already null.");
         }
 
-        // Free textures
-        if (tankTexture != null) tankTexture.delete();
-        if (bulletTexture != null) bulletTexture.delete();
-        if (grassTexture != null) grassTexture.delete();
-        if (dirtTexture != null) dirtTexture.delete();
-        uiManager.cleanup();
-
-
-        // Free renderer resources
-        if (renderer != null) renderer.cleanup();
-
-        // Free shaders
-        if (shader != null) shader.delete();
-
-        // Free the window callbacks and destroy the window
-        if (window != NULL) {
-            glfwFreeCallbacks(window);
-            glfwDestroyWindow(window);
+        // 2. Clean up OpenGL resources (ensure these delete methods exist)
+        logger.debug("Deleting OpenGL resources...");
+        try {
+            if (tankTexture != null) tankTexture.delete();
+            if (bulletTexture != null) bulletTexture.delete();
+            if (grassTexture != null) grassTexture.delete();
+            if (dirtTexture != null) dirtTexture.delete();
+            if (uiManager != null) uiManager.cleanup(); // Assuming UIManager holds OpenGL font texture
+            if (shader != null) shader.delete();
+            if (renderer != null) renderer.cleanup(); // Assuming Renderer holds VAO/VBOs
+            logger.debug("OpenGL resources deleted.");
+        } catch (Exception e) {
+            logger.error("Error deleting OpenGL resources", e);
+            // Continue cleanup despite errors here
         }
 
-        // Terminate GLFW and free the error callback
-        glfwTerminate();
-        GLFWErrorCallback callback = glfwSetErrorCallback(null);
-        if (callback != null) {
-            callback.free();
+
+        // 3. Clean up LWJGL window and context
+        logger.debug("Destroying GLFW window...");
+        try {
+            if (window != NULL) { // Check if window was created
+                // Unset callbacks *before* destroying window
+                glfwSetKeyCallback(window, null);
+                // Add other callbacks here if you set them (mouse, etc.)
+
+                glfwFreeCallbacks(window); // Free standard callbacks
+                glfwDestroyWindow(window);
+                logger.debug("GLFW window destroyed.");
+            } else {
+                logger.debug("GLFW window was already NULL.");
+            }
+        } catch (Exception e) {
+            logger.error("Error destroying GLFW window", e);
+            // Continue cleanup
+        } finally {
+            window = NULL; // Mark as destroyed
         }
-        System.out.println("Cleanup complete.");
+
+        // 4. Terminate GLFW
+        logger.debug("Terminating GLFW...");
+        try {
+            glfwTerminate();
+            logger.debug("GLFW terminated.");
+            GLFWErrorCallback callback = glfwSetErrorCallback(null);
+            if (callback != null) {
+                callback.free();
+                logger.debug("GLFW error callback freed.");
+            }
+        } catch (Exception e) {
+            logger.error("Error terminating GLFW or freeing callback", e);
+        }
+
+        logger.info("Game cleanup finished.");
     }
+
 
     // --- Network Callback Methods ---
 
     public void setLocalPlayerId(int id, float colorR, float colorG, float colorB) {
         this.localPlayerId = id;
-        System.out.println("Assigned local player ID: " + id);
+        logger.info("Assigned local player ID: {}", id);
         // We might not have the tank object yet, color will be applied when NEW_PLAYER is received
     }
 
     public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b) {
         Tank tank = tanks.computeIfAbsent(id, k -> {
-            System.out.println("Creating new tank for player ID: " + id + " Name: " + name);
+            logger.info("Creating new tank for player ID: {} Name: {}", id, name);
             Tank newTank = new Tank(id, x, y, new Vector3f(r, g, b), name);
             if (id == localPlayerId) {
                 localTank = newTank; // Assign local tank reference
                 isSpectating = false; // Ensure not spectating if just joined/respawned
-                System.out.println("Local tank object created/updated.");
+                logger.info("Adding new tank: {}", newTank);
             }
             return newTank;
         });
@@ -508,14 +563,13 @@ public class Game {
         }
     }
 
-
     public void removeTank(int id) {
         Tank removed = tanks.remove(id);
         if (removed != null) {
-            System.out.println("Removed tank for player ID: " + id + " Name: " + removed.getName());
+            logger.info("Removed tank for player ID: {} Name: {}", id, removed.getName());
             if (id == localPlayerId) {
                 localTank = null;
-                System.out.println("Local tank removed.");
+                logger.info("Removing local tank: {}", removed);
                 // Server should transition state or handle appropriately
             }
         }
@@ -556,7 +610,9 @@ public class Game {
         Tank target = tanks.get(targetId);
         if (target != null) {
             // Lives update will come via PLAYER_LIVES, this is mainly for effects/knowing it happened
-            System.out.println("Player " + target.getName() + " destroyed by " + tanks.getOrDefault(shooterId, null) + ".");
+            var victimName = target.getName();
+            var shooterName = tanks.getOrDefault(shooterId, null);
+            logger.info("Player {} destroyed by {}", victimName, shooterName);
             // Maybe spawn explosion effect?
         }
     }
@@ -565,9 +621,9 @@ public class Game {
         Tank tank = tanks.get(playerId);
         if (tank != null) {
             tank.setLives(lives);
-            System.out.println("Player " + tank.getName() + " lives set to " + lives);
+            logger.info("Player {} lives set to: {}", tank.getName(), lives);
             if (playerId == localPlayerId && lives <= 0) {
-                System.out.println("Local player defeated. Entering spectator mode.");
+                logger.info("Local player defeated. Spectator mode activated.");
                 isSpectating = true;
                 localTank = null; // Technically the tank object still exists in 'tanks' map until server removes
             }
@@ -575,7 +631,7 @@ public class Game {
     }
 
     public void setGameState(GameState state, long timeData) {
-        System.out.println("Game state changed to: " + state + " with time data: " + timeData);
+        logger.info("Game state changed to: {} with time data: {}", state, timeData);
         this.currentGameState = state;
         announcements.clear(); // Clear old announcements on state change
 
@@ -611,7 +667,7 @@ public class Game {
     }
 
     public void addAnnouncement(String message) {
-        System.out.println("Announcement: " + message);
+        logger.info("Announcement: {}", message);
         // Add to the end of the list
         announcements.add(message);
         // If this is the only announcement, start its display timer
@@ -621,24 +677,34 @@ public class Game {
     }
 
     public void connectionFailed(String reason) {
-        System.err.println("Connection failed: " + reason);
-        // Show message and potentially exit or return to launcher
-        SwingUtilities.invokeLater(() -> {
-            JOptionPane.showMessageDialog(null, "Connection failed: " + reason + "\nExiting.", "Connection Error", JOptionPane.ERROR_MESSAGE);
-            // Ensure cleanup happens even on connection failure
-            // May need to signal the main loop to exit cleanly
+        logger.error("Connection failed: {}", reason);
+        // Ensure cleanup happens even on connection failure
+        // Signal the main loop to exit cleanly
+        if (window != NULL) { // Check if window exists before trying to close
             glfwSetWindowShouldClose(window, true);
-            // System.exit(1); // Force exit if needed, but cleanup is preferred
+        } else {
+            logger.error("Window handle is NULL during connection failure, cannot signal close.");
+            // Consider a more drastic exit if window isn't up?
+            // System.exit(1); // Use with caution
+        }
+        // Show message dialog on the EDT
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(null, "Connection failed: " + reason + "\nPlease check logs.\nExiting.", "Connection Error", JOptionPane.ERROR_MESSAGE);
         });
-        // Setting window should close allows the main loop to exit and run cleanup()
+        logger.error("Signaled window close because connection failed.");
     }
 
     public void disconnected() {
-        System.err.println("Disconnected from server.");
-        SwingUtilities.invokeLater(() -> {
-            JOptionPane.showMessageDialog(null, "Disconnected from server.\nExiting.", "Disconnected", JOptionPane.INFORMATION_MESSAGE);
+        logger.warn("Disconnected from server."); // Changed to warn level
+        if (window != NULL) {
             glfwSetWindowShouldClose(window, true);
+        } else {
+            logger.error("Window handle is NULL during disconnect, cannot signal close.");
+        }
+        // Show message dialog on the EDT
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(null, "Disconnected from server.\nPlease check logs.\nExiting.", "Disconnected", JOptionPane.INFORMATION_MESSAGE);
         });
+        logger.warn("Signaled window close because disconnected.");
     }
-
 }
