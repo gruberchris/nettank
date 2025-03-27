@@ -15,7 +15,6 @@ import org.chrisgruber.nettank.util.Colors;
 import org.chrisgruber.nettank.util.GameState;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
-import org.lwjgl.Version;
 import org.lwjgl.glfw.*;
 import org.lwjgl.opengl.*;
 import org.lwjgl.system.*;
@@ -30,8 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.lwjgl.glfw.Callbacks.*;
 import static org.lwjgl.glfw.GLFW.*;
@@ -245,62 +242,63 @@ public class Game {
     }
 
     private void handleInput(float deltaTime) {
+        // Check if we can process input
         if (localTank != null && !isSpectating && currentGameState == GameState.PLAYING) {
-            boolean moved = false;
-            float moveX = 0;
-            float moveY = 0;
 
-            if (inputHandler.isKeyDown(GLFW_KEY_W)) {
-                moveY = 1;
-                moved = true;
-            }
-            if (inputHandler.isKeyDown(GLFW_KEY_S)) {
-                moveY = -1;
-                moved = true;
-            }
-            if (inputHandler.isKeyDown(GLFW_KEY_A)) {
-                moveX = -1;
-                moved = true;
-            }
-            if (inputHandler.isKeyDown(GLFW_KEY_D)) {
-                moveX = 1;
-                moved = true;
+            // Determine current key states
+            boolean keyW = inputHandler.isKeyDown(GLFW_KEY_W);
+            boolean keyS = inputHandler.isKeyDown(GLFW_KEY_S);
+            boolean keyA = inputHandler.isKeyDown(GLFW_KEY_A);
+            boolean keyD = inputHandler.isKeyDown(GLFW_KEY_D);
+            boolean keySpace = inputHandler.isKeyPressed(GLFW_KEY_SPACE); // Check for shooting press
+
+            // --- Send Input State to Server ---
+            // Send regardless of client-side 'moved' flag. Server needs the actual key states.
+            if (gameClient != null && gameClient.isConnected()) {
+                gameClient.sendInput(keyW, keyS, keyA, keyD);
+            } else {
+                // Optional: Log if trying to send but not connected
+                // logger.warn("Cannot send input, not connected.");
             }
 
-            if (moved && gameClient != null && gameClient.isConnected()) {
-                // Calculate actual movement based on rotation for top-down
-                float angleRad = (float) Math.toRadians(localTank.getRotation());
-                float directionX = (float) Math.sin(angleRad);
-                float directionY = (float) Math.cos(angleRad);
-
-                float forwardMove = moveY * Tank.MOVE_SPEED * deltaTime;
-                float sideMove = moveX * Tank.TURN_SPEED * deltaTime; // Use A/D for turning
-
-                float newX = localTank.getPosition().x + directionX * forwardMove;
-                float newY = localTank.getPosition().y + directionY * forwardMove;
-                float newRot = localTank.getRotation() - sideMove; // Subtract because positive angle is clockwise usually in screen coords
-
-                // Simple client-side prediction (optional but makes movement feel better)
-                // localTank.setPosition(newX, newY); // Server will correct if wrong
-                // localTank.setRotation(newRot);
-
-                // Send input state to server instead of predicted position
-                gameClient.sendInput(inputHandler.isKeyDown(GLFW_KEY_W),
-                        inputHandler.isKeyDown(GLFW_KEY_S),
-                        inputHandler.isKeyDown(GLFW_KEY_A),
-                        inputHandler.isKeyDown(GLFW_KEY_D));
-            }
-
-
-            if (inputHandler.isKeyPressed(GLFW_KEY_SPACE)) { // Use isKeyPressed for single shot per press
+            // --- Handle Shooting ---
+            if (keySpace) {
                 if (gameClient != null && gameClient.isConnected()) {
+                    logger.debug("Sending SHOOT command"); // Log shoot attempt
                     gameClient.sendShoot();
                 }
-                inputHandler.resetKey(GLFW_KEY_SPACE); // Prevent repeat firing if held down
+                // Reset space immediately after checking to prevent holding it down
+                // causing multiple isKeyPressed calls (though throttling helps server-side)
+                inputHandler.resetKey(GLFW_KEY_SPACE);
             }
-        }
 
-        // Close on Escape
+            // Optional Client-Side Prediction (Commented out - rely on server for now)
+        /*
+        float rotationChange = 0.0f;
+        if (keyA) rotationChange -= Tank.TURN_SPEED * deltaTime;
+        if (keyD) rotationChange += Tank.TURN_SPEED * deltaTime;
+        localTank.setRotation(localTank.getRotation() + rotationChange); // Predict rotation
+
+        float moveAmount = 0.0f;
+        if (keyW) moveAmount = Tank.MOVE_SPEED * deltaTime;
+        else if (keyS) moveAmount = -Tank.MOVE_SPEED * deltaTime * 0.7f;
+
+        if (moveAmount != 0) {
+            float angleRad = (float) Math.toRadians(localTank.getRotation());
+            float dx = (float) Math.sin(angleRad) * moveAmount;
+            // Correct prediction based on likely screen coordinates (+Y is DOWN)
+            float dy = (float) -Math.cos(angleRad) * moveAmount;
+            localTank.getPosition().add(dx, dy); // Predict position
+        }
+        */
+
+        } // end if (localTank != null...)
+
+        // --- Handle Input Polling ---
+        // This MUST be called every frame after input checks are done
+        inputHandler.poll();
+
+        // --- Handle Escape Key ---
         if (inputHandler.isKeyDown(GLFW_KEY_ESCAPE)) {
             logger.info("Escape key pressed. Closing window.");
             glfwSetWindowShouldClose(window, true);
