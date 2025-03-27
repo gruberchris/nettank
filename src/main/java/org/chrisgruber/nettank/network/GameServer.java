@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,6 +46,8 @@ public class GameServer {
     public static final int MIN_PLAYERS_TO_START = 1;
     public static final int MAX_PLAYERS = 6;
 
+    private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>(); // Track handler threads
+
 
     public GameServer(int port) throws IOException {
         this.port = port;
@@ -72,28 +75,31 @@ public class GameServer {
     }
 
     public void startClientThread(ClientHandler handler) {
-        Thread thread = new Thread(handler);
-        // Use socket port as identifier until player is registered
+        Thread thread = new Thread(handler); // This thread now runs ClientHandler.run()
         int tempId = handler.getSocket().getPort();
-        thread.setName("ServerClientHandler-" + tempId);
+        // Name is set/updated later in setPlayerInfo
+        thread.setName("ClientHandler-Main-" + tempId);
         thread.setUncaughtExceptionHandler((t, e) -> {
             logger.error("Uncaught exception in thread {}: {}", t.getName(), e.getMessage(), e);
-            handler.closeConnection("Internal error: " + e.getMessage());
+            // Handler itself should trigger closeConnection on error now
+            // handler.closeConnection("Internal error: " + e.getMessage());
         });
+        clientHandlerThreads.add(thread); // Track the thread
         thread.start();
-        logger.info("Started client handler thread: {}", thread.getName());
+        logger.info("Started client handler main thread: {}", thread.getName());
     }
 
     public void start() throws IOException {
         serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
         running = true;
         logger.info("Server started on {}:{}", serverSocket.getInetAddress().getHostAddress(), port);
-        logger.info("Waiting for client threads to start...");
 
         // Start game loop in a separate thread
-        Thread thread = new Thread(this::gameLoop);
-        thread.setName("GameLoop");
-        thread.start();
+        Thread gameLoopThread = new Thread(this::gameLoop);
+        gameLoopThread.setName("GameLoop");
+        gameLoopThread.start();
+
+        logger.info("Waiting for client connections...");
 
         // Accept client connections
         while (running) {
@@ -103,25 +109,44 @@ public class GameServer {
 
                 // Handle client connection in a new thread
                 ClientHandler clientHandler = new ClientHandler(clientSocket, this);
-                startClientThread(clientHandler);
+                startClientThread(clientHandler); // This starts the handler's main run method
+
                 // Player registration happens after receiving CONNECT message
 
+            } catch (SocketException e) {
+                if (running) {
+                    logger.error("Server socket accept error: {}", e.getMessage());
+                } else {
+                    logger.info("Server socket closed, accept loop terminating.");
+                }
+                // If running is false, the loop will exit
             } catch (IOException e) {
                 if (running) {
                     logger.error("Error accepting client connection", e);
-                } else {
-                    logger.info("Server socket closed.");
                 }
             }
+        }
+
+        logger.info("Server accept loop finished.");
+        // Wait for game loop thread to finish? Optional
+        try {
+            gameLoopThread.join(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
     public void stop() {
+        logger.info("Server shutdown requested...");
         running = false;
+
+        // Close server socket to stop accepting new connections
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
                 serverSocket.close();
+                logger.info("Server socket closed.");
             }
+            /*
             for (ClientHandler handler : clients.values()) {
                 handler.closeConnection("Server shutting down");
             }
@@ -129,9 +154,39 @@ public class GameServer {
             tanks.clear();
             bullets.clear();
             logger.info("Server stopped.");
+
+             */
         } catch (IOException e) {
-            logger.error("Error stopping server.", e);
+            logger.error("Error closing server socket.", e);
         }
+
+        // Close existing client connections
+        logger.info("Closing {} client connections...", clients.size());
+        // Create a copy of values to avoid ConcurrentModificationException if closeConnection->removePlayer modifies 'clients'
+        List<ClientHandler> handlersToClose = new ArrayList<>(clients.values());
+        for (ClientHandler handler : handlersToClose) {
+            if(handler != null) {
+                handler.closeConnection("Server shutting down");
+            }
+        }
+        // Wait a moment for handlers to close? Optional.
+        try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+
+        clients.clear();
+        tanks.clear();
+        bullets.clear();
+
+        // Interrupt any remaining handler threads (reader/sender/main)
+        logger.info("Interrupting any remaining client handler threads...");
+        for (Thread t : clientHandlerThreads) {
+            if (t != null && t.isAlive()) {
+                logger.debug("Interrupting thread: {}", t.getName());
+                t.interrupt();
+            }
+        }
+        clientHandlerThreads.clear(); // Clear tracking list
+
+        logger.info("Server stopped.");
     }
 
     // Called by ClientHandler when a CONNECT message is received
@@ -191,16 +246,20 @@ public class GameServer {
         ClientHandler handler = clients.remove(playerId);
         Tank tank = tanks.remove(playerId);
 
+        // Remove thread from tracking list (best effort, find by handler if possible)
+        // This part is tricky as threads might die before removal.
+        // Maybe ClientHandler should notify server *before* thread truly exits?
+
         if (handler != null && tank != null) {
             logger.info("Player removed: ID={}, Name={}", playerId, tank.getName());
-            // Return color to the pool
-            availableColors.add(tank.getColor());
-            Collections.shuffle(availableColors); // Re-shuffle
-
-            broadcast(NetworkProtocol.PLAYER_LEFT + ";" + playerId, -1); // Inform everyone
-
-            // Check if game needs to end or state changes
+            if (tank.getColor() != null) {
+                availableColors.add(tank.getColor());
+                Collections.shuffle(availableColors);
+            }
+            broadcast(NetworkProtocol.PLAYER_LEFT + ";" + playerId, -1);
             checkGameStateTransition();
+        } else {
+            logger.warn("Attempted to remove player {}, but handler or tank was already null.", playerId);
         }
     }
 
@@ -249,7 +308,7 @@ public class GameServer {
         handleGameStateTransitions(currentTime);
 
         if (currentGameState != GameState.PLAYING) {
-            bullets.clear(); // No bullets outside of PLAYING state
+            //bullets.clear(); // No bullets outside of PLAYING state
             return; // No game logic updates needed if not playing
         }
 
@@ -299,6 +358,10 @@ public class GameServer {
     }
 
     private synchronized void handleGameStateTransitions(long currentTime) {
+        GameState previousState = currentGameState;
+
+        int totalPlayers = tanks.size();
+
         switch (currentGameState) {
             case WAITING:
                 if (tanks.size() >= MIN_PLAYERS_TO_START) {
@@ -311,11 +374,11 @@ public class GameServer {
                     // Not enough players anymore, return to waiting
                     changeState(GameState.WAITING, currentTime);
                 } else if (currentTime >= stateChangeTime + COUNTDOWN_SECONDS * 1000) {
-                    // Countdown finished, start playing
-                    changeState(GameState.PLAYING, currentTime);
-                    roundStartTimeMillis = currentTime;
                     // Reset players for the new round
                     resetPlayersForNewRound();
+
+                    roundStartTimeMillis = currentTime;
+                    changeState(GameState.PLAYING, currentTime);
                 } else {
                     // Announce countdown numbers (simple example, could be more robust)
                     long remainingMillis = (stateChangeTime + COUNTDOWN_SECONDS * 1000) - currentTime;
@@ -325,9 +388,10 @@ public class GameServer {
                 break;
             case PLAYING:
                 // CheckWinCondition handles transition out of PLAYING
-                if (tanks.size() < MIN_PLAYERS_TO_START) {
-                    // If not enough players left during game (e.g., disconnects), end round prematurely? Or wait?
-                    // For now, let the win condition handle it if only one is left.
+                if (tanks.size() < MIN_PLAYERS_TO_START && totalPlayers > 1) {
+                    // Optional: End round early if too many disconnect?
+                    // logger.info("Not enough players left ({}), ending round early.", tanks.size());
+                    // checkWinCondition(); // Force check which might lead to draw/win
                 }
                 break;
             case ROUND_OVER:
@@ -411,6 +475,16 @@ public class GameServer {
 
         int aliveCount = 0;
         Tank lastAliveTank = null;
+        int totalPlayers = tanks.size();
+
+        // If there's only 1 player total (or 0), the round shouldn't end based on alive count alone.
+        // Let the game run indefinitely for testing/single-player or add other conditions later.
+        if (totalPlayers <= 1) {
+            logger.trace("Skipping win condition check: Only {} player(s) connected.", totalPlayers);
+            return; // Don't end the round if only 0 or 1 player is connected.
+        }
+
+        // --- Count alive players ONLY if there were 2 or more players ---
         for (Tank tank : tanks.values()) {
             if (tank.isAlive()) {
                 aliveCount++;
@@ -418,21 +492,32 @@ public class GameServer {
             }
         }
 
-        // Win condition: 1 player left alive, OR 0 players left alive (draw?), OR only 1 player connected total
-        if (aliveCount <= 1 && tanks.size() >= 1) { // Allow win even if only 1 player started
-            logger.info("Round over condition met.");
+        // --- End round only if 1 or 0 players are left alive AND the round was meaningful (>1 player started/present) ---
+        if (aliveCount <= 1) {
+            logger.info("Round over condition met (Alive: {}, Total: {}).", aliveCount, totalPlayers);
             long finalTime = System.currentTimeMillis() - roundStartTimeMillis;
             changeState(GameState.ROUND_OVER, System.currentTimeMillis());
 
             String winnerName = "NO ONE";
+            int winnerId = -1;
             if (lastAliveTank != null) {
                 winnerName = lastAliveTank.getName();
-                logger.info("Winner: {}.", winnerName);
-                broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.ROUND_OVER, lastAliveTank.getPlayerId(), winnerName, finalTime), -1);
-                broadcastAnnouncement(winnerName + " WINS! FINAL TIME: " + formatTime(finalTime), -1);
+                winnerId = lastAliveTank.getPlayerId();
+                logger.info("Winner: {} (ID: {}).", winnerName, winnerId);
+
+                //broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.ROUND_OVER, lastAliveTank.getPlayerId(), winnerName, finalTime), -1);
+                //broadcastAnnouncement(winnerName + " WINS! FINAL TIME: " + formatTime(finalTime), -1);
             } else {
                 logger.info("Round ended in a draw.");
-                broadcast(String.format("%s;-1;DRAW;%d", NetworkProtocol.ROUND_OVER, finalTime), -1); // -1 for winner ID indicates draw
+                //broadcast(String.format("%s;-1;DRAW;%d", NetworkProtocol.ROUND_OVER, finalTime), -1); // -1 for winner ID indicates draw
+                //broadcastAnnouncement("DRAW! FINAL TIME: " + formatTime(finalTime), -1);
+            }
+
+            // Broadcast winner/draw info
+            broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.ROUND_OVER, winnerId, winnerName, finalTime), -1);
+            if (winnerId != -1) {
+                broadcastAnnouncement(winnerName + " WINS! FINAL TIME: " + formatTime(finalTime), -1);
+            } else {
                 broadcastAnnouncement("DRAW! FINAL TIME: " + formatTime(finalTime), -1);
             }
         }
