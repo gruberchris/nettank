@@ -1,199 +1,140 @@
 package org.chrisgruber.nettank.ui;
 
+// In UIManager.java
+
 import org.chrisgruber.nettank.rendering.Renderer;
 import org.chrisgruber.nettank.rendering.Shader;
 import org.chrisgruber.nettank.rendering.Texture;
 import org.chrisgruber.nettank.util.Colors;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
-import static org.lwjgl.opengl.GL15.*;
-import static org.lwjgl.opengl.GL20.*;
-import static org.lwjgl.opengl.GL30.*;
-
-// Simple UI Manager using a bitmap font texture
 public class UIManager {
+    private static final Logger logger = LoggerFactory.getLogger(UIManager.class);
 
     private Texture fontTexture;
-    private Renderer uiRenderer; // Use the same quad renderer
-    private Shader uiShader;     // Could use the same shader if it handles tinting
+    private Renderer uiRenderer; // Assuming this is created in constructor
+    private Shader uiShader;     // Assuming this is created in constructor
 
-    private final int FONT_COLS = 16; // Columns in the font texture
-    private final int FONT_ROWS = 16; // Rows in the font texture
+    // *** ENSURE THESE ARE CORRECT FOR YOUR FONT PNG ***
+    private int FONT_COLS = 18;
+    private int FONT_ROWS = 6;
+    // ***
+
     private float charTexWidth;
     private float charTexHeight;
 
     private Matrix4f uiProjectionMatrix;
-
+    private Matrix4f identityMatrix;
 
     public UIManager() {
-        // Assuming a basic Renderer can be reused or create a specific one
-        this.uiRenderer = new Renderer(); // Need separate instance? Check Renderer's statefulness
+        this.uiRenderer = new Renderer();
         this.uiProjectionMatrix = new Matrix4f();
-
-        // Load a specific UI shader or reuse the main one if suitable
+        this.identityMatrix = new Matrix4f().identity();
         try {
-            // Reuse the main shader - it has tint and texture support
             this.uiShader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load UI shader", e);
+            // Handle error...
+            throw new RuntimeException(e);
         }
     }
 
     public void loadFontTexture(String filepath) throws IOException {
-        this.fontTexture = new Texture(filepath);
-        this.charTexWidth = 1.0f / FONT_COLS;
-        this.charTexHeight = 1.0f / FONT_ROWS;
+        if (FONT_COLS <= 0 || FONT_ROWS <= 0) {
+            throw new IllegalArgumentException("FONT_COLS and FONT_ROWS must be positive.");
+        }
+        try {
+            this.fontTexture = new Texture(filepath);
+            this.charTexWidth = 1.0f / (float) FONT_COLS;
+            this.charTexHeight = 1.0f / (float) FONT_ROWS;
+            logger.info("Font Loaded: {} ({}x{} px, {}x{} grid -> charTexSize {}x{})",
+                    filepath, fontTexture.getWidth(), fontTexture.getHeight(),
+                    FONT_COLS, FONT_ROWS, charTexWidth, charTexHeight);
+        } catch (IOException e) {
+            logger.error("Failed to load font texture file: {}", filepath, e);
+            this.fontTexture = null;
+            throw e;
+        }
     }
 
     public void startUIRendering(int screenWidth, int screenHeight) {
-        // Set up orthographic projection for UI (0,0 is top-left)
-        // Ortho: left, right, bottom, top, near, far
-        uiProjectionMatrix.setOrtho(0.0f, (float)screenWidth, (float)screenHeight, 0.0f, -1.0f, 1.0f);
-
+        uiProjectionMatrix.setOrtho(0.0f, (float) screenWidth, (float) screenHeight, 0.0f, -1.0f, 1.0f);
         uiShader.bind();
         uiShader.setUniformMat4f("u_projection", uiProjectionMatrix);
-        // View matrix is identity for screen space UI
-        uiShader.setUniformMat4f("u_view", new Matrix4f().identity()); // Use a static identity matrix
-        uiShader.setUniform1i("u_texture", 0); // Use texture unit 0
-
-        // Disable depth testing for UI elements to ensure they draw on top
-        // glDisable(GL_DEPTH_TEST); // Be careful if mixing 3D/2D without proper setup
-        // Blending should already be enabled by the main Game class
+        uiShader.setUniformMat4f("u_view", identityMatrix);
+        uiShader.setUniform1i("u_texture", 0);
     }
 
     public void drawText(String text, float screenX, float screenY, float scale) {
-        drawText(text, screenX, screenY, scale, Colors.WHITE); // Default white
+        drawText(text, screenX, screenY, scale, Colors.WHITE);
     }
 
     public void drawText(String text, float screenX, float screenY, float scale, Vector3f color) {
         if (fontTexture == null || uiRenderer == null || uiShader == null) return;
 
         fontTexture.bind();
+        uiShader.bind();
         uiShader.setUniform3f("u_tintColor", color);
 
-        float charWidth = (fontTexture.getWidth() / FONT_COLS) * scale;
-        float charHeight = (fontTexture.getHeight() / FONT_ROWS) * scale;
+        // Use float division here for character screen size calculation
+        float charScreenWidth = ((float)fontTexture.getWidth() / FONT_COLS) * scale;
+        float charScreenHeight = ((float)fontTexture.getHeight() / FONT_ROWS) * scale;
 
         float currentX = screenX;
 
         for (char c : text.toCharArray()) {
-            if (c == ' ') { // Handle spaces
-                currentX += charWidth;
+            if (c == ' ') {
+                currentX += charScreenWidth;
                 continue;
             }
-            if (c < 32 || c > 126) { // Basic ASCII range check
-                c = '?'; // Replace unsupported characters
+            if (c < 32 || c > 126) c = '?'; // Basic ASCII printable range
+
+            int charIndex = c - 32; // Assumes font starts with ASCII 32 (Space)
+            if (charIndex < 0 || charIndex >= FONT_COLS * FONT_ROWS) {
+                logger.warn("Character '{}' out of font range.", c);
+                currentX += charScreenWidth;
+                continue;
             }
 
-            int charIndex = c - 32; // ASCII value offset to match font texture layout
             int col = charIndex % FONT_COLS;
             int row = charIndex / FONT_COLS;
 
+            // Calculate NORMALIZED texture coords for the top-left corner and the size
             float texX = col * charTexWidth;
             float texY = row * charTexHeight;
 
-            // Use our new method to draw the character
-            uiRenderer.drawTexturedSubQuad(
-                    currentX, screenY, charWidth, charHeight,  // Position & Size
-                    texX, texY, charTexWidth, charTexHeight, // Texture Rect
-                    color, uiShader
-            );
+            // Set the uniform telling the shader which sub-rectangle to use
+            // u_texRect = vec4(offsetX, offsetY, widthScale, heightScale)
+            uiShader.setUniform4f("u_texRect", texX, texY, charTexWidth, charTexHeight);
 
-            currentX += charWidth; // Move to the next character position
+            // Calculate the CENTER position for the standard quad renderer
+            float drawX = currentX + charScreenWidth / 2.0f;
+            float drawY = screenY + charScreenHeight / 2.0f;
+
+            // Use the standard Renderer drawQuad
+            uiRenderer.drawQuad(drawX, drawY, charScreenWidth, charScreenHeight, 0, uiShader);
+
+            currentX += charScreenWidth;
         }
-        uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+
+        // Reset the texture rectangle uniform to default after drawing text
+        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
+        // Reset tint? Optional, depends if other UI elements need default white
+        // uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
     }
 
-    /*
-    public void drawText(String text, float screenX, float screenY, float scale, Vector3f color) {
-        if (fontTexture == null || uiRenderer == null || uiShader == null) return;
-
-        fontTexture.bind();
-        uiShader.setUniform3f("u_tintColor", color);
-
-        float charWidth = (fontTexture.getWidth() / FONT_COLS) * scale;
-        float charHeight = (fontTexture.getHeight() / FONT_ROWS) * scale;
-
-        float currentX = screenX;
-
-        for (char c : text.toCharArray()) {
-            if (c == ' ') { // Handle spaces
-                currentX += charWidth;
-                continue;
-            }
-            if (c < 32 || c > 126) { // Basic ASCII range check
-                c = '?'; // Replace unsupported characters
-            }
-
-            int charIndex = c; // ASCII value can directly map if font sheet matches
-            int col = charIndex % FONT_COLS;
-            int row = charIndex / FONT_COLS;
-
-            float texX = col * charTexWidth;
-            float texY = row * charTexHeight;
-
-            // Need to render a specific portion of the texture
-            // Modifying the standard Renderer/Shader for this is complex.
-            // Alternative: Render the full quad and use shader to clip texture coords.
-            // Simpler Alternative: Draw a full textured quad for each char, adjusting its model matrix.
-
-            // --- Using the existing drawQuad ---
-            // Calculate center position for the character quad
-            float charCenterX = currentX + charWidth / 2.0f;
-            float charCenterY = screenY + charHeight / 2.0f;
-
-            // Set the texture coordinates via uniforms (Requires Shader Modification)
-            // OR: A more complex renderer that allows custom tex coords per draw.
-
-            // --- Workaround: Use Model matrix to scale/translate texture coords (Less clean) ---
-            // This requires modifying the shader or accepting distortion.
-
-            // --- Simplest (but potentially inefficient): Draw full quad and let shader handle it ---
-            // This is difficult without shader changes.
-
-            // --- Let's assume Renderer::drawQuad can be extended or we use immediate mode (Bad!) ---
-            // For now, we'll just draw tinted quads as placeholders. THIS WON'T SHOW TEXT.
-            // uiRenderer.drawQuad(charCenterX, charCenterY, charWidth, charHeight, 0, uiShader);
-
-            // *** Proper Bitmap Font Rendering requires ***
-            // 1. A way to specify texture coordinates (s0, t0, s1, t1) for the sub-rectangle of the font texture.
-            // 2. Either:
-            //    a) Modifying the Renderer/VAO setup to accept custom tex coords per quad.
-            //    b) Modifying the shader to calculate texture coordinates based on uniforms (e.g., uniform vec4 u_texCoords).
-            //    c) Using a library specifically for font rendering (like LWJGL STB Truetype).
-
-            // Placeholder - Draw white boxes where text should be
-            // uiRenderer.drawQuad(charCenterX, charCenterY, charWidth, charHeight, color, uiShader);
-
-
-            // ACTUAL IMPLEMENTATION WOULD LOOK MORE LIKE THIS (conceptual):
-            // uiRenderer.drawTexturedSubQuad(
-            //    currentX, screenY, charWidth, charHeight,  // Position & Size
-            //    texX, texY, charTexWidth, charTexHeight, // Texture Rect
-            //    color, uiShader
-            // );
-
-
-            currentX += charWidth; // Move to the next character position
-        }
-        uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
-    }
-
-     */
-
-    // Estimate text width - basic implementation
     public float getTextWidth(String text, float scale) {
-        if (fontTexture == null) return 0;
-        float charWidth = (fontTexture.getWidth() / FONT_COLS) * scale;
-        return text.length() * charWidth;
+        if (fontTexture == null || FONT_COLS <= 0) return 0;
+        float charScreenWidth = ((float)fontTexture.getWidth() / FONT_COLS) * scale;
+        return text.length() * charScreenWidth;
     }
 
     public void endUIRendering() {
-        // Re-enable depth testing if it was disabled
-        // glEnable(GL_DEPTH_TEST);
+        // No state changes needed usually unless depth test was disabled
     }
 
     public void cleanup() {

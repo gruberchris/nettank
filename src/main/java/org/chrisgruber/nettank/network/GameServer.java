@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class GameServer {
@@ -30,6 +31,8 @@ public class GameServer {
     private boolean running = false;
     private final AtomicInteger nextPlayerId = new AtomicInteger(0);
     private volatile int hostPlayerId = -1;
+    private final AtomicBoolean stopping = new AtomicBoolean(false);
+    private Thread gameLoopThread;
 
     // Game State
     private final GameMap gameMap;
@@ -54,7 +57,7 @@ public class GameServer {
         this.port = port;
         this.gameMap = new GameMap(50, 50); // Same size as client
         Collections.shuffle(availableColors); // Shuffle colors initially
-        Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
+        Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
     }
 
     public static void main(String[] args) {
@@ -68,11 +71,14 @@ public class GameServer {
             GameServer server = new GameServer(port);
             System.out.println("Server started on 0.0.0.0:" + port);
             server.start();
+            logger.info("GameServer.main() finished after server.start() returned.");
         } catch (IOException e) {
             System.err.println("Server failed: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
+
+        logger.info("GameServer.main() is exiting.");
     }
 
     public synchronized void requestShutdown(int requestorPlayerId) {
@@ -85,16 +91,12 @@ public class GameServer {
     }
 
     public void startClientThread(ClientHandler handler) {
-        Thread thread = new Thread(handler); // This thread now runs ClientHandler.run()
+        Thread thread = new Thread(handler);
         int tempId = handler.getSocket().getPort();
-        // Name is set/updated later in setPlayerInfo
         thread.setName("ClientHandler-Main-" + tempId);
-        thread.setUncaughtExceptionHandler((t, e) -> {
-            logger.error("Uncaught exception in thread {}: {}", t.getName(), e.getMessage(), e);
-            // Handler itself should trigger closeConnection on error now
-            // handler.closeConnection("Internal error: " + e.getMessage());
-        });
-        clientHandlerThreads.add(thread); // Track the thread
+        thread.setDaemon(true);
+        thread.setUncaughtExceptionHandler((t, e) -> logger.error("Uncaught exception in thread {}: {}", t.getName(), e.getMessage(), e));
+        clientHandlerThreads.add(thread);
         thread.start();
         logger.info("Started client handler main thread: {}", thread.getName());
     }
@@ -104,55 +106,74 @@ public class GameServer {
         running = true;
         logger.info("Server started on {}:{}", serverSocket.getInetAddress().getHostAddress(), port);
 
-        // Start game loop in a separate thread
-        Thread gameLoopThread = new Thread(this::gameLoop);
+        // Start and store game loop thread
+        gameLoopThread = new Thread(this::gameLoop);
         gameLoopThread.setName("GameLoop");
+        gameLoopThread.setDaemon(true);
         gameLoopThread.start();
 
         logger.info("Waiting for client connections...");
 
-        // Accept client connections
-        while (running) {
-            try {
-                Socket clientSocket = serverSocket.accept();
-                logger.info("Client connected: {}", clientSocket.getInetAddress().getHostAddress());
+        // Accept client connections loop (Main Server Thread)
+        try { // Wrap the accept loop in try-finally to ensure game loop join attempt
+            while (running) {
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    if (!running) break; // Check flag again after accept returns potentially due to close
+                    logger.info("Client connected: {}", clientSocket.getInetAddress().getHostAddress());
+                    ClientHandler clientHandler = new ClientHandler(clientSocket, this);
+                    startClientThread(clientHandler);
 
-                // Handle client connection in a new thread
-                ClientHandler clientHandler = new ClientHandler(clientSocket, this);
-                startClientThread(clientHandler); // This starts the handler's main run method
-
-                // Player registration happens after receiving CONNECT message
-
-            } catch (SocketException e) {
-                if (running) {
-                    logger.error("Server socket accept error: {}", e.getMessage());
-                } else {
-                    logger.info("Server socket closed, accept loop terminating.");
+                } catch (SocketException e) {
+                    if (running) { // Log error only if we weren't expecting the socket to close
+                        logger.error("Server socket accept error: {}", e.getMessage());
+                    } else {
+                        logger.info("Server socket closed, accept loop terminating.");
+                    }
+                    // running should be false if stop() was called, loop will terminate
+                } catch (IOException e) {
+                    if (running) {
+                        logger.error("Error accepting client connection", e);
+                    }
                 }
-                // If running is false, the loop will exit
-            } catch (IOException e) {
-                if (running) {
-                    logger.error("Error accepting client connection", e);
+            }
+        } finally {
+            logger.info("Server accept loop finished.");
+            // Wait for game loop thread to finish after accept loop exits
+            if (gameLoopThread != null && gameLoopThread.isAlive()) {
+                logger.info("Waiting for GameLoop thread to finish...");
+                try {
+                    gameLoopThread.join(2000); // Wait up to 2 seconds
+                    if (gameLoopThread.isAlive()) {
+                        logger.warn("GameLoop thread did not finish gracefully after 2 seconds.");
+                    } else {
+                        logger.info("GameLoop thread finished.");
+                    }
+                } catch (InterruptedException e) {
+                    logger.warn("Interrupted while waiting for GameLoop thread.");
+                    Thread.currentThread().interrupt();
                 }
             }
         }
-
-        logger.info("Server accept loop finished.");
-        // Wait for game loop thread to finish? Optional
-        try {
-            gameLoopThread.join(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        logger.info("Server main thread exiting start() method."); // Add log
     }
 
     public void stop() {
-        logger.info("Server shutdown requested...");
-        running = false;
+        // --- Use AtomicBoolean to run stop logic only once ---
+        if (!stopping.compareAndSet(false, true)) {
+            // If compareAndSet returns false, it means 'stopping' was already true.
+            logger.info("Server stop() already in progress or completed.");
+            return;
+        }
+        // --- Proceed with shutdown logic only if this is the first call ---
+        logger.info("Server stop() sequence initiated..."); // Changed log message
 
-        // Close server socket to stop accepting new connections
+        running = false; // Signal loops to stop FIRST
+
+        // Close server socket early to stop accepting new connections
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
+                logger.debug("Closing server socket...");
                 serverSocket.close();
                 logger.info("Server socket closed.");
             }
@@ -160,33 +181,50 @@ public class GameServer {
             logger.error("Error closing server socket.", e);
         }
 
+        // Interrupt game loop thread AFTER setting running=false
+        if (gameLoopThread != null && gameLoopThread.isAlive()) {
+            logger.debug("Interrupting GameLoop thread...");
+            gameLoopThread.interrupt();
+        }
+
         // Close existing client connections
-        logger.info("Closing {} client connections...", clients.size());
-        // Create a copy of values to avoid ConcurrentModificationException if closeConnection->removePlayer modifies 'clients'
+        logger.info("Closing client connections...");
         List<ClientHandler> handlersToClose = new ArrayList<>(clients.values());
+        logger.info("Found {} handlers to close.", handlersToClose.size());
         for (ClientHandler handler : handlersToClose) {
             if(handler != null) {
+                // This call should now be non-blocking for the stop() thread
+                // because ClientHandler manages its own threads.
                 handler.closeConnection("Server shutting down");
             }
         }
-        // Wait a moment for handlers to close? Optional.
-        try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        // Brief pause to allow handlers to process close? Usually not strictly needed now.
+        // try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
+        // Clear server state
         clients.clear();
         tanks.clear();
         bullets.clear();
+        availableColors.clear(); // Also clear colors? Add them back? Depends on desired reset behavior.
+        availableColors.addAll(Colors.TANK_COLORS); // Re-add all colors
+        Collections.shuffle(availableColors);
+        nextPlayerId.set(0); // Reset player ID counter
+        hostPlayerId = -1; // Reset host ID
 
-        // Interrupt any remaining handler threads (reader/sender/main)
-        logger.info("Interrupting any remaining client handler threads...");
-        for (Thread t : clientHandlerThreads) {
+        // Interrupt any remaining client handler *main* threads (fallback)
+        logger.info("Interrupting any potentially lingering client handler main threads...");
+        // Note: ClientHandler threads (Reader/Sender) should be stopped by handler.closeConnection()
+        // This loop interrupts the thread that initially ran ClientHandler.run()
+        List<Thread> threadsToInterrupt = new ArrayList<>(clientHandlerThreads); // Iterate copy
+        for (Thread t : threadsToInterrupt) {
             if (t != null && t.isAlive()) {
-                logger.debug("Interrupting thread: {}", t.getName());
+                logger.debug("Interrupting client handler main thread: {}", t.getName());
                 t.interrupt();
             }
         }
-        clientHandlerThreads.clear(); // Clear tracking list
+        clientHandlerThreads.clear();
 
-        logger.info("Server stopped.");
+        logger.info("Server stop() sequence finished.");
     }
 
     public synchronized void registerPlayer(ClientHandler handler, String playerName) {
@@ -294,38 +332,54 @@ public class GameServer {
         return serverSocket != null && !serverSocket.isClosed();
     }
 
+    // In GameServer.java -> gameLoop() method
+
     private void gameLoop() {
         long lastTime = System.nanoTime();
-        double nsPerTick = 1_000_000_000.0 / 60.0; // Target 60 updates per second
+        double nsPerTick = 1_000_000_000.0 / 60.0;
         double delta = 0;
+
+        logger.info("GameLoop thread started."); // Add startup log
 
         while (running) {
             long now = System.nanoTime();
             delta += (now - lastTime) / nsPerTick;
             lastTime = now;
 
-            boolean shouldRender = false; // Server doesn't render, but we use this for update rate
-
+            boolean updated = false;
             while (delta >= 1) {
-                update((float) (1.0 / 60.0)); // Fixed time step for physics/logic
+                update((float) (1.0 / 60.0));
                 delta -= 1;
-                shouldRender = true; // Indicates an update happened
+                updated = true;
             }
 
-            if (shouldRender) {
-                // Send state updates after logic update
+            if (updated) {
                 broadcastState();
             }
 
-
             // Avoid busy-waiting
             try {
+                // Check running flag *before* sleeping, potentially exiting slightly sooner
+                if (!running) {
+                    break; // Exit loop immediately if running is false now
+                }
                 Thread.sleep(1); // Sleep briefly
             } catch (InterruptedException e) {
+                // --- MODIFIED LOGGING ---
+                // This is expected during shutdown via interrupt()
+                logger.info("Game loop interrupted (likely server shutdown).");
+                // Re-interrupt the thread is standard practice
                 Thread.currentThread().interrupt();
-                logger.error("Game loop interrupted.", e);
+                // Loop condition 'running' will be false, so loop will exit.
+                // No need to log error or stack trace for this expected case.
+            } catch (Exception e) {
+                // Log other unexpected errors during sleep/loop
+                if (running) { // Only log if not already shutting down
+                    logger.error("Unexpected error in GameLoop sleep/wait phase", e);
+                }
             }
-        }
+        } // End while(running)
+        logger.info("GameLoop thread finished."); // Keep this
     }
 
     private synchronized void update(float deltaTime) {

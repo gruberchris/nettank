@@ -213,6 +213,7 @@ public class ClientHandler implements Runnable {
 
             // Start the sender thread
             senderThread = new Thread(this::runSenderLoop);
+            senderThread.setDaemon(true);
             senderThread.start();
 
             // Run the reader loop in the current thread

@@ -99,6 +99,8 @@ public class Game {
         logger.info("Main game loop finished. Calling cleanup...");
 
         cleanup();
+
+        logger.info("Cleanup finished.");
     }
 
     private void init() {
@@ -515,7 +517,6 @@ public class Game {
             // Continue cleanup despite errors here
         }
 
-
         // 3. Clean up LWJGL window and context
         logger.debug("Destroying GLFW window...");
         try {
@@ -553,9 +554,6 @@ public class Game {
 
         logger.info("Game cleanup finished.");
     }
-
-
-    // --- Network Callback Methods ---
 
     public void setLocalPlayerId(int id, float colorR, float colorG, float colorB) {
         this.localPlayerId = id;

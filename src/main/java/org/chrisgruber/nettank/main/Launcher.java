@@ -27,13 +27,14 @@ public class Launcher {
             String playerName = args[3];
 
             Game game = new Game(hostIp, port, playerName);
+
             try {
                 game.run();
+                logger.info("Game loop exited normally.");
             } catch (Exception ex) {
                 logger.error("Game client crashed", ex);
                 System.err.println("Game crashed: " + ex.getMessage());
                 ex.printStackTrace();
-                System.exit(1);
             }
         } else {
             // Start launcher UI
