@@ -360,6 +360,8 @@ public class GameServer {
             if (gameMapData.isOutOfBounds(tankData.position.x, tankData.position.y, TankData.COLLISION_RADIUS)) {
                 tankData.setPosition(oldPos.x, oldPos.y);
             }
+
+            checkGameStateTransition();
         }
 
         // Update Bullets
@@ -464,15 +466,31 @@ public class GameServer {
         }
     }
 
-    private void changeState(GameState newState, long currentTime) {
-        if (currentGameState == newState) return; // Avoid redundant changes/broadcasts
+    private void changeState(GameState newState, long timeData) { // timeData meaning depends on state
+        if (currentGameState == newState) return;
         logger.info("Server changing state from {} to {}", currentGameState, newState);
         currentGameState = newState;
-        stateChangeTime = currentTime;
-        long timeData = (newState == GameState.PLAYING) ? currentTime : ((newState == GameState.COUNTDOWN) ? stateChangeTime + COUNTDOWN_SECONDS * 1000 : 0);
-        broadcast(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, newState.name(), timeData), -1);
+        stateChangeTime = System.currentTimeMillis(); // Record when the state *actually* changed
+
+        // Adjust timeData based on state for clarity
+        long broadcastTimeData = 0;
+        if (newState == GameState.PLAYING) {
+            broadcastTimeData = timeData; // Send start time
+        } else if (newState == GameState.COUNTDOWN) {
+            broadcastTimeData = stateChangeTime + COUNTDOWN_SECONDS * 1000; // Send target end time
+        } else if (newState == GameState.ROUND_OVER) {
+            // In checkWinCondition, we called changeState with System.currentTimeMillis().
+            // Let's use the calculated finalTime duration instead.
+            // We need to slightly refactor checkWinCondition or pass duration here.
+            // Simpler: Let timeData for ROUND_OVER be 0 for now, announcement has duration.
+            broadcastTimeData = 0;
+        }
+
+        broadcast(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, newState.name(), broadcastTimeData), -1);
+
         if (newState == GameState.WAITING) { broadcastAnnouncement("WAITING FOR PLAYERS...", -1); }
         else if (newState == GameState.COUNTDOWN) { broadcastAnnouncement("ROUND STARTING IN " + COUNTDOWN_SECONDS + "...", -1); }
+        // Announcement for round over is handled in checkWinCondition
     }
 
     private void resetPlayersForNewRound() {
@@ -490,20 +508,49 @@ public class GameServer {
         }
     }
 
+    // In nettank-server/src/main/java/org/chrisgruber/nettank/server/GameServer.java
+
+    // In nettank-server/src/main/java/org/chrisgruber/nettank/server/GameServer.java
+
     private synchronized void checkWinCondition() {
         if (currentGameState != GameState.PLAYING) return;
-        int aliveCount = 0; TankData lastAliveTank = null; int totalPlayers = tanks.size();
-        if (totalPlayers <= 1 && MIN_PLAYERS_TO_START > 1) { // Only skip if strict multiplayer (>1) needed to start
-            logger.trace("Skipping win condition check: Only {} player(s) connected.", totalPlayers); return;
+
+        int aliveCount = 0;
+        TankData lastAliveTank = null;
+        int totalPlayersInMap = tanks.size();
+
+        // --- Revised Logic ---
+        // If MIN_PLAYERS_TO_START is 1, and only 1 player is connected, NEVER end the round by elimination.
+        if (totalPlayersInMap == 1 && MIN_PLAYERS_TO_START == 1) {
+            logger.trace("Skipping win condition check: Single player mode active.");
+            return;
         }
-        for (TankData tankData : tanks.values()) { if (tankData.alive) { aliveCount++; lastAliveTank = tankData; } }
+
+        // If MIN_PLAYERS_TO_START is >= 2, only check if at least that many players are present.
+        if (totalPlayersInMap < MIN_PLAYERS_TO_START) {
+            logger.trace("Skipping win condition check: Fewer than minimum players connected ({}/{})",
+                    totalPlayersInMap, MIN_PLAYERS_TO_START);
+            return;
+        }
+
+        // --- Count alive players (only if we passed the initial checks) ---
+        for (TankData tankData : tanks.values()) {
+            if (tankData.alive) {
+                aliveCount++;
+                lastAliveTank = tankData;
+            }
+        }
+
+        // --- End round based on elimination (only if >= MIN_PLAYERS_TO_START were present) ---
         if (aliveCount <= 1) {
-            logger.info("Round over condition met (Alive: {}, Total: {}).", aliveCount, totalPlayers);
+            logger.info("Round over condition met (Alive: {}, Total: {}).", aliveCount, totalPlayersInMap);
             long finalTime = System.currentTimeMillis() - roundStartTimeMillis;
-            changeState(GameState.ROUND_OVER, System.currentTimeMillis());
+            changeState(GameState.ROUND_OVER, finalTime); // Pass duration
+
             String winnerName = "NO ONE"; int winnerId = -1;
             if (lastAliveTank != null) { winnerName = lastAliveTank.name; winnerId = lastAliveTank.playerId; logger.info("Winner: {} (ID: {}).", winnerName, winnerId); }
             else { logger.info("Round ended in a draw."); }
+
             broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.ROUND_OVER, winnerId, winnerName, finalTime), -1);
             broadcastAnnouncement( (winnerId != -1 ? winnerName + " WINS!" : "DRAW!") + " FINAL TIME: " + formatTime(finalTime), -1);
         }
