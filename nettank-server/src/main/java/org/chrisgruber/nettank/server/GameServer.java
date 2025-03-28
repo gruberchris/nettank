@@ -341,18 +341,18 @@ public class GameServer {
             Vector2f oldPos = new Vector2f(tankData.position);
             // Movement Logic
             float turnAmount = 0;
-            if (tankData.turningLeft) turnAmount -= TANK_TURN_SPEED * deltaTime; // Corrected A/D logic from before
-            if (tankData.turningRight) turnAmount += TANK_TURN_SPEED * deltaTime;
+            if (tankData.turningLeft) turnAmount += TANK_TURN_SPEED * deltaTime;
+            if (tankData.turningRight) turnAmount -= TANK_TURN_SPEED * deltaTime;
             tankData.rotation += turnAmount;
             tankData.rotation = (tankData.rotation % 360.0f + 360.0f) % 360.0f;
 
             float moveAmount = 0;
-            if (tankData.movingForward) moveAmount = TANK_MOVE_SPEED * deltaTime; // Corrected W/S logic from before
+            if (tankData.movingForward) moveAmount = TANK_MOVE_SPEED * deltaTime;
             else if (tankData.movingBackward) moveAmount = -TANK_MOVE_SPEED * deltaTime * 0.7f;
 
             if (moveAmount != 0) {
                 float angleRad = (float) Math.toRadians(tankData.rotation);
-                float dx = (float) Math.sin(angleRad) * moveAmount;
+                float dx = (float) -Math.sin(angleRad) * moveAmount;
                 float dy = (float) Math.cos(angleRad) * moveAmount; // Assuming 0=UP, +Y=UP (adjust if needed)
                 tankData.addPosition(dx, dy);
             }
@@ -419,13 +419,13 @@ public class GameServer {
         TankData tankData = tanks.get(playerId);
         long currentTime = System.currentTimeMillis();
         // Check cooldown using server constant and data field
-        boolean hasCooledDown = (currentTime - tankData.lastShotTime >= TANK_SHOOT_COOLDOWN_MS);
+        boolean hasCooledDown = tankData != null && tankData.alive && (currentTime - tankData.lastShotTime >= TANK_SHOOT_COOLDOWN_MS);
 
-        if (tankData != null && tankData.alive && hasCooledDown && currentGameState == GameState.PLAYING) {
+        if (hasCooledDown && currentGameState == GameState.PLAYING) {
             tankData.recordShot(currentTime);
 
             float angleRad = (float) Math.toRadians(tankData.rotation);
-            float dirX = (float) Math.sin(angleRad);
+            float dirX = (float) -Math.sin(angleRad);
             float dirY = (float) Math.cos(angleRad); // Assuming 0=UP, +Y=UP
 
             float spawnDist = TankData.SIZE / 2.0f + BulletData.SIZE / 2.0f; // Spawn slightly ahead
@@ -435,11 +435,7 @@ public class GameServer {
             Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BULLET_SPEED);
 
             // Create BulletData (constructor now uses currentTime from server)
-            BulletData bullet = new BulletData(playerId, startX, startY, velocity.x, velocity.y); // Need to adjust constructor or add time
-            // Let's modify BulletData constructor slightly:
-            // public BulletData(int ownerId, float x, float y, float velX, float velY) {
-            //     this.ownerId = ownerId; this.position.set(x,y); this.velocity.set(velX, velY); this.spawnTime = System.currentTimeMillis(); // Set here!
-            // }
+            BulletData bullet = new BulletData(playerId, startX, startY, velocity.x, velocity.y, currentTime);
             bullets.add(bullet);
 
             // Broadcast with calculated dirX, dirY
