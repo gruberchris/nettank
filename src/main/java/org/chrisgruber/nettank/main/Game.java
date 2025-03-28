@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -77,6 +78,7 @@ public class Game {
     private final List<String> announcements = new CopyOnWriteArrayList<>();
     private long lastAnnouncementTime = 0;
     private static final long ANNOUNCEMENT_DISPLAY_TIME_MS = 5000; // Display for 5 seconds
+    private boolean isHost = false;
 
     // Config
     public static final int WINDOW_WIDTH = 1280;
@@ -300,8 +302,32 @@ public class Game {
 
         // --- Handle Escape Key ---
         if (inputHandler.isKeyDown(GLFW_KEY_ESCAPE)) {
-            logger.info("Escape key pressed. Closing window.");
+            logger.info("Escape key pressed.");
+            // Check if this client is the host and is connected
+            if (isHost && gameClient != null && gameClient.isConnected()) {
+                logger.info("Host client requesting server shutdown...");
+                gameClient.sendShutdownServer(); // Send the new command
+                // Add a small delay to allow the message to be sent before closing socket
+                try {
+                    Thread.sleep(200); // 200ms, adjust if needed
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.warn("Sleep interrupted while waiting for shutdown message send.");
+                }
+            } else {
+                logger.info("Closing client window (not host or not connected).");
+            }
+            // Always close the client window on Escape
             glfwSetWindowShouldClose(window, true);
+        }
+    }
+
+    public void setHostStatus(boolean amHost) {
+        this.isHost = amHost;
+        if (this.isHost) {
+            logger.info("<<< This client IS designated as the HOST by the server >>>");
+        } else {
+            logger.info("<<< This client is NOT the host >>>");
         }
     }
 
@@ -704,5 +730,22 @@ public class Game {
             JOptionPane.showMessageDialog(null, "Disconnected from server.\nPlease check logs.\nExiting.", "Disconnected", JOptionPane.INFORMATION_MESSAGE);
         });
         logger.warn("Signaled window close because disconnected.");
+    }
+
+    private static String getBestLocalIpAddress() {
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isLoopback() && ni.isUp()) {
+                    for (java.net.InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                        if (ia.getAddress() instanceof java.net.Inet4Address) {
+                            return ia.getAddress().getHostAddress();
+                        }
+                    }
+                }
+            }
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception ex) {
+            return "127.0.0.1"; // Ultimate fallback
+        }
     }
 }

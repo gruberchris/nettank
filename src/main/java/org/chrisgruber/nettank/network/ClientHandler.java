@@ -296,6 +296,15 @@ public class ClientHandler implements Runnable {
                     }
                     break;
 
+                case NetworkProtocol.SHUTDOWN_SERVER: // New Case
+                    if (playerId != -1) {
+                        logger.info("Received shutdown request from client {}", playerId);
+                        server.requestShutdown(playerId); // Ask server to handle it
+                    } else {
+                        logger.warn("Received SHUTDOWN_SERVER before registration: {}", message);
+                    }
+                    break;
+
                 default:
                     logger.warn("Unknown message from client {}: {}", playerId, message);
             }

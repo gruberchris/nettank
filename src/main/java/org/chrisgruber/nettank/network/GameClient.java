@@ -176,12 +176,16 @@ public class GameClient implements Runnable {
 
             switch (command) {
                 case NetworkProtocol.ASSIGN_ID:
-                    if (parts.length >= 5) {
+                    if (parts.length >= 6) {
                         int id = Integer.parseInt(parts[1]);
                         float r = Float.parseFloat(parts[2]);
                         float g = Float.parseFloat(parts[3]);
                         float b = Float.parseFloat(parts[4]);
+                        boolean isHost = Boolean.parseBoolean(parts[5]);
                         game.setLocalPlayerId(id, r, g, b);
+                        game.setHostStatus(isHost);
+                    } else {
+                        logger.error("Malformed ASSIGN_ID message: Expected 6 parts, got {}", parts.length);
                     }
                     break;
                 case NetworkProtocol.NEW_PLAYER:
@@ -384,5 +388,9 @@ public class GameClient implements Runnable {
 
     public boolean isConnected() {
         return running && socket != null && socket.isConnected() && !socket.isClosed();
+    }
+
+    public void sendShutdownServer() {
+        sendMessage(NetworkProtocol.SHUTDOWN_SERVER);
     }
 }

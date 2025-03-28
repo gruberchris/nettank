@@ -29,6 +29,7 @@ public class GameServer {
     private ServerSocket serverSocket;
     private boolean running = false;
     private final AtomicInteger nextPlayerId = new AtomicInteger(0);
+    private volatile int hostPlayerId = -1;
 
     // Game State
     private final GameMap gameMap;
@@ -71,6 +72,15 @@ public class GameServer {
             System.err.println("Server failed: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
+        }
+    }
+
+    public synchronized void requestShutdown(int requestorPlayerId) {
+        if (requestorPlayerId == hostPlayerId && hostPlayerId != -1) { // Check against tracked host ID
+            logger.info("Shutdown requested by host (Player {}). Initiating server stop...", requestorPlayerId);
+            stop();
+        } else {
+            logger.warn("Shutdown requested by non-host client (Player {}) or host ID not set. Request ignored.", requestorPlayerId);
         }
     }
 
@@ -146,16 +156,6 @@ public class GameServer {
                 serverSocket.close();
                 logger.info("Server socket closed.");
             }
-            /*
-            for (ClientHandler handler : clients.values()) {
-                handler.closeConnection("Server shutting down");
-            }
-            clients.clear();
-            tanks.clear();
-            bullets.clear();
-            logger.info("Server stopped.");
-
-             */
         } catch (IOException e) {
             logger.error("Error closing server socket.", e);
         }
@@ -189,7 +189,6 @@ public class GameServer {
         logger.info("Server stopped.");
     }
 
-    // Called by ClientHandler when a CONNECT message is received
     public synchronized void registerPlayer(ClientHandler handler, String playerName) {
         if (clients.size() >= MAX_PLAYERS) {
             handler.sendMessage(NetworkProtocol.ERROR_MSG + ";Server full");
@@ -203,41 +202,60 @@ public class GameServer {
         }
 
         int playerId = nextPlayerId.getAndIncrement();
-        Vector3f assignedColor = availableColors.remove(0); // Take the first available color
+        boolean isFirstPlayer = false;
 
+        // --- Assign Host Role ---
+        if (hostPlayerId == -1 && clients.isEmpty()) { // Check if first player to register
+            hostPlayerId = playerId; // Assign host ID
+            isFirstPlayer = true;
+            logger.info("Player ID {} ({}) assigned as HOST.", playerId, playerName);
+        }
+
+        Vector3f assignedColor = availableColors.removeFirst();
         Vector2f spawnPos = gameMap.getRandomSpawnPoint();
         Tank newTank = new Tank(playerId, spawnPos.x, spawnPos.y, assignedColor, playerName);
-        newTank.setLives(currentGameState == GameState.PLAYING ? 0 : Tank.INITIAL_LIVES); // Join dead if game in progress
+        newTank.setLives(currentGameState == GameState.PLAYING ? 0 : Tank.INITIAL_LIVES);
 
         handler.setPlayerInfo(playerId, playerName, assignedColor);
         clients.put(playerId, handler);
         tanks.put(playerId, newTank);
 
-        logger.info("Player registered: ID={}, Name={}, Color={}", playerId, playerName, assignedColor);
+        logger.info("Player registered: ID={}, Name={}, Color={}, IsHost={}", playerId, playerName, assignedColor, isFirstPlayer);
 
-        // 1. Send assigned ID and color to the new player
-        handler.sendMessage(String.format("%s;%d;%f;%f;%f", NetworkProtocol.ASSIGN_ID, playerId, assignedColor.x, assignedColor.y, assignedColor.z));
+        // 1. Send assigned ID, color, AND HOST STATUS to the new player
+        handler.sendMessage(String.format("%s;%d;%f;%f;%f;%b", // Added %b for boolean
+                NetworkProtocol.ASSIGN_ID,
+                playerId,
+                assignedColor.x, assignedColor.y, assignedColor.z,
+                isFirstPlayer // Send true if host, false otherwise
+        ));
 
         // 2. Send current game state and existing players/bullets to the new player
         handler.sendMessage(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, currentGameState.name(),
-                currentGameState == GameState.PLAYING ? roundStartTimeMillis : (currentGameState == GameState.COUNTDOWN ? stateChangeTime + COUNTDOWN_SECONDS * 1000 : 0) ));
+                // Calculate timeData based on state... (existing logic)
+                (currentGameState == GameState.PLAYING ? roundStartTimeMillis : (currentGameState == GameState.COUNTDOWN ? stateChangeTime + COUNTDOWN_SECONDS * 1000 : 0))
+        ));
 
         for (Tank tank : tanks.values()) {
+            // Send NEW_PLAYER for all existing tanks (including self)
             handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
                     NetworkProtocol.NEW_PLAYER, tank.getPlayerId(), tank.getPosition().x, tank.getPosition().y, tank.getRotation(),
                     tank.getName(), tank.getColor().x, tank.getColor().y, tank.getColor().z));
+            // Send current lives for all existing tanks
             handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tank.getPlayerId(), tank.getLives()));
         }
-        // Send existing bullets (less critical, could be skipped)
-        // for (Bullet bullet : bullets) { handler.sendMessage(...); }
-
+        // Send existing bullets (optional)
 
         // 3. Inform all *other* players about the new player
         broadcast(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
                 NetworkProtocol.NEW_PLAYER, playerId, spawnPos.x, spawnPos.y, newTank.getRotation(),
                 playerName, assignedColor.x, assignedColor.y, assignedColor.z), playerId); // Exclude new player
 
-        // Update game state if needed (e.g., trigger countdown if enough players)
+        // 4. Send lives of new player to others
+        broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, playerId, newTank.getLives()), playerId);
+
+
+        // Update game state if needed
         checkGameStateTransition();
     }
 
@@ -249,6 +267,15 @@ public class GameServer {
         // Remove thread from tracking list (best effort, find by handler if possible)
         // This part is tricky as threads might die before removal.
         // Maybe ClientHandler should notify server *before* thread truly exits?
+
+        // --- Reset host if the host leaves ---
+        if (playerId == hostPlayerId) {
+            logger.info("Host (Player {}) disconnected. Resetting host ID.", playerId);
+            hostPlayerId = -1;
+            // Optional: Assign host to the next player ID 0 if they exist? Or just wait for new connection?
+            // For simplicity, let's just reset it. The server might not be manageable until a new host joins.
+            // Or: if (!clients.isEmpty()) { hostPlayerId = clients.keySet().iterator().next(); logger.info("Assigned new host: Player {}", hostPlayerId);}
+        }
 
         if (handler != null && tank != null) {
             logger.info("Player removed: ID={}, Name={}", playerId, tank.getName());
