@@ -74,7 +74,6 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     // Config
     public static final float VIEW_RANGE = 300.0f;
-    public static final float TILE_SIZE = GameMapData.DEFAULT_TILE_SIZE;
 
     /**
      * Constructor for the Tank Battle Game.
@@ -112,7 +111,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Initialize Map (using client-specific map class)
             // TODO: Map dimensions could come from server later, or use defaults
-            gameMap = new ClientGameMap(50, 50, TILE_SIZE);
+            gameMap = new ClientGameMap(50, 50);
 
             // Setup projection matrix
             // TODO: camera might handle aspect ratio
@@ -170,7 +169,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (localTank != null) {
             camera.setPosition(localTank.getPosition().x, localTank.getPosition().y);
         } else if (isSpectating && gameMap != null) {
-            camera.setPosition(gameMap.getWidth() / 2.0f, gameMap.getHeight() / 2.0f);
+            camera.setPosition(gameMap.getWorldWidth() / 2.0f, gameMap.getWorldHeight() / 2.0f);
         }
 
         camera.update(); // Update camera matrices
@@ -201,20 +200,23 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range);
         }
 
-        // Render Tanks (using ClientTank instances)
+        // Render Tanks
         Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
         float renderRangeSq = isSpectating ? Float.MAX_VALUE : VIEW_RANGE * VIEW_RANGE;
 
-        tankTexture.bind(); // Bind tank texture once
+        tankTexture.bind();
         for (ClientTank tank : tanks.values()) {
             if (isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) {
                 shader.setUniform3f("u_tintColor", tank.getColor());
-                renderer.drawQuad(tank.getPosition().x, tank.getPosition().y, tank.width, tank.height, tank.getRotation(), shader);
+                // Use TankData.SIZE from common module
+                renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
+                        TankData.SIZE, TankData.SIZE, // <<< CHANGED HERE
+                        tank.getRotation(), shader);
             }
         }
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
 
-        // Render Bullets (using ClientBullet instances)
+        // Render Bullets
         bulletTexture.bind(); // Bind bullet texture once
         for (ClientBullet bullet : bullets) {
             // ClientBullet needs getPosition()
@@ -235,7 +237,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     // UI Rendering Logic (previously in Game.renderUI)
     private void renderUI() {
-        uiManager.startUIRendering(windowWidth, windowHeight); // Use engine width/height
+        uiManager.startUIRendering(windowWidth, windowHeight);
 
         // Render Lives
         if (localTank != null && !isSpectating) {
@@ -268,12 +270,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
 
         // Render Game State messages
-        // TODO: Get max players from server message
-        var maxPlayers = 6;
         String stateMessage = "";
         switch (currentGameState) {
             case WAITING:
-                stateMessage = "WAITING FOR PLAYERS (" + tanks.size() + "/" + maxPlayers + ")";
+                stateMessage = "WAITING FOR PLAYERS (" + tanks.size() + ")";
                 break;
             case COUNTDOWN:
                 stateMessage = "ROUND STARTING..."; // Announcements show numbers
@@ -378,30 +378,44 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Find/Update the ClientTank once NEW_PLAYER arrives
     }
 
-    // Called when NEW_PLAYER or PLAYER_UPDATE is received
-    // Merged Add/Update logic
+    @Override
     public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, int lives) {
-        ClientTank tank = tanks.computeIfAbsent(id, k -> {
+        ClientTank tank = tanks.get(id);
+
+        if (tank == null) { // Tank doesn't exist, create it
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
             TankData data = new TankData(); // Create common data object
-            ClientTank newTank = new ClientTank(data); // ClientTank holds TankData
+            // Set initial state (lives will be updated by PLAYER_LIVES shortly)
+            data.updateFromServer(id, name, x, y, rotation, r, g, b, (lives != -1 ? lives : TankData.INITIAL_LIVES)); // Use initial lives if -1 passed
+            tank = new ClientTank(data); // Create client wrapper
+
+            // Put the NEW tank into the map *after* creating it
+            tanks.put(id, tank);
+
             if (id == localPlayerId) {
-                localTank = newTank; // Assign local tank reference
-                isSpectating = (lives <= 0); // Spectate if joining dead
-                logger.info("Local tank object created/updated. Spectating: {}", isSpectating);
+                localTank = tank; // Assign local tank reference
+                // Initial spectator status depends on initial lives received or inferred
+                isSpectating = !tank.isAlive(); // Check initial alive status
+                logger.info("Local tank object created. Spectating: {}", isSpectating);
             }
-            tanks.put(id, newTank); // Put in map *after* initial setup
-            return newTank; // Return to outer scope
-        });
+        } else {
+            // Tank already exists, just update its data
+            logger.trace("Updating existing ClientTank for player ID: {}", id); // Use Trace
+            // Only update lives if a valid value was passed, otherwise keep current lives
+            int currentLives = (lives != -1) ? lives : tank.getTankData().lives;
+            tank.getTankData().updateFromServer(id, name, x, y, rotation, r, g, b, currentLives);
+            // Ensure the visual entity position matches the data
+            tank.updatePositionFromData();
 
-        // Update the TankData held by the ClientTank
-        tank.getTankData().updateFromServer(id, name, x, y, rotation, r, g, b, lives);
-
-        // Check if local player just respawned or joined alive
-        if(id == localPlayerId && lives > 0 && isSpectating) {
-            logger.info("Local player respawned or joined alive. Disabling spectator mode.");
-            isSpectating = false;
-            localTank = tank; // Ensure localTank ref is correct
+            // Check if local player just respawned or joined alive
+            if (id == localPlayerId) {
+                boolean shouldSpectate = (currentLives <= 0);
+                if (isSpectating != shouldSpectate) { // Only log change
+                    logger.info("Local player spectator status changed. Spectating: {}", shouldSpectate);
+                    isSpectating = shouldSpectate;
+                }
+                localTank = tank; // Ensure localTank ref is correct
+            }
         }
     }
 

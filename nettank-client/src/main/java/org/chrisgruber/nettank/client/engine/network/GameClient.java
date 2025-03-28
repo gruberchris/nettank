@@ -1,6 +1,5 @@
 package org.chrisgruber.nettank.client.engine.network;
 
-import org.chrisgruber.nettank.client.engine.core.GameEngine;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
 import org.chrisgruber.nettank.common.util.GameState;
 import org.slf4j.Logger;
@@ -123,13 +122,12 @@ public class GameClient implements Runnable {
 
             switch (command) {
                 case NetworkProtocol.ASSIGN_ID:
-                    // Updated protocol: AID;<yourId>;<colorR>;<colorG>;<colorB> (5 parts)
+                    // Protocol is now just: AID;<yourId>;<colorR>;<colorG>;<colorB> (5 parts)
                     if (parts.length >= 5) {
                         int id = Integer.parseInt(parts[1]);
-                        // Color info now usually comes via NEW_PLAYER or PLAYER_UPDATE
-                        // Only set the ID here.
+                        // Ignore color parts r,g,b (parts[2],[3],[4]) here - they come with NEW_PLAYER
                         networkCallbackHandler.setLocalPlayerId(id);
-                        // Removed setHostStatus call
+                        // REMOVED setHostStatus call
                     } else {
                         logger.error("Malformed ASSIGN_ID message: Expected 5 parts, got {}", parts.length);
                     }
@@ -205,6 +203,21 @@ public class GameClient implements Runnable {
                     // Client doesn't need to parse this directly, info is in announcement now
                     if(parts.length >= 4) { logger.trace("Received ROUND_OVER message (parsed by announcement)"); }
                     else { logger.error("Malformed ROUND_OVER message: Expected 4 parts, got {}", parts.length); }
+                    break;
+                case NetworkProtocol.RESPAWN: // RSP;<id>;<x>;<y> (4 parts)
+                    if (parts.length >= 4) {
+                        int id = Integer.parseInt(parts[1]);
+                        float x = Float.parseFloat(parts[2]);
+                        float y = Float.parseFloat(parts[3]);
+                        // Respawn likely implies full health and update position/rotation (rot=0?)
+                        // We can reuse updateTankState for position, and updatePlayerLives separately
+                        // Server sends PLAYER_LIVES after RSP anyway in resetPlayersForNewRound
+                        logger.debug("Received RESPAWN for player {}", id);
+                        networkCallbackHandler.updateTankState(id, x, y, 0); // Reset rotation to 0 on respawn?
+                        // Server will send PLAYER_LIVES shortly after
+                    } else {
+                        logger.error("Malformed RESPAWN message: Expected 4 parts, got {}", parts.length);
+                    }
                     break;
                 case NetworkProtocol.ERROR_MSG: // ERR;<errorMessage> (2+ parts)
                     if(parts.length >= 2) {
