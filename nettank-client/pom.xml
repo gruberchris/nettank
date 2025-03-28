@@ -1,24 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.chrisgruber.nettank</groupId>
+        <artifactId>nettank</artifactId>
+        <version>1.0.0</version>
+    </parent>
 
-    <groupId>org.chrisgruber.nettank</groupId>
-    <artifactId>nettank</artifactId>
-    <version>1.0.0</version>
-    <packaging>pom</packaging>
-
-    <name>Nettank</name>
-    <modules>
-        <module>nettank-client</module>
-        <module>nettank-server</module>
-        <module>nettank-common</module>
-    </modules>
+    <artifactId>nettank-client</artifactId>
 
     <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lwjgl.version>3.3.3</lwjgl.version>
         <joml.version>1.10.5</joml.version>
         <!-- Determine OS type for LWJGL natives -->
@@ -151,6 +147,12 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>1.4.14</version>
+        </dependency>
+        <dependency>
+            <groupId>org.chrisgruber.nettank</groupId>
+            <artifactId>nettank-common</artifactId>
+            <version>1.0.0</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 

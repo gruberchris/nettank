@@ -1,0 +1,31 @@
+<configuration>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- encoders are assigned the type
+             ch.qos.logback.classic.encoder.PatternLayoutEncoder by default -->
+        <encoder>
+            <!-- Use %logger for full names -->
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <!-- Log to a file named logs/server.log in the directory where the JAR is run -->
+        <file>logs/server.log</file>
+        <append>true</append> <!-- Append to existing log -->
+        <encoder>
+            <pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Set root logger level and add appenders -->
+    <!-- Use DEBUG or TRACE for more detail during development -->
+    <root level="DEBUG">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILE" />
+    </root>
+
+    <!-- Optional: Set specific logger levels -->
+    <!-- <logger name="org.chrisgruber.nettank.server" level="DEBUG"/> -->
+
+</configuration>
