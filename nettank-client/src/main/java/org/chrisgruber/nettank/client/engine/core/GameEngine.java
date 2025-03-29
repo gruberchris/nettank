@@ -21,13 +21,12 @@ public abstract class GameEngine implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(GameEngine.class);
 
     // Window Properties
-    // TODO: Consider making these configurable via a properties file or command line args
     protected final int windowWidth;
     protected final int windowHeight;
     protected final String windowTitle;
 
     // Core Engine Components
-    protected long windowHandle = NULL; // Changed name from 'window' to avoid confusion
+    protected long windowHandle = NULL;
     protected InputHandler inputHandler;
     private GLFWErrorCallback errorCallback;
 
