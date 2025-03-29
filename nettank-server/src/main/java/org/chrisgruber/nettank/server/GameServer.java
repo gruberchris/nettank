@@ -207,13 +207,13 @@ public class GameServer {
         int playerId = serverContext.nextPlayerId.getAndIncrement();
 
         Vector3f assignedColor = availableColors.removeFirst();
+
+        handler.setPlayerInfo(playerId, playerName, assignedColor);
+
         Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
 
         TankData newTankData = new TankData(playerId, spawnPos.x, spawnPos.y, assignedColor, playerName);
-        //newTankData.setLives(serverContext.currentGameState == GameState.PLAYING ? 0 : TankData.INITIAL_LIVES);
         newTankData.setLives(TankData.INITIAL_LIVES);
-
-        handler.setPlayerInfo(playerId, playerName, assignedColor);
         serverContext.clients.put(playerId, handler);
         serverContext.tanks.put(playerId, newTankData);
 
@@ -229,6 +229,10 @@ public class GameServer {
                 (serverContext.currentGameState == GameState.PLAYING ? serverContext.roundStartTimeMillis : (serverContext.currentGameState == GameState.COUNTDOWN ? serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000 : 0)) ));
 
         logger.info("Sent GAME_STATE to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
+
+        if (serverContext.currentGameState == GameState.PLAYING) {
+            serverContext.gameMode.handleNewPlayerJoinWhileGameInProgress(serverContext, playerId, playerName, newTankData);
+        }
 
         // Send all tanks and their lives to new player
         for (TankData tankData : serverContext.tanks.values()) {

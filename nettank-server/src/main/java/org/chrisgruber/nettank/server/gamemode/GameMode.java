@@ -1,8 +1,10 @@
 package org.chrisgruber.nettank.server.gamemode;
 
+import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.gamemode.GameModeRule;
 import org.chrisgruber.nettank.common.gamemode.GameStartCondition;
 import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
+import org.chrisgruber.nettank.server.state.ServerContext;
 
 public abstract class GameMode {
 
@@ -44,8 +46,10 @@ public abstract class GameMode {
         this.gameEndsOnTotalPlayersRemaining = 0;
     }
 
-    public abstract boolean checkIsGameReadyToStart();
-    public abstract boolean checkIsGameConditionMet();
+    public abstract boolean checkIsGameReadyToStart(ServerContext serverContext);
+    public abstract boolean checkIsGameConditionMet(ServerContext serverContext);
+    public abstract void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
+    public abstract void handleRoundOver(ServerContext serverContext);
 
     public boolean isInfiniteRespawns() {
         return isInfiniteRespawns;
