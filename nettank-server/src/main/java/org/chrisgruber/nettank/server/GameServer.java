@@ -8,6 +8,8 @@ import org.chrisgruber.nettank.common.world.GameMapData;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
+import org.chrisgruber.nettank.server.gamemode.FreeForAll;
+import org.chrisgruber.nettank.server.state.ServerContext;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -21,20 +23,12 @@ import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class GameServer {
     private static final Logger logger = LoggerFactory.getLogger(GameServer.class);
     private final int port;
     private ServerSocket serverSocket;
-    private volatile boolean running = false;
-    private final AtomicInteger nextPlayerId = new AtomicInteger(0);
-    private volatile int hostPlayerId = -1;
-    private final AtomicBoolean stopping = new AtomicBoolean(false);
     private Thread gameLoopThread;
 
     // Server-specific Constants
@@ -43,29 +37,22 @@ public class GameServer {
     public static final float BULLET_SPEED = 350.0f;
     public static final long BULLET_LIFETIME_MS = 2000;
     public static final long TANK_SHOOT_COOLDOWN_MS = 500;
-    private static final long COUNTDOWN_SECONDS = 3;
+    private static final long STARTING_COUNTDOWN_SECONDS = 3;
     private static final long ROUND_END_DELAY_MS = 5000;
-    public static final int MIN_PLAYERS_TO_START = 1; // Set to 1 for testing
-    public static final int MAX_PLAYERS = 6;
 
-    // Game State
-    private final GameMapData gameMapData;
-    private final Map<Integer, ClientHandler> clients = new ConcurrentHashMap<>();
-    private final Map<Integer, TankData> tanks = new ConcurrentHashMap<>();
-    private final List<BulletData> bullets = new CopyOnWriteArrayList<>();
     private final List<Vector3f> availableColors = new CopyOnWriteArrayList<>(Colors.TANK_COLORS); // Use common Colors
-
-    private volatile GameState currentGameState = GameState.WAITING;
-    private long roundStartTimeMillis = 0;
-    private long stateChangeTime = 0;
 
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
 
+    // Server context holds mutable state
+    private final ServerContext serverContext = new ServerContext();
+
     public GameServer(int port) throws IOException {
         this.port = port;
-        this.gameMapData = new GameMapData(50, 50, GameMapData.DEFAULT_TILE_SIZE);
         Collections.shuffle(availableColors);
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
+        this.serverContext.gameMode = new FreeForAll();
+        this.serverContext.gameMapData = new GameMapData(50, 50, GameMapData.DEFAULT_TILE_SIZE);
     }
 
     public static void main(String[] args) {
@@ -96,7 +83,7 @@ public class GameServer {
 
     public void start() throws IOException {
         serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
-        running = true; // Set running before starting threads
+        serverContext.running = true;
         logger.info("Server started on {}:{}", serverSocket.getInetAddress().getHostAddress(), port);
 
         gameLoopThread = new Thread(this::gameLoop);
@@ -106,21 +93,21 @@ public class GameServer {
 
         logger.info("Waiting for client connections...");
         try {
-            while (running) {
+            while (serverContext.running) {
                 try {
                     Socket clientSocket = serverSocket.accept(); // Blocks
-                    if (!running) break; // Check flag after unblocking
+                    if (!serverContext.running) break; // Check flag after unblocking
                     logger.info("Client connected: {}", clientSocket.getInetAddress().getHostAddress());
                     ClientHandler clientHandler = new ClientHandler(clientSocket, this);
                     startClientThread(clientHandler);
                 } catch (SocketException e) {
-                    if (running) { logger.error("Server socket accept error: {}", e.getMessage());}
+                    if (serverContext.running) { logger.error("Server socket accept error: {}", e.getMessage());}
                     else { logger.info("Server socket closed, accept loop terminating."); }
                     // Loop condition (running) handles exit
                 } catch (IOException e) {
-                    if (running) { logger.error("Error accepting client connection", e); }
+                    if (serverContext.running) { logger.error("Error accepting client connection", e); }
                 } catch (Exception e){
-                    if(running) { logger.error("Unexpected error in accept loop", e); }
+                    if(serverContext.running) { logger.error("Unexpected error in accept loop", e); }
                 }
             }
         } finally {
@@ -142,12 +129,12 @@ public class GameServer {
     }
 
     public void stop() {
-        if (!stopping.compareAndSet(false, true)) {
+        if (!serverContext.stopping.compareAndSet(false, true)) {
             logger.info("Server stop() already in progress or completed.");
             return;
         }
         logger.info("Server stop() sequence initiated...");
-        running = false;
+        serverContext.running = false;
 
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
@@ -165,21 +152,20 @@ public class GameServer {
         }
 
         logger.info("Closing client connections...");
-        List<ClientHandler> handlersToClose = new ArrayList<>(clients.values());
+        List<ClientHandler> handlersToClose = new ArrayList<>(serverContext.clients.values());
         logger.info("Found {} handlers to close.", handlersToClose.size());
         for (ClientHandler handler : handlersToClose) {
             if (handler != null) { handler.closeConnection("Server shutting down"); }
         }
 
         // Clear state
-        clients.clear();
-        tanks.clear();
-        bullets.clear();
+        serverContext.clients.clear();
+        serverContext.tanks.clear();
+        serverContext.bullets.clear();
         availableColors.clear();
         availableColors.addAll(Colors.TANK_COLORS);
         Collections.shuffle(availableColors);
-        nextPlayerId.set(0);
-        hostPlayerId = -1;
+        serverContext.nextPlayerId.set(0);
 
         logger.info("Interrupting any potentially lingering client handler main threads...");
         List<Thread> threadsToInterrupt = new ArrayList<>(clientHandlerThreads);
@@ -209,7 +195,7 @@ public class GameServer {
     // --- Registration & Removal ---
 
     public synchronized void registerPlayer(ClientHandler handler, String playerName) {
-        if (clients.size() >= MAX_PLAYERS) {
+        if (serverContext.clients.size() >= serverContext.gameMode.getMaxAllowedPlayers()) {
             handler.sendMessage(NetworkProtocol.ERROR_MSG + ";Server full");
             handler.closeConnection("Server full"); return;
         }
@@ -218,39 +204,41 @@ public class GameServer {
             handler.closeConnection("No colors available"); return;
         }
 
-        int playerId = nextPlayerId.getAndIncrement();
-        boolean isFirstPlayer = false;
-        if (hostPlayerId == -1 && clients.isEmpty()) {
-            hostPlayerId = playerId; isFirstPlayer = true;
-            logger.info("Player ID {} ({}) assigned as HOST.", playerId, playerName);
-        }
+        int playerId = serverContext.nextPlayerId.getAndIncrement();
 
         Vector3f assignedColor = availableColors.removeFirst();
-        Vector2f spawnPos = gameMapData.getRandomSpawnPoint();
+        Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
 
         TankData newTankData = new TankData(playerId, spawnPos.x, spawnPos.y, assignedColor, playerName);
-        newTankData.setLives(currentGameState == GameState.PLAYING ? 0 : TankData.INITIAL_LIVES);
+        //newTankData.setLives(serverContext.currentGameState == GameState.PLAYING ? 0 : TankData.INITIAL_LIVES);
+        newTankData.setLives(TankData.INITIAL_LIVES);
 
         handler.setPlayerInfo(playerId, playerName, assignedColor);
-        clients.put(playerId, handler);
-        tanks.put(playerId, newTankData);
+        serverContext.clients.put(playerId, handler);
+        serverContext.tanks.put(playerId, newTankData);
 
-        logger.info("Player registered: ID={}, Name={}, Color={}, IsHost={}", playerId, playerName, assignedColor, isFirstPlayer);
+        logger.info("Player registered: ID={}, Name={}, Color={}", playerId, playerName, assignedColor);
 
         // Send ASSIGN_ID (5 parts now)
         handler.sendMessage(String.format("%s;%d;%f;%f;%f",
                 NetworkProtocol.ASSIGN_ID, playerId, assignedColor.x, assignedColor.y, assignedColor.z));
 
-        handler.sendMessage(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, currentGameState.name(),
-                (currentGameState == GameState.PLAYING ? roundStartTimeMillis : (currentGameState == GameState.COUNTDOWN ? stateChangeTime + COUNTDOWN_SECONDS * 1000 : 0)) ));
+        logger.info("Sent ASSIGN_ID to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
+
+        handler.sendMessage(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, serverContext.currentGameState.name(),
+                (serverContext.currentGameState == GameState.PLAYING ? serverContext.roundStartTimeMillis : (serverContext.currentGameState == GameState.COUNTDOWN ? serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000 : 0)) ));
+
+        logger.info("Sent GAME_STATE to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         // Send all tanks and their lives to new player
-        for (TankData tankData : tanks.values()) {
+        for (TankData tankData : serverContext.tanks.values()) {
             handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
                     NetworkProtocol.NEW_PLAYER, tankData.playerId, tankData.position.x, tankData.position.y, tankData.rotation,
                     tankData.name, tankData.color.x, tankData.color.y, tankData.color.z));
             handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, tankData.lives));
         }
+
+        logger.info("Sent existing player's tanks to new player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         // Inform others about new player & lives
         String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
@@ -260,17 +248,16 @@ public class GameServer {
         broadcast(newPlayerMsg, playerId);
         broadcast(livesMsg, playerId);
 
+        logger.info("Broadcasted new player info to others: ID={}, Name={}", playerId, playerName);
+
         checkGameStateTransition();
+
+        logger.info("Checked game state transition after player registration.");
     }
 
     public synchronized void removePlayer(int playerId) {
-        ClientHandler handler = clients.remove(playerId);
-        TankData tankData = tanks.remove(playerId);
-
-        if (playerId == hostPlayerId) {
-            logger.info("Host (Player {}) disconnected. Resetting host ID.", playerId);
-            hostPlayerId = -1;
-        }
+        ClientHandler handler = serverContext.clients.remove(playerId);
+        TankData tankData = serverContext.tanks.remove(playerId);
 
         if (handler != null && tankData != null) {
             logger.info("Player removed: ID={}, Name={}", playerId, tankData.name);
@@ -280,24 +267,11 @@ public class GameServer {
         } else {
             // logger.warn("Attempted to remove player {}, but handler or tankData was already null.", playerId); // Reduce noise
         }
-    }
 
-    // Called by ClientHandler on SSD command
-    public synchronized void requestShutdown(int requestorPlayerId) {
-        // Check against tracked host ID
-        if (requestorPlayerId == hostPlayerId && hostPlayerId != -1) {
-            logger.info("Shutdown requested by host (Player {}). Initiating server stop...", requestorPlayerId);
-            stop();
-        } else {
-            logger.warn("Shutdown requested by non-host client (Player {}) or host ID not set. Request ignored.", requestorPlayerId);
-            // Optionally send error back
-            ClientHandler reqHandler = clients.get(requestorPlayerId);
-            if(reqHandler != null) {
-                reqHandler.sendMessage(NetworkProtocol.ERROR_MSG + ";Only host can shut down server");
-            }
+        if (serverContext.getPlayerCount() == 0) {
+            serverContext.currentGameState = GameState.WAITING; // Reset state if no players left
         }
     }
-
 
     // --- Game Loop & Logic ---
 
@@ -306,7 +280,7 @@ public class GameServer {
         double nsPerTick = 1_000_000_000.0 / 60.0;
         double delta = 0; // Fixed declaration
         logger.info("GameLoop thread started.");
-        while (running) {
+        while (serverContext.running) {
             long now = System.nanoTime();
             delta += Math.min((now - lastTime) / nsPerTick, 10.0); // Capped delta time
             lastTime = now;
@@ -318,13 +292,13 @@ public class GameServer {
             }
             if (updated) { broadcastState(); }
             try {
-                if (!running) break;
+                if (!serverContext.running) break;
                 Thread.sleep(1);
             } catch (InterruptedException e) {
                 logger.info("Game loop interrupted (likely server shutdown).");
                 Thread.currentThread().interrupt(); // Preserve interrupt status
             } catch (Exception e) {
-                if (running) { logger.error("Unexpected error in GameLoop sleep/wait phase", e); }
+                if (serverContext.running) { logger.error("Unexpected error in GameLoop sleep/wait phase", e); }
             }
         }
         logger.info("GameLoop thread finished.");
@@ -333,10 +307,10 @@ public class GameServer {
     private synchronized void updateGameLogic(float deltaTime) {
         long currentTime = System.currentTimeMillis();
         handleGameStateTransitions(currentTime);
-        if (currentGameState != GameState.PLAYING) { return; }
+        if (serverContext.currentGameState != GameState.PLAYING) { return; }
 
         // Update Tanks
-        for (TankData tankData : tanks.values()) {
+        for (TankData tankData : serverContext.tanks.values()) {
             if (!tankData.alive) continue;
             Vector2f oldPos = new Vector2f(tankData.position);
             // Movement Logic
@@ -357,7 +331,7 @@ public class GameServer {
                 tankData.addPosition(dx, dy);
             }
             // Bounds Check
-            if (gameMapData.isOutOfBounds(tankData.position.x, tankData.position.y, TankData.COLLISION_RADIUS)) {
+            if (serverContext.gameMapData.isOutOfBounds(tankData.position.x, tankData.position.y, TankData.COLLISION_RADIUS)) {
                 tankData.setPosition(oldPos.x, oldPos.y);
             }
 
@@ -366,18 +340,18 @@ public class GameServer {
 
         // Update Bullets
         List<BulletData> bulletsToRemove = new ArrayList<>();
-        for (BulletData bulletData : bullets) {
+        for (BulletData bulletData : serverContext.bullets) {
             bulletData.position.add(bulletData.velocity.x * deltaTime, bulletData.velocity.y * deltaTime);
             boolean expired = (currentTime - bulletData.spawnTime) >= BULLET_LIFETIME_MS;
-            if (expired || gameMapData.isOutOfBounds(bulletData.position.x, bulletData.position.y, BulletData.SIZE / 2.0f)) {
+            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData.position.x, bulletData.position.y, BulletData.SIZE / 2.0f)) {
                 bulletsToRemove.add(bulletData);
             }
         }
 
         // Collision Check
-        for (BulletData bulletData : bullets) {
+        for (BulletData bulletData : serverContext.bullets) {
             if (bulletsToRemove.contains(bulletData)) continue;
-            for (TankData tankData : tanks.values()) {
+            for (TankData tankData : serverContext.tanks.values()) {
                 if (!tankData.alive || tankData.playerId == bulletData.ownerId) continue;
                 if (bulletData.position.distanceSquared(tankData.position) < Math.pow(TankData.COLLISION_RADIUS + BulletData.SIZE / 2.0f, 2)) {
                     handleHit(tankData, bulletData);
@@ -386,12 +360,12 @@ public class GameServer {
                 }
             }
         }
-        bullets.removeAll(bulletsToRemove);
+        serverContext.bullets.removeAll(bulletsToRemove);
         checkWinCondition();
     }
 
     private synchronized void handleHit(TankData target, BulletData bulletData) {
-        TankData shooter = tanks.get(bulletData.ownerId);
+        TankData shooter = serverContext.tanks.get(bulletData.ownerId);
         String shooterName = (shooter != null) ? shooter.name : "Unknown";
         String targetName = target.name;
         logger.info("Hit registered: {} -> {}", shooterName, targetName);
@@ -409,19 +383,19 @@ public class GameServer {
     }
 
     public void handlePlayerInput(int playerId, boolean w, boolean s, boolean a, boolean d) {
-        TankData tankData = tanks.get(playerId);
-        if (tankData != null && tankData.alive && currentGameState == GameState.PLAYING) {
+        TankData tankData = serverContext.tanks.get(playerId);
+        if (tankData != null && tankData.alive && serverContext.currentGameState == GameState.PLAYING) {
             tankData.setInputState(w, s, a, d);
         }
     }
 
     public void handlePlayerShoot(int playerId) {
-        TankData tankData = tanks.get(playerId);
+        TankData tankData = serverContext.tanks.get(playerId);
         long currentTime = System.currentTimeMillis();
         // Check cooldown using server constant and data field
         boolean hasCooledDown = tankData != null && tankData.alive && (currentTime - tankData.lastShotTime >= TANK_SHOOT_COOLDOWN_MS);
 
-        if (hasCooledDown && currentGameState == GameState.PLAYING) {
+        if (hasCooledDown && serverContext.currentGameState == GameState.PLAYING) {
             tankData.recordShot(currentTime);
 
             float angleRad = (float) Math.toRadians(tankData.rotation);
@@ -436,26 +410,35 @@ public class GameServer {
 
             // Create BulletData (constructor now uses currentTime from server)
             BulletData bullet = new BulletData(playerId, startX, startY, velocity.x, velocity.y, currentTime);
-            bullets.add(bullet);
+            serverContext.bullets.add(bullet);
 
             // Broadcast with calculated dirX, dirY
             broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.SHOOT, playerId, startX, startY, dirX, dirY), -1);
         }
     }
 
-    // --- State Transitions & Broadcasting --- (Largely unchanged logic, using TankData)
     private synchronized void handleGameStateTransitions(long currentTime) {
-        int totalPlayers = tanks.size();
-        switch (currentGameState) {
-            case WAITING: if (totalPlayers >= MIN_PLAYERS_TO_START) { changeState(GameState.COUNTDOWN, currentTime); } break;
+        int totalPlayers = serverContext.getPlayerCount();
+
+        logger.trace("Handling game state change to {} at {} with {} players in game.", serverContext.currentGameState, currentTime, totalPlayers);
+
+        switch (serverContext.currentGameState) {
+            case WAITING:
+                logger.trace("In WAITING state, checking player count. Current: {}, Min: {}, Max: {}",totalPlayers, serverContext.gameMode.getMinRequiredPlayers(), serverContext.gameMode.getMaxAllowedPlayers());
+
+                if (totalPlayers >= serverContext.gameMode.getMinRequiredPlayers()) {
+                    logger.debug("Transitioning to COUNTDOWN state because current player count is at or greater than min player count.");
+                    changeState(GameState.COUNTDOWN, currentTime);
+                }
+                break;
             case COUNTDOWN:
-                if (totalPlayers < MIN_PLAYERS_TO_START) { changeState(GameState.WAITING, currentTime); }
-                else if (currentTime >= stateChangeTime + COUNTDOWN_SECONDS * 1000) { resetPlayersForNewRound(); roundStartTimeMillis = currentTime; changeState(GameState.PLAYING, currentTime); }
+                if (totalPlayers < serverContext.gameMode.getMinRequiredPlayers()) { changeState(GameState.WAITING, currentTime); }
+                else if (currentTime >= serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000) { resetPlayersForNewRound(); serverContext.roundStartTimeMillis = currentTime; changeState(GameState.PLAYING, currentTime); }
                 else { /* Countdown announce logic */ } break;
             case PLAYING: /* checkWinCondition handles transition */ break;
             case ROUND_OVER:
-                if (currentTime >= stateChangeTime + ROUND_END_DELAY_MS) {
-                    if (totalPlayers >= MIN_PLAYERS_TO_START) { changeState(GameState.COUNTDOWN, currentTime); }
+                if (currentTime >= serverContext.stateChangeTime + ROUND_END_DELAY_MS) {
+                    if (totalPlayers >= serverContext.gameMode.getMinRequiredPlayers()) { changeState(GameState.COUNTDOWN, currentTime); }
                     else { changeState(GameState.WAITING, currentTime); }
                 } break;
             default: break; // Added default
@@ -463,17 +446,17 @@ public class GameServer {
     }
 
     private void changeState(GameState newState, long timeData) { // timeData meaning depends on state
-        if (currentGameState == newState) return;
-        logger.info("Server changing state from {} to {}", currentGameState, newState);
-        currentGameState = newState;
-        stateChangeTime = System.currentTimeMillis(); // Record when the state *actually* changed
+        if (serverContext.currentGameState == newState) return;
+        logger.info("Server changing state from {} to {}", serverContext.currentGameState, newState);
+        serverContext.currentGameState = newState;
+        serverContext.stateChangeTime = System.currentTimeMillis(); // Record when the state *actually* changed
 
         // Adjust timeData based on state for clarity
         long broadcastTimeData = 0;
         if (newState == GameState.PLAYING) {
             broadcastTimeData = timeData; // Send start time
         } else if (newState == GameState.COUNTDOWN) {
-            broadcastTimeData = stateChangeTime + COUNTDOWN_SECONDS * 1000; // Send target end time
+            broadcastTimeData = serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000; // Send target end time
         } else if (newState == GameState.ROUND_OVER) {
             // In checkWinCondition, we called changeState with System.currentTimeMillis().
             // Let's use the calculated finalTime duration instead.
@@ -485,15 +468,15 @@ public class GameServer {
         broadcast(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, newState.name(), broadcastTimeData), -1);
 
         if (newState == GameState.WAITING) { broadcastAnnouncement("WAITING FOR PLAYERS...", -1); }
-        else if (newState == GameState.COUNTDOWN) { broadcastAnnouncement("ROUND STARTING IN " + COUNTDOWN_SECONDS + "...", -1); }
+        else if (newState == GameState.COUNTDOWN) { broadcastAnnouncement("ROUND STARTING IN " + STARTING_COUNTDOWN_SECONDS + "...", -1); }
         // Announcement for round over is handled in checkWinCondition
     }
 
     private void resetPlayersForNewRound() {
         logger.info("Resetting players for new round.");
-        bullets.clear();
-        for(TankData tankData : tanks.values()) {
-            Vector2f spawnPos = gameMapData.getRandomSpawnPoint();
+        serverContext.bullets.clear();
+        for(TankData tankData : serverContext.tanks.values()) {
+            Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
             tankData.setPosition(spawnPos.x, spawnPos.y);
             tankData.setRotation(0);
             tankData.setLives(TankData.INITIAL_LIVES);
@@ -504,33 +487,29 @@ public class GameServer {
         }
     }
 
-    // In nettank-server/src/main/java/org/chrisgruber/nettank/server/GameServer.java
-
-    // In nettank-server/src/main/java/org/chrisgruber/nettank/server/GameServer.java
-
     private synchronized void checkWinCondition() {
-        if (currentGameState != GameState.PLAYING) return;
+        if (serverContext.currentGameState != GameState.PLAYING) return;
 
         int aliveCount = 0;
         TankData lastAliveTank = null;
-        int totalPlayersInMap = tanks.size();
+        int totalPlayersInMap = serverContext.tanks.size();
 
         // --- Revised Logic ---
         // If MIN_PLAYERS_TO_START is 1, and only 1 player is connected, NEVER end the round by elimination.
-        if (totalPlayersInMap == 1 && MIN_PLAYERS_TO_START == 1) {
+        if (totalPlayersInMap == 1 && serverContext.gameMode.getMinRequiredPlayers() == 1) {
             logger.trace("Skipping win condition check: Single player mode active.");
             return;
         }
 
         // If MIN_PLAYERS_TO_START is >= 2, only check if at least that many players are present.
-        if (totalPlayersInMap < MIN_PLAYERS_TO_START) {
+        if (totalPlayersInMap < serverContext.gameMode.getMinRequiredPlayers()) {
             logger.trace("Skipping win condition check: Fewer than minimum players connected ({}/{})",
-                    totalPlayersInMap, MIN_PLAYERS_TO_START);
+                    totalPlayersInMap, serverContext.gameMode.getMinRequiredPlayers());
             return;
         }
 
         // --- Count alive players (only if we passed the initial checks) ---
-        for (TankData tankData : tanks.values()) {
+        for (TankData tankData : serverContext.tanks.values()) {
             if (tankData.alive) {
                 aliveCount++;
                 lastAliveTank = tankData;
@@ -540,7 +519,7 @@ public class GameServer {
         // --- End round based on elimination (only if >= MIN_PLAYERS_TO_START were present) ---
         if (aliveCount <= 1) {
             logger.info("Round over condition met (Alive: {}, Total: {}).", aliveCount, totalPlayersInMap);
-            long finalTime = System.currentTimeMillis() - roundStartTimeMillis;
+            long finalTime = System.currentTimeMillis() - serverContext.roundStartTimeMillis;
             changeState(GameState.ROUND_OVER, finalTime); // Pass duration
 
             String winnerName = "NO ONE"; int winnerId = -1;
@@ -554,13 +533,13 @@ public class GameServer {
 
     private void checkGameStateTransition() {
         long currentTime = System.currentTimeMillis();
-        if (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN) { handleGameStateTransitions(currentTime); }
-        else if (currentGameState == GameState.PLAYING) { checkWinCondition(); }
+        if (serverContext.currentGameState == GameState.WAITING || serverContext.currentGameState == GameState.COUNTDOWN) { handleGameStateTransitions(currentTime); }
+        else if (serverContext.currentGameState == GameState.PLAYING) { checkWinCondition(); }
     }
 
     private void broadcastState() {
-        if (currentGameState != GameState.PLAYING) return;
-        for (TankData tankData : tanks.values()) {
+        if (serverContext.currentGameState != GameState.PLAYING) return;
+        for (TankData tankData : serverContext.tanks.values()) {
             if (tankData.alive) {
                 broadcast(String.format("%s;%d;%f;%f;%f",
                         NetworkProtocol.PLAYER_UPDATE, tankData.playerId, tankData.position.x, tankData.position.y, tankData.rotation), -1);
@@ -570,8 +549,8 @@ public class GameServer {
 
     public void broadcast(String message, int excludePlayerId) {
         logger.trace("Broadcasting (exclude {}): {}", excludePlayerId, message);
-        if (clients.isEmpty()) { return; }
-        for (ClientHandler handler : clients.values()) {
+        if (serverContext.clients.isEmpty()) { return; }
+        for (ClientHandler handler : serverContext.clients.values()) {
             if (handler != null && handler.getPlayerId() != excludePlayerId) {
                 logger.trace("Sending to client ID {}: {}", handler.getPlayerId(), message);
                 handler.sendMessage(message);
