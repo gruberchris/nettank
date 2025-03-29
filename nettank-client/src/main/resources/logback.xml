@@ -8,7 +8,7 @@
 
     <!-- File appender - writes to game.log -->
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-        <file>game.log</file>
+        <file>logs/game.log</file>
         <append>false</append>
         <immediateFlush>true</immediateFlush>
         <encoder>
