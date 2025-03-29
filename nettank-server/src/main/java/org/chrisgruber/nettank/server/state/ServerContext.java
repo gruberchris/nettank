@@ -42,6 +42,8 @@ public class ServerContext {
         this.stateChangeTime = System.currentTimeMillis(); // Initial state starts now
     }
 
+    // Save this code until I decide not to mutate the game state in this class or leave it in GameServer
+    /*
     public synchronized void changeGameState(GameState newState, long timeDataForState) {
         if (this.currentGameState == newState) return; // Avoid redundant changes
 
@@ -60,6 +62,7 @@ public class ServerContext {
             this.bullets.clear(); // Clear bullets when not playing
         }
     }
+    */
 
     public int getPlayerCount() { return clients.size(); }
 }

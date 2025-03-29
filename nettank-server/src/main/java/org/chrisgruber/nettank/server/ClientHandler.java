@@ -284,8 +284,7 @@ public class ClientHandler implements Runnable {
                             boolean s = Boolean.parseBoolean(parts[2]);
                             boolean a = Boolean.parseBoolean(parts[3]);
                             boolean d = Boolean.parseBoolean(parts[4]);
-                            // server.handlePlayerInput might need synchronization if it modifies shared state directly
-                            server.handlePlayerInput(playerId, w, s, a, d);
+                            server.handlePlayerMovementInput(playerId, w, s, a, d);
                         } catch (Exception e) {
                             logger.error("Error parsing INPUT message parts: {}", message, e);
                         }
@@ -298,8 +297,8 @@ public class ClientHandler implements Runnable {
 
                 case NetworkProtocol.SHOOT_CMD:
                     if (playerId != -1) {
-                        // server.handlePlayerShoot might need synchronization
-                        server.handlePlayerShoot(playerId);
+                        // server.handlePlayerShootMainWeaponInput might need synchronization
+                        server.handlePlayerShootMainWeaponInput(playerId);
                     } else {
                         logger.warn("Received SHOOT_CMD before registration: {}", message);
                     }
