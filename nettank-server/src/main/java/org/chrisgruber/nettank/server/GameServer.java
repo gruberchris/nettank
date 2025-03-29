@@ -40,19 +40,20 @@ public class GameServer {
     private static final long STARTING_COUNTDOWN_SECONDS = 3;
     private static final long ROUND_END_DELAY_MS = 5000;
 
-    private final List<Vector3f> availableColors = new CopyOnWriteArrayList<>(Colors.TANK_COLORS); // Use common Colors
+    private final List<Vector3f> availableColors;
 
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
 
     // Server context holds mutable state
     private final ServerContext serverContext = new ServerContext();
 
-    public GameServer(int port) throws IOException {
+    public GameServer(int port) {
         this.port = port;
-        Collections.shuffle(availableColors);
-        Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
         this.serverContext.gameMode = new FreeForAll();
         this.serverContext.gameMapData = new GameMapData(50, 50, GameMapData.DEFAULT_TILE_SIZE);
+        availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
+        Collections.shuffle(availableColors);
+        Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
     }
 
     public static void main(String[] args) {
@@ -84,6 +85,7 @@ public class GameServer {
     public void start() throws IOException {
         serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
         serverContext.running = true;
+
         logger.info("Server started on {}:{}", serverSocket.getInetAddress().getHostAddress(), port);
 
         gameLoopThread = new Thread(this::gameLoop);
@@ -92,6 +94,7 @@ public class GameServer {
         gameLoopThread.start();
 
         logger.info("Waiting for client connections...");
+
         try {
             while (serverContext.running) {
                 try {
@@ -125,6 +128,7 @@ public class GameServer {
                 }
             }
         }
+
         logger.info("Server main thread exiting start() method.");
     }
 
@@ -162,9 +166,6 @@ public class GameServer {
         serverContext.clients.clear();
         serverContext.tanks.clear();
         serverContext.bullets.clear();
-        availableColors.clear();
-        availableColors.addAll(Colors.TANK_COLORS);
-        Collections.shuffle(availableColors);
         serverContext.nextPlayerId.set(0);
 
         logger.info("Interrupting any potentially lingering client handler main threads...");
@@ -225,8 +226,10 @@ public class GameServer {
 
         logger.info("Sent ASSIGN_ID to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
-        handler.sendMessage(String.format("%s;%s;%d", NetworkProtocol.GAME_STATE, serverContext.currentGameState.name(),
-                (serverContext.currentGameState == GameState.PLAYING ? serverContext.roundStartTimeMillis : (serverContext.currentGameState == GameState.COUNTDOWN ? serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000 : 0)) ));
+        handler.sendMessage(String.format("%s;%s;%d",
+                NetworkProtocol.GAME_STATE,
+                serverContext.currentGameState.name(),
+                getTimeDataForGameState(serverContext.currentGameState)));
 
         logger.info("Sent GAME_STATE to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
@@ -257,6 +260,14 @@ public class GameServer {
         checkGameStateTransition();
 
         logger.info("Checked game state transition after player registration.");
+    }
+
+    private long getTimeDataForGameState(GameState state) {
+        return switch (state) {
+            case PLAYING -> serverContext.roundStartTimeMillis;
+            case COUNTDOWN -> serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000;
+            default -> 0;
+        };
     }
 
     public synchronized void removePlayer(int playerId) {
