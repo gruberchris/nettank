@@ -33,9 +33,12 @@ public class ServerContext {
 
     // Game Flow State (volatile for thread safety)
     public volatile GameState currentGameState = GameState.WAITING;
-    public volatile long roundStartTimeMillis = 0;          // When the round started
-    public volatile long stateChangeTime;                   // When the current state was entered
-    public volatile int lastAnnouncedNumber = -1;           // Last number announced to clients
+    public volatile long roundStartTimeMillis = 0;      // When the round started
+    public volatile long stateChangeTime;               // When the current state was entered
+    public volatile int lastAnnouncedNumber = -1;       // Last number announced to clients
+
+    // General Game Settings
+    public volatile long tankRespawnDelayMillis = 3000;    // Config setting for how long to wait for destroyed tanks to respawn
 
     // --- Constructor ---
     public ServerContext() {

@@ -418,6 +418,20 @@ public class GameServer {
 
         logger.trace("Bullets collisions processed. Bullets removed: {} Current state: {}, Time: {}", bulletsToRemove.size(), serverContext.currentGameState, currentTime);
 
+        // Check if any destroyed tanks can respawn
+        for (TankData tankData : serverContext.tanks.values()) {
+            if (tankData.isDestroyed() && tankData.getDeathTimeMillis() > 0) {
+                long timeSinceDeath = currentTime - tankData.getDeathTimeMillis();
+                if (timeSinceDeath >= serverContext.tankRespawnDelayMillis) {
+                    serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.playerId, tankData);
+                    Vector2f spawnPos = tankData.getPosition();
+                    int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.playerId);
+                    broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);
+                    broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, respawnsRemaining), -1);
+                }
+            }
+        }
+
         checkWinCondition();
 
         logger.trace("Game logic update complete. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
@@ -434,6 +448,7 @@ public class GameServer {
         target.takeHit(weaponDamage);
 
         if (target.isDestroyed()) {
+            target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
             int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.playerId);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.playerId, bulletData.ownerId), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, respawnsRemaining), -1);

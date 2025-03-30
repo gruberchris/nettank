@@ -156,4 +156,23 @@ public class FreeForAll extends GameMode {
         }
         return playerState.getRespawnsRemaining();
     }
+
+    @Override
+    public void handlePlayerRespawn(ServerContext serverContext, Integer playerId, TankData tankData) {
+        FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
+        if (playerState == null) {
+            logger.error("Player {} has no game mode player state.", playerId);
+            return;
+        }
+
+        tankData.setForSpawn(
+                serverContext.gameMapData.getRandomSpawnPoint(),
+                0, // Reset rotation to default
+                1, // Reset hit points
+                0, // Reset death time
+                0  // Reset last shot time
+        );
+
+        logger.info("Player {} has respawned at position {} with rotation {}.", playerId, tankData.getPosition(), tankData.getRotation());
+    }
 }

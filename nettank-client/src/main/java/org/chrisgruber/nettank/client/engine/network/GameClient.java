@@ -208,7 +208,7 @@ public class GameClient implements Runnable {
                         int id = Integer.parseInt(parts[1]);
                         float x = Float.parseFloat(parts[2]);
                         float y = Float.parseFloat(parts[3]);
-                        // Respawn likely implies full health and update position/rotation (rot=0?)
+                        // setForSpawn likely implies full health and update position/rotation (rot=0?)
                         // We can reuse updateTankState for position, and updatePlayerLives separately
                         // Server sends PLAYER_LIVES after RSP anyway in resetPlayersForNewRound
                         logger.debug("Received RESPAWN for player {}", id);

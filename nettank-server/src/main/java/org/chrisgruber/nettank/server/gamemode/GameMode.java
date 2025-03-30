@@ -12,7 +12,7 @@ public abstract class GameMode {
     protected int totalRespawnsAllowedOnStart;
     protected int minRequiredPlayers;
     protected int maxAllowedPlayers;
-    protected int startingMainWeaponAmmoCount;  // -1 for unlimited ammmo allowed
+    protected int startingMainWeaponAmmoCount;  // -1 for unlimited ammo allowed
     protected int killCountToBroadcastKillStreak;
 
     protected GameModeRule gameModeRule;
@@ -54,6 +54,7 @@ public abstract class GameMode {
     public abstract long getCountdownStateLengthInSeconds();
     public abstract void handlePlayerDeath(ServerContext serverContext, Integer playerId, TankData tankData);
     public abstract Integer getRemainingRespawnsForPlayer(Integer playerId);
+    public abstract void handlePlayerRespawn(ServerContext serverContext, Integer playerId, TankData tankData);
 
     // Implementations for implementing conditions to transition between game states
     public abstract GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime);
