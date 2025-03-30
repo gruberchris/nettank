@@ -6,11 +6,12 @@ import org.joml.Vector2f;
 
 // Data Transfer Object / State Holder for Tank information
 public class TankData {
+    private int lives = 0;
+    private boolean infiniteLivesAllowed = false;
 
     // --- Constants related to Tank state/size ---
     public static final float SIZE = 30.0f;
     public static final float COLLISION_RADIUS = SIZE * 0.45f;
-    public static final int INITIAL_LIVES = 3;
 
     // --- Core Data Fields ---
     public int playerId;
@@ -18,8 +19,6 @@ public class TankData {
     public Vector2f position = new Vector2f(); // Mutable JOML vector
     public float rotation; // Degrees
     public Vector3f color = new Vector3f(1f, 1f, 1f); // Mutable JOML vector
-    public int lives;
-    public boolean alive; // Derived state
 
     // --- Server-Side Input State (volatile for thread-safety) ---
     public transient volatile boolean movingForward = false; // transient: not part of network state typically
@@ -40,6 +39,7 @@ public class TankData {
         this.color.set(color != null ? color : Colors.WHITE);
         this.name = name;
         this.rotation = 0;
+        this.infiniteLivesAllowed = false;
         // lives/alive set separately after creation by server
     }
 
@@ -56,17 +56,26 @@ public class TankData {
         this.position.add(dx, dy);
     }
 
-    // Set lives (also updates alive status)
     public void setLives(int lives) {
+        if (this.infiniteLivesAllowed) {
+            this.lives = Integer.MAX_VALUE; // Infinite lives
+            return;
+        }
+
         this.lives = Math.max(0, lives);
-        this.alive = this.lives > 0;
+    }
+
+    public void setInfiniteLivesAllowed(boolean allowed) {
+        this.infiniteLivesAllowed = allowed;
+        if (allowed) {
+            this.lives = Integer.MAX_VALUE; // Set to max value for infinite lives
+        }
     }
 
     // Apply hit (decrements lives, updates alive)
     public void takeHit() {
-        if (this.lives > 0) {
+        if (this.lives > 0 && !this.infiniteLivesAllowed) {
             this.lives--;
-            this.alive = this.lives > 0;
         }
     }
 
@@ -115,10 +124,13 @@ public class TankData {
     public float getRotation() { return rotation; }
     public Vector3f getColor() { return color; }
     public int getLives() { return lives; }
-    public boolean isAlive() { return alive; }
+
+    public boolean isAlive() {
+        return this.lives > 0;
+    }
 
     @Override
     public String toString() {
-        return "TankData{" + "playerId=" + playerId + ", name='" + name + '\'' + ", pos=" + position + ", rot=" + rotation + ", lives=" + lives + ", alive=" + alive + '}';
+        return "TankData{" + "playerId=" + playerId + ", name='" + name + '\'' + ", pos=" + position + ", rot=" + rotation + ", lives=" + this.getLives() + ", alive=" + this.isAlive() + '}';
     }
 }

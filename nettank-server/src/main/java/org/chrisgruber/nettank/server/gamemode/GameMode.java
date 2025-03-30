@@ -4,6 +4,7 @@ import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.gamemode.GameModeRule;
 import org.chrisgruber.nettank.common.gamemode.GameStartCondition;
 import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
+import org.chrisgruber.nettank.common.util.GameState;
 import org.chrisgruber.nettank.server.state.ServerContext;
 
 public abstract class GameMode {
@@ -46,10 +47,16 @@ public abstract class GameMode {
         this.gameEndsOnTotalPlayersRemaining = 0;
     }
 
-    public abstract boolean checkIsGameReadyToStart(ServerContext serverContext);
-    public abstract boolean checkIsGameConditionMet(ServerContext serverContext);
+    public abstract boolean checkIsVictoryConditionMet(ServerContext serverContext);
+    public abstract void handleNewPlayerJoin(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
     public abstract void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
-    public abstract void handleRoundOver(ServerContext serverContext);
+    public abstract void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData);
+
+    // Implementations for implementing conditions to transition between game states
+    public abstract GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime);
+    public abstract GameState shouldTransitionFromCountdown(ServerContext serverContext, long currentTime);
+    public abstract GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime);
+    public abstract GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime);
 
     public boolean isInfiniteRespawns() {
         return isInfiniteRespawns;

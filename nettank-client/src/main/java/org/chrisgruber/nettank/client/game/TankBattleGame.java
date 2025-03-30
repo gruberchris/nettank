@@ -382,11 +382,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, int lives) {
         ClientTank tank = tanks.get(id);
 
+
+        // int defaultInitialLives = TankData.INITIAL_LIVES;
+        // TODO: The server should be telling the client how many lives the client has, not the other way around
+        int defaultInitialLives = 3;
+
         if (tank == null) { // Tank doesn't exist, create it
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
             TankData data = new TankData(); // Create common data object
             // Set initial state (lives will be updated by PLAYER_LIVES shortly)
-            data.updateFromServer(id, name, x, y, rotation, r, g, b, (lives != -1 ? lives : TankData.INITIAL_LIVES)); // Use initial lives if -1 passed
+            data.updateFromServer(id, name, x, y, rotation, r, g, b, (lives != -1 ? lives : defaultInitialLives)); // Use initial lives if -1 passed
             tank = new ClientTank(data); // Create client wrapper
 
             // Put the NEW tank into the map *after* creating it
@@ -402,7 +407,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // Tank already exists, just update its data
             logger.trace("Updating existing ClientTank for player ID: {}", id); // Use Trace
             // Only update lives if a valid value was passed, otherwise keep current lives
-            int currentLives = (lives != -1) ? lives : tank.getTankData().lives;
+            int currentLives = (lives != -1) ? lives : tank.getTankData().getLives();
             tank.getTankData().updateFromServer(id, name, x, y, rotation, r, g, b, currentLives);
             // Ensure the visual entity position matches the data
             tank.updatePositionFromData();

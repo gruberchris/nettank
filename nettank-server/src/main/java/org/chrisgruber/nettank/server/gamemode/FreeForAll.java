@@ -4,9 +4,14 @@ import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.gamemode.GameModeRule;
 import org.chrisgruber.nettank.common.gamemode.GameStartCondition;
 import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
+import org.chrisgruber.nettank.common.util.GameState;
 import org.chrisgruber.nettank.server.state.ServerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class FreeForAll extends GameMode {
+    private static final Logger logger = LoggerFactory.getLogger(FreeForAll.class);
+
     public FreeForAll() {
         super();
         this.isInfiniteRespawns = true;
@@ -20,24 +25,76 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public boolean checkIsGameReadyToStart(ServerContext serverContext) {
-        int playerCount = serverContext.getPlayerCount();
-        return playerCount >= minRequiredPlayers && playerCount <= maxAllowedPlayers;
-    }
-
-    @Override
-    public boolean checkIsGameConditionMet(ServerContext serverContext) {
+    public boolean checkIsVictoryConditionMet(ServerContext serverContext) {
         // Since gameWinCondition is NONE, the game never will never end
         return false;
     }
 
     @Override
-    public void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
-        tankData.setLives(1000); // TODO: Should be infinite respawns. Have to fix the code in GameServer to support that.
+    public void handleNewPlayerJoin(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
+        logger.info("New player {} has joined the game.", playerName);
+        tankData.setInfiniteLivesAllowed(true);
     }
 
     @Override
-    public void handleRoundOver(ServerContext serverContext) {
-        // TODO:
+    public void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
+        logger.info("New player {} has joined the game in progress.", playerName);
+        tankData.setInfiniteLivesAllowed(true);
+    }
+
+    @Override
+    public void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData) {
+        logger.info("Player {} has left the game.", playerId);
+    }
+
+    @Override
+    public GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime) {
+        var playerCount = serverContext.getPlayerCount();
+        var minRequiredPlayers = getMinRequiredPlayers();
+
+        logger.trace("Checking transition from WAITING to COUNTDOWN. Current player count: {} Required player count: {}", playerCount, minRequiredPlayers);
+
+        if (playerCount >= minRequiredPlayers) {
+            logger.trace("Transitioning to COUNTDOWN state.");
+            return GameState.COUNTDOWN;
+        }
+
+        logger.trace("Not enough players to transition to COUNTDOWN. Waiting for more players.");
+
+        return GameState.WAITING;
+    }
+
+    @Override
+    public GameState shouldTransitionFromCountdown(ServerContext serverContext, long currentTime) {
+        var playerCount = serverContext.getPlayerCount();
+        var minRequiredPlayers = getMinRequiredPlayers();
+
+        logger.trace("Checking transition from COUNTDOWN to PLAYING. Current player count: {} Required player count: {}", playerCount, minRequiredPlayers);
+
+        if (playerCount < minRequiredPlayers) {
+            logger.trace("Not enough players to transition to PLAYING. Returning to WAITING state.");
+            return GameState.WAITING;
+        }
+
+        if (currentTime - serverContext.stateChangeTime >= gameStartOnCountdownInSeconds * 1000L) {
+            logger.trace("Transitioning to PLAYING state.");
+            return GameState.PLAYING;
+        }
+
+        logger.trace("Still in COUNTDOWN state. Waiting for countdown to finish.");
+
+        return GameState.COUNTDOWN;
+    }
+
+    @Override
+    public GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime) {
+        logger.trace("FreeForAll: Checking transition from PLAYING to PLAYING.");
+        return GameState.PLAYING;
+    }
+
+    @Override
+    public GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
+        logger.trace("FreeForAll: Checking transition from ROUND_OVER to WAITING.");
+        return GameState.ROUND_OVER;
     }
 }
