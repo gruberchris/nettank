@@ -16,7 +16,6 @@ import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
-import org.chrisgruber.nettank.common.world.GameMapData;
 import org.joml.Vector2f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,7 +55,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Player specific
     private int localPlayerId = -1;
     private ClientTank localTank = null;
-    private String playerName;
+    private final String playerName;
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
     private long finalElapsedTimeMillis = -1;
@@ -71,6 +70,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private final List<String> announcements = new CopyOnWriteArrayList<>();
     private long lastAnnouncementTime = 0;
     private static final long ANNOUNCEMENT_DISPLAY_TIME_MS = 5000;
+
+    // Input Game State
+    private boolean prevKeyW = false;
+    private boolean prevKeyS = false;
+    private boolean prevKeyA = false;
+    private boolean prevKeyD = false;
 
     // Config
     public static final float VIEW_RANGE = 300.0f;
@@ -313,9 +318,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             boolean keyD = inputHandler.isKeyDown(GLFW_KEY_D);
             boolean keySpace = inputHandler.isKeyPressed(GLFW_KEY_SPACE);
 
-            // Send current input state to server
-            if (gameClient != null && gameClient.isConnected()) {
-                gameClient.sendInput(keyW, keyS, keyA, keyD);
+            // Check if movement input state has changed
+            if (keyW != prevKeyW || keyS != prevKeyS || keyA != prevKeyA || keyD != prevKeyD) {
+                // Send only when input state changes
+                if (gameClient != null && gameClient.isConnected()) {
+                    gameClient.sendInput(keyW, keyS, keyA, keyD);
+                }
+
+                // Update previous state
+                prevKeyW = keyW;
+                prevKeyS = keyS;
+                prevKeyA = keyA;
+                prevKeyD = keyD;
             }
 
             // Handle shooting command
