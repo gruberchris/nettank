@@ -19,7 +19,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <lwjgl.version>3.3.3</lwjgl.version>
+        <lwjgl.version>3.3.6</lwjgl.version>
         <joml.version>1.10.5</joml.version>
         <slf4j.version>2.1.0-alpha1</slf4j.version>
         <logback.version>1.5.18</logback.version>
@@ -155,6 +155,11 @@
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
                     <version>3.1.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>versions-maven-plugin</artifactId>
+                    <version>2.16.2</version>
                 </plugin>
             </plugins>
         </pluginManagement>
