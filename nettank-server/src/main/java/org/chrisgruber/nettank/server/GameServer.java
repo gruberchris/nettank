@@ -261,10 +261,6 @@ public class GameServer {
         broadcast(livesMsg, playerId);
 
         logger.info("Broadcasted new player info to others: ID={}, Name={}", playerId, playerName);
-
-        checkGameStateTransition();
-
-        logger.info("Checked game state transition after player registration.");
     }
 
     private long getTimeDataForGameState(GameState state) {
@@ -283,7 +279,6 @@ public class GameServer {
             logger.info("Player removed: ID={}, Name={}", playerId, tankData.name);
             if (tankData.color != null) { availableColors.add(tankData.color); Collections.shuffle(availableColors); }
             broadcast(NetworkProtocol.PLAYER_LEFT + ";" + playerId, -1);
-            checkGameStateTransition();
         }
 
         if (serverContext.currentGameState == GameState.PLAYING) {
@@ -388,8 +383,6 @@ public class GameServer {
                 tankData.setPosition(oldPos.x, oldPos.y);
                 logger.warn("PlayerId: {}. Player tank moved out of map bounds and was reset to previous position.", tankData.playerId);
             }
-
-            checkGameStateTransition();
         }
 
         logger.trace("Tanks updated. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
@@ -695,17 +688,6 @@ public class GameServer {
         if (isVictory) {
             long finalTime = System.currentTimeMillis() - serverContext.roundStartTimeMillis;
             changeState(GameState.ROUND_OVER, finalTime);
-        }
-    }
-
-    private void checkGameStateTransition() {
-        long currentTime = System.currentTimeMillis();
-
-        if (serverContext.currentGameState == GameState.WAITING || serverContext.currentGameState == GameState.COUNTDOWN) {
-            handleGameStateTransitions(currentTime);
-        }
-        else if (serverContext.currentGameState == GameState.PLAYING) {
-            checkWinCondition();
         }
     }
 
