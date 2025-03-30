@@ -18,6 +18,7 @@ public class FreeForAll extends GameMode {
         this.maxAllowedPlayers = 12;
         this.isMainWeaponAmmoLimited = false;
         this.killCountToBroadcastKillStreak = 3;
+        this.gameStartOnCountdownInSeconds = 3;
 
         this.gameModeRule = GameModeRule.FREE_FOR_ALL;
         this.gameStartCondition = GameStartCondition.IMMEDIATE;
@@ -76,8 +77,25 @@ public class FreeForAll extends GameMode {
             return GameState.WAITING;
         }
 
-        if (currentTime - serverContext.stateChangeTime >= gameStartOnCountdownInSeconds * 1000L) {
-            logger.trace("Transitioning to PLAYING state.");
+        // Calculate remaining time in seconds
+        long remainingTimeSeconds = (serverContext.stateChangeTime + gameStartOnCountdownInSeconds * 1000L - currentTime) / 1000;
+
+        // Store the current second as a class variable if not already done
+        if (serverContext.currentCountdownSecond == -1) {
+            serverContext.currentCountdownSecond = remainingTimeSeconds;
+        }
+
+        // Check if we've moved to a new second
+        if (remainingTimeSeconds != serverContext.currentCountdownSecond && remainingTimeSeconds >= 0) {
+            // Send countdown announcement
+            logger.info("Countdown announcement: {} seconds remaining.", remainingTimeSeconds);
+            serverContext.lastCountdownAnnouncementTime = currentTime;
+            serverContext.currentCountdownSecond = remainingTimeSeconds;
+        }
+
+        // Check if countdown has expired
+        if (currentTime >= serverContext.stateChangeTime + gameStartOnCountdownInSeconds * 1000L) {
+            logger.info("Countdown complete! Transitioning to PLAYING state");
             return GameState.PLAYING;
         }
 
