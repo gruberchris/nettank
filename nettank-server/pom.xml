@@ -11,40 +11,30 @@
 
     <artifactId>nettank-server</artifactId>
 
-    <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
+    <!-- No need to duplicate properties that are already in parent POM -->
 
     <dependencies>
         <dependency>
             <groupId>org.chrisgruber.nettank</groupId>
             <artifactId>nettank-common</artifactId>
-            <version>1.0.0</version>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- Logging Implementation -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <version>1.5.18</version>
+            <!-- Version should be defined in parent's dependencyManagement -->
         </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>2.1.0-alpha1</version>
-            <scope>compile</scope>
-        </dependency>
+        <!-- No need to declare slf4j-api again, it's already in parent POM -->
     </dependencies>
 
     <build>
         <plugins>
-            <!-- Plugin to create executable JAR with dependencies -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.1</version>
+                <!-- Version comes from parent pluginManagement -->
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -54,22 +44,26 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>org.chrisgruber.nettank.server.GameServer</mainClass> <!-- Entry point -->
+                                    <mainClass>org.chrisgruber.nettank.server.GameServer</mainClass>
                                 </transformer>
                             </transformers>
-                            <filters> <!-- Prevent signing issues -->
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
+                            <!-- Filter configuration should be in the parent -->
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- Add jar plugin to specify the manifest -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addClasspath>true</addClasspath>
+                            <mainClass>org.chrisgruber.nettank.server.GameServer</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
             </plugin>
         </plugins>
     </build>

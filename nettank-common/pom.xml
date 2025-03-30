@@ -11,24 +11,11 @@
 
     <artifactId>nettank-common</artifactId>
 
-    <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <joml.version>1.10.5</joml.version>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.joml</groupId>
             <artifactId>joml</artifactId>
-            <version>${joml.version}</version>
         </dependency>
-        <!-- SLF4J API for potential logging in common classes -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>2.1.0-alpha1</version>
-        </dependency>
+        <!-- SLF4J API is already inherited from parent -->
     </dependencies>
 </project>
