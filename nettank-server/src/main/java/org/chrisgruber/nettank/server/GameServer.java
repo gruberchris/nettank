@@ -37,8 +37,6 @@ public class GameServer {
     public static final float BULLET_SPEED = 350.0f;
     public static final long BULLET_LIFETIME_MS = 2000;
     public static final long TANK_SHOOT_COOLDOWN_MS = 500;
-    private static final long STARTING_COUNTDOWN_SECONDS = 3;
-    private static final long ROUND_END_DELAY_MS = 5000;
 
     private final List<Vector3f> availableColors;
 
@@ -263,10 +261,13 @@ public class GameServer {
         logger.info("Broadcasted new player info to others: ID={}, Name={}", playerId, playerName);
     }
 
+    // Returns the time data for the new connected player based on the current game state when they connected - invoked from registerPlayer()
     private long getTimeDataForGameState(GameState state) {
+        long gameStartOnCountdownInSeconds = serverContext.gameMode.getCountdownStateLengthInSeconds();
+
         return switch (state) {
             case PLAYING -> serverContext.roundStartTimeMillis;
-            case COUNTDOWN -> serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000;
+            case COUNTDOWN -> serverContext.stateChangeTime + gameStartOnCountdownInSeconds * 1000L;
             default -> 0;
         };
     }
@@ -533,10 +534,6 @@ public class GameServer {
             case COUNTDOWN:
                 nextState = serverContext.gameMode.shouldTransitionFromCountdown(serverContext, currentTime);
                 if (nextState != GameState.COUNTDOWN) {
-                    if (nextState == GameState.PLAYING) {
-                        resetPlayersForNewRound();
-                        serverContext.roundStartTimeMillis = currentTime;
-                    }
                     changeState(nextState, currentTime);
                 }
                 break;
@@ -583,23 +580,31 @@ public class GameServer {
 
         // Send appropriate announcements based on new state
         sendStateAnnouncement(newState);
+
+        if (newState == GameState.PLAYING) {
+            resetPlayersForNewRound();
+        }
     }
 
-    // Helper method to calculate the appropriate time data to broadcast
+    // Helper method to calculate the appropriate time data to broadcast - invoked from changeState()
     private long calculateBroadcastTimeData(GameState state, long timeData) {
+        var countdownStateLengthInSeconds = serverContext.gameMode.getCountdownStateLengthInSeconds();
+
         return switch (state) {
-            case PLAYING -> timeData; // Send start time
-            case COUNTDOWN -> serverContext.stateChangeTime + STARTING_COUNTDOWN_SECONDS * 1000; // Send target end time
-            case ROUND_OVER -> timeData; // For ROUND_OVER, timeData should be duration
+            case PLAYING -> timeData;       // returns the current system time from System.currentTimeMillis()
+            case COUNTDOWN -> serverContext.stateChangeTime + countdownStateLengthInSeconds * 1000L; // returns the countdown timer
+            case ROUND_OVER -> timeData;    // returns the current system time from System.currentTimeMillis()
             default -> 0;
         };
     }
 
-    // Helper method to send state-specific announcements
+    // Helper method to send state-specific announcements - invoked from changeState()
     private void sendStateAnnouncement(GameState state) {
+        var countdownStateLengthInSeconds = serverContext.gameMode.getCountdownStateLengthInSeconds();
+
         switch (state) {
             case WAITING -> broadcastAnnouncement("WAITING FOR PLAYERS...", -1);
-            case COUNTDOWN -> broadcastAnnouncement("ROUND STARTING IN " + STARTING_COUNTDOWN_SECONDS + "...", -1);
+            case COUNTDOWN -> broadcastAnnouncement("ROUND STARTING IN " + countdownStateLengthInSeconds + " SECONDS.", -1);
             case PLAYING -> {
                 // No announcement needed for PLAYING state
                 logger.info("PLAYING state reached, no announcement to broadcast.");

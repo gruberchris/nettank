@@ -19,10 +19,17 @@ public class FreeForAll extends GameMode {
         this.isMainWeaponAmmoLimited = false;
         this.killCountToBroadcastKillStreak = 3;
         this.gameStartOnCountdownInSeconds = 3;
+        this.countdownTimeInSeconds = -1;
 
         this.gameModeRule = GameModeRule.FREE_FOR_ALL;
         this.gameStartCondition = GameStartCondition.IMMEDIATE;
         this.gameWinCondition = GameWinCondition.NONE;
+    }
+
+    @Override
+    public long getCountdownStateLengthInSeconds() {
+        long delayPerSecond = 2;
+        return gameStartOnCountdownInSeconds * delayPerSecond;
     }
 
     @Override
@@ -77,25 +84,26 @@ public class FreeForAll extends GameMode {
             return GameState.WAITING;
         }
 
-        // Calculate remaining time in seconds
-        long remainingTimeSeconds = (serverContext.stateChangeTime + gameStartOnCountdownInSeconds * 1000L - currentTime) / 1000;
+        // Get the total countdown duration and delay per step
+        long totalCountdownDuration = getCountdownStateLengthInSeconds();
+        double delayPerStep = (double)totalCountdownDuration / gameStartOnCountdownInSeconds;
 
-        // Store the current second as a class variable if not already done
-        if (serverContext.currentCountdownSecond == -1) {
-            serverContext.currentCountdownSecond = remainingTimeSeconds;
+        // Calculate which countdown number we're on (3,2,1)
+        long secondsElapsed = (currentTime - serverContext.stateChangeTime) / 1000;
+        int countdownStep = (int)(secondsElapsed / delayPerStep);
+        int displayNumber = gameStartOnCountdownInSeconds - countdownStep;
+
+        // Only announce when we reach a new countdown number
+        if (displayNumber > 0 && displayNumber != serverContext.lastAnnouncedNumber) {
+            logger.info("Countdown announcement: {} seconds until start.", displayNumber);
+            serverContext.lastAnnouncedNumber = displayNumber;
         }
 
-        // Check if we've moved to a new second
-        if (remainingTimeSeconds != serverContext.currentCountdownSecond && remainingTimeSeconds >= 0) {
-            // Send countdown announcement
-            logger.info("Countdown announcement: {} seconds remaining.", remainingTimeSeconds);
-            serverContext.lastCountdownAnnouncementTime = currentTime;
-            serverContext.currentCountdownSecond = remainingTimeSeconds;
-        }
 
-        // Check if countdown has expired
-        if (currentTime >= serverContext.stateChangeTime + gameStartOnCountdownInSeconds * 1000L) {
+        if (currentTime >= serverContext.stateChangeTime + getCountdownStateLengthInSeconds() * 1000L) {
             logger.info("Countdown complete! Transitioning to PLAYING state");
+            countdownTimeInSeconds = -1;    // Reset countdown state
+            serverContext.lastAnnouncedNumber = -1; // Reset last announced number
             return GameState.PLAYING;
         }
 

@@ -8,7 +8,6 @@ public class NetworkProtocol {
     public static final String INPUT = "INP";        // INP;<W_down>;<S_down>;<A_down>;<D_down>
     public static final String SHOOT_CMD = "SHT";    // SHT (Command to shoot)
     public static final String PING = "PIN";         // PIN (Optional)
-    // REMOVED: public static final String SHUTDOWN_SERVER = "SSD";
 
     // Server to Client Messages
     public static final String ASSIGN_ID = "AID";    // AID;<yourId>;<colorR>;<colorG>;<colorB> // REMOVED isHost

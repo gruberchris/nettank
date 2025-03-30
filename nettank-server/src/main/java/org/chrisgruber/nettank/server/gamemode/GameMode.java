@@ -27,6 +27,8 @@ public abstract class GameMode {
     protected int gameEndsOnFirstPlayerToReachScore;
     protected int gameEndsOnTotalPlayersRemaining;
 
+    protected int countdownTimeInSeconds;
+
     protected GameMode() {
         this.isInfiniteRespawns = true;
         this.totalRespawnsAllowed = 3;
@@ -45,12 +47,15 @@ public abstract class GameMode {
         this.gameEndsOnCountdownInMinutes = 0;
         this.gameEndsOnFirstPlayerToReachScore = 0;
         this.gameEndsOnTotalPlayersRemaining = 0;
+
+        this.countdownTimeInSeconds = 0;
     }
 
     public abstract boolean checkIsVictoryConditionMet(ServerContext serverContext);
     public abstract void handleNewPlayerJoin(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
     public abstract void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
     public abstract void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData);
+    public abstract long getCountdownStateLengthInSeconds();
 
     // Implementations for implementing conditions to transition between game states
     public abstract GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime);
@@ -117,4 +122,6 @@ public abstract class GameMode {
     public int getKillCountToBroadcastKillStreak() {
         return killCountToBroadcastKillStreak;
     }
+
+    public int getCountdownTimeInSeconds() { return countdownTimeInSeconds; }
 }

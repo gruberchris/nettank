@@ -33,10 +33,9 @@ public class ServerContext {
 
     // Game Flow State (volatile for thread safety)
     public volatile GameState currentGameState = GameState.WAITING;
-    public volatile long roundStartTimeMillis = 0;          // When PLAYING started
+    public volatile long roundStartTimeMillis = 0;          // When the round started
     public volatile long stateChangeTime;                   // When the current state was entered
-    public volatile long lastCountdownAnnouncementTime = 0; // Last time countdown was announced
-    public volatile long currentCountdownSecond = -1;
+    public volatile int lastAnnouncedNumber = -1;           // Last number announced to clients
 
     // --- Constructor ---
     public ServerContext() {
