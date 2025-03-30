@@ -242,7 +242,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Render Lives
         if (localTank != null && !isSpectating) {
             // ClientTank needs getLives()
-            uiManager.drawText("LIVES: " + localTank.getLives(), 10, 10, 1.5f, Colors.GREEN);
+            uiManager.drawText("HIT POINTS: " + localTank.getHitPoints(), 10, 10, 1.5f, Colors.GREEN);
         } else if (isSpectating) {
             uiManager.drawText("SPECTATING", 10, 10, 1.5f, Colors.YELLOW);
         } else {
@@ -379,19 +379,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
-    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, int lives) {
+    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b) {
         ClientTank tank = tanks.get(id);
-
-
-        // int defaultInitialLives = TankData.INITIAL_LIVES;
-        // TODO: The server should be telling the client how many lives the client has, not the other way around
-        int defaultInitialLives = 3;
 
         if (tank == null) { // Tank doesn't exist, create it
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
             TankData data = new TankData(); // Create common data object
             // Set initial state (lives will be updated by PLAYER_LIVES shortly)
-            data.updateFromServer(id, name, x, y, rotation, r, g, b, (lives != -1 ? lives : defaultInitialLives)); // Use initial lives if -1 passed
+            data.updateFromServer(id, name, x, y, rotation, r, g, b); // Use initial lives if -1 passed
             tank = new ClientTank(data); // Create client wrapper
 
             // Put the NEW tank into the map *after* creating it
@@ -400,25 +395,27 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             if (id == localPlayerId) {
                 localTank = tank; // Assign local tank reference
                 // Initial spectator status depends on initial lives received or inferred
-                isSpectating = !tank.isAlive(); // Check initial alive status
+                isSpectating = tank.isDestroyed(); // Check initial alive status
                 logger.info("Local tank object created. Spectating: {}", isSpectating);
             }
         } else {
             // Tank already exists, just update its data
             logger.trace("Updating existing ClientTank for player ID: {}", id); // Use Trace
-            // Only update lives if a valid value was passed, otherwise keep current lives
-            int currentLives = (lives != -1) ? lives : tank.getTankData().getLives();
-            tank.getTankData().updateFromServer(id, name, x, y, rotation, r, g, b, currentLives);
+            tank.getTankData().updateFromServer(id, name, x, y, rotation, r, g, b);
             // Ensure the visual entity position matches the data
             tank.updatePositionFromData();
 
             // Check if local player just respawned or joined alive
             if (id == localPlayerId) {
+                // TODO: move this logic to spectate to its own NetworkProtocol command
+                /*
                 boolean shouldSpectate = (currentLives <= 0);
                 if (isSpectating != shouldSpectate) { // Only log change
                     logger.info("Local player spectator status changed. Spectating: {}", shouldSpectate);
                     isSpectating = shouldSpectate;
                 }
+
+                 */
                 localTank = tank; // Ensure localTank ref is correct
             }
         }
@@ -482,11 +479,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     // Called when PLAYER_LIVES is received
     public void updatePlayerLives(int playerId, int lives) {
+        // TODO: Handle player lives update logic
+        // This is a placeholder for the actual logic to update player lives on the UI.
+        // The server has the actual number of lives or respawns allowed. The client will just display it.
         ClientTank tank = tanks.get(playerId);
         if (tank != null) {
-            tank.getTankData().setLives(lives);
+            //tank.getTankData().setLives(lives);
             logger.info("Player {} lives set to: {}", tank.getName(), lives);
             if (playerId == localPlayerId) {
+                // TODO: Move this logic to spectate to its own NetworkProtocol command
+                /*
                 if (lives <= 0 && !isSpectating) {
                     logger.info("Local player defeated. Enabling spectator mode.");
                     isSpectating = true;
@@ -496,6 +498,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                     logger.info("Local player has lives again, spectator mode should disable.");
                     isSpectating = false;
                 }
+                */
             }
         } else {
             logger.warn("Received updatePlayerLives for unknown ID: {}", playerId);
@@ -521,8 +524,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 bullets.clear();
                 // Update spectator status based on current lives
                 if(localTank != null) {
-                    isSpectating = !localTank.isAlive();
+                    logger.info("Local tank object created. Local tank: {}", localTank.getName());
+                    isSpectating = localTank.isDestroyed();
                 } else {
+                    logger.info("Local tank object not found. Spectating.");
                     isSpectating = true; // Spectate if local tank doesn't exist yet
                 }
                 logger.info("Game state PLAYING. Spectating: {}", isSpectating);

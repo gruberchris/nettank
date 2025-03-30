@@ -9,12 +9,10 @@ import org.chrisgruber.nettank.server.state.ServerContext;
 
 public abstract class GameMode {
 
-    protected boolean isInfiniteRespawns;
-    protected int totalRespawnsAllowed;
+    protected int totalRespawnsAllowedOnStart;
     protected int minRequiredPlayers;
     protected int maxAllowedPlayers;
-    protected boolean isMainWeaponAmmoLimited;
-    protected int startingMainWeaponAmmoCount;
+    protected int startingMainWeaponAmmoCount;  // -1 for unlimited ammmo allowed
     protected int killCountToBroadcastKillStreak;
 
     protected GameModeRule gameModeRule;
@@ -30,12 +28,10 @@ public abstract class GameMode {
     protected int countdownTimeInSeconds;
 
     protected GameMode() {
-        this.isInfiniteRespawns = true;
-        this.totalRespawnsAllowed = 3;
+        this.totalRespawnsAllowedOnStart = Integer.MAX_VALUE;
         this.minRequiredPlayers = 1;
         this.maxAllowedPlayers = 12;
-        this.isMainWeaponAmmoLimited = false;
-        this.startingMainWeaponAmmoCount = 0;
+        this.startingMainWeaponAmmoCount = -1; // -1 for unlimited ammo allowed
         this.killCountToBroadcastKillStreak = 3;
 
         this.gameModeRule = GameModeRule.FREE_FOR_ALL;
@@ -56,6 +52,8 @@ public abstract class GameMode {
     public abstract void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
     public abstract void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData);
     public abstract long getCountdownStateLengthInSeconds();
+    public abstract void handlePlayerDeath(ServerContext serverContext, Integer playerId, TankData tankData);
+    public abstract Integer getRemainingRespawnsForPlayer(Integer playerId);
 
     // Implementations for implementing conditions to transition between game states
     public abstract GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime);
@@ -63,12 +61,8 @@ public abstract class GameMode {
     public abstract GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime);
     public abstract GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime);
 
-    public boolean isInfiniteRespawns() {
-        return isInfiniteRespawns;
-    }
-
-    public int getTotalRespawnsAllowed() {
-        return totalRespawnsAllowed;
+    public int getTotalRespawnsAllowedOnStart() {
+        return totalRespawnsAllowedOnStart;
     }
 
     public int getMinRequiredPlayers() {
@@ -77,10 +71,6 @@ public abstract class GameMode {
 
     public int getMaxAllowedPlayers() {
         return maxAllowedPlayers;
-    }
-
-    public boolean isMainWeaponAmmoLimited() {
-        return isMainWeaponAmmoLimited;
     }
 
     public int getStartingMainWeaponAmmoCount() {

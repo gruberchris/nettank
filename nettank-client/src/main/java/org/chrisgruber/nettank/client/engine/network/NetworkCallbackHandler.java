@@ -11,7 +11,7 @@ public interface NetworkCallbackHandler {
     void setGameState(GameState state, long timeData);
     void addAnnouncement(String message);
     // Entity/World Updates
-    void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, int lives);
+    void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b);
     void updateTankState(int id, float x, float y, float rotation);
     void removeTank(int id);
     void updatePlayerLives(int playerId, int lives);

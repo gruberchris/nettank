@@ -240,12 +240,14 @@ public class GameServer {
 
         serverContext.gameMode.handleNewPlayerJoin(serverContext, playerId, playerName, newTankData);
 
+        var totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
+
         // Send all tanks and their lives to new player
         for (TankData tankData : serverContext.tanks.values()) {
             handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
                     NetworkProtocol.NEW_PLAYER, tankData.playerId, tankData.position.x, tankData.position.y, tankData.rotation,
                     tankData.name, tankData.color.x, tankData.color.y, tankData.color.z));
-            handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, tankData.getLives()));
+            handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, totalRespawnsAllowed));
         }
 
         logger.info("Sent existing player's tanks to new player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
@@ -254,7 +256,7 @@ public class GameServer {
         String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
                 NetworkProtocol.NEW_PLAYER, newTankData.playerId, newTankData.position.x, newTankData.position.y, newTankData.rotation,
                 newTankData.name, newTankData.color.x, newTankData.color.y, newTankData.color.z);
-        String livesMsg = String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, newTankData.playerId, newTankData.getLives());
+        String livesMsg = String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, newTankData.playerId, totalRespawnsAllowed);
         broadcast(newPlayerMsg, playerId);
         broadcast(livesMsg, playerId);
 
@@ -359,7 +361,7 @@ public class GameServer {
 
         // Update Tanks
         for (TankData tankData : serverContext.tanks.values()) {
-            if (!tankData.isAlive()) continue;  // No need to update dead tanks
+            if (tankData.isDestroyed()) continue;  // No need to update destroyed tanks
             Vector2f oldPos = new Vector2f(tankData.position);
             // Movement Logic
             float turnAmount = 0;
@@ -427,15 +429,23 @@ public class GameServer {
         String targetName = target.name;
         logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
-        target.takeHit();
-        broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.playerId, bulletData.ownerId), -1);
-        broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, target.getLives()), -1);
-        broadcastAnnouncement(shooterName + " KILLED " + targetName, -1);
+        // TODO: implement weapon damage and ammo
+        int weaponDamage = 1;
+        target.takeHit(weaponDamage);
 
-        if (!target.isAlive()) {
-            logger.info("{} was defeated.", targetName);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
-            broadcastAnnouncement(targetName + " HAS BEEN DEFEATED!", -1);
+        if (target.isDestroyed()) {
+            int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.playerId);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.playerId, bulletData.ownerId), -1);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, respawnsRemaining), -1);
+            broadcastAnnouncement(shooterName + " KILLED " + targetName, -1);
+
+            if (respawnsRemaining <= 0) {
+                logger.info("{} was defeated.", targetName);
+                broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
+                broadcastAnnouncement(targetName + " HAS BEEN DEFEATED!", -1);
+
+                // TODO: tell defeated target player to spectate
+            }
         }
     }
 
@@ -453,8 +463,8 @@ public class GameServer {
             return;
         }
 
-        if (!tankData.isAlive()) {
-            logger.warn("Unable to process tank movement input for playerId: {} because the tank is not alive.", playerId);
+        if (tankData.isDestroyed()) {
+            logger.warn("Unable to process tank movement input for playerId: {} because the tank is destroyed.", playerId);
             return;
         }
 
@@ -477,8 +487,8 @@ public class GameServer {
             return;
         }
 
-        if (!tankData.isAlive()) {
-            logger.warn("Unable to process shoot input for playerId: {} because the tank is not alive.", playerId);
+        if (tankData.isDestroyed()) {
+            logger.warn("Unable to process shoot input for playerId: {} because the tank is destroyed.", playerId);
             return;
         }
 
@@ -618,10 +628,13 @@ public class GameServer {
     }
 
     // Resets player state for a new round
+    // TODO: this logic can get moved to the game mode implementation
     private void resetPlayersForNewRound() {
         logger.info("Resetting players for new round.");
 
         serverContext.bullets.clear();
+
+        int totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
 
         for(TankData tankData : serverContext.tanks.values()) {
             Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
@@ -630,7 +643,7 @@ public class GameServer {
             tankData.setInputState(false, false, false, false);
             tankData.lastShotTime = 0; // Reset shot timer
             broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, tankData.getLives()), -1);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, totalRespawnsAllowed), -1);
         }
     }
 

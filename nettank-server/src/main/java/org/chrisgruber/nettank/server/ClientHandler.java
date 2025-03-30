@@ -278,7 +278,7 @@ public class ClientHandler implements Runnable {
                     break;
 
                 case NetworkProtocol.INPUT:
-                    if (parts.length >= 5 && playerId != -1) {
+                    if (parts.length >= 5) {
                         try {
                             boolean w = Boolean.parseBoolean(parts[1]);
                             boolean s = Boolean.parseBoolean(parts[2]);
@@ -288,20 +288,14 @@ public class ClientHandler implements Runnable {
                         } catch (Exception e) {
                             logger.error("Error parsing INPUT message parts: {}", message, e);
                         }
-                    } else if (playerId == -1) {
-                        logger.warn("Received INPUT before registration: {}", message);
                     } else {
-                        logger.warn("Malformed INPUT message: {}", message);
+                        logger.warn("Received INPUT before registration or malformed INPUT message: {}", message);
                     }
                     break;
 
                 case NetworkProtocol.SHOOT_CMD:
-                    if (playerId != -1) {
-                        // server.handlePlayerShootMainWeaponInput might need synchronization
-                        server.handlePlayerShootMainWeaponInput(playerId);
-                    } else {
-                        logger.warn("Received SHOOT_CMD before registration: {}", message);
-                    }
+                    // server.handlePlayerShootMainWeaponInput might need synchronization
+                    server.handlePlayerShootMainWeaponInput(playerId);
                     break;
 
                 default:

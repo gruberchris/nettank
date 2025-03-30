@@ -5,25 +5,35 @@ import org.chrisgruber.nettank.common.gamemode.GameModeRule;
 import org.chrisgruber.nettank.common.gamemode.GameStartCondition;
 import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
 import org.chrisgruber.nettank.common.util.GameState;
+import org.chrisgruber.nettank.server.entities.FreeForAllPlayerState;
 import org.chrisgruber.nettank.server.state.ServerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+
 public class FreeForAll extends GameMode {
     private static final Logger logger = LoggerFactory.getLogger(FreeForAll.class);
 
+    // Game mode player state
+    protected Map<Integer, FreeForAllPlayerState> playerStatesByPlayerId;
+
     public FreeForAll() {
         super();
-        this.isInfiniteRespawns = true;
         this.maxAllowedPlayers = 12;
-        this.isMainWeaponAmmoLimited = false;
         this.killCountToBroadcastKillStreak = 3;
+        this.startingMainWeaponAmmoCount = -1; // -1 for unlimited ammo allowed
+
+        // Round starting countdown state and configuration
         this.gameStartOnCountdownInSeconds = 3;
         this.countdownTimeInSeconds = -1;
 
         this.gameModeRule = GameModeRule.FREE_FOR_ALL;
         this.gameStartCondition = GameStartCondition.IMMEDIATE;
         this.gameWinCondition = GameWinCondition.NONE;
+
+        // Game mode player state
+        this.playerStatesByPlayerId = new java.util.HashMap<>();
     }
 
     @Override
@@ -41,18 +51,25 @@ public class FreeForAll extends GameMode {
     @Override
     public void handleNewPlayerJoin(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
         logger.info("New player {} has joined the game.", playerName);
-        tankData.setInfiniteLivesAllowed(true);
+        var playerState = new FreeForAllPlayerState(playerId);
+        playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
+        playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
+        playerStatesByPlayerId.put(playerId, playerState);
     }
 
     @Override
     public void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
         logger.info("New player {} has joined the game in progress.", playerName);
-        tankData.setInfiniteLivesAllowed(true);
+        var playerState = new FreeForAllPlayerState(playerId);
+        playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
+        playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
+        playerStatesByPlayerId.put(playerId, playerState);
     }
 
     @Override
     public void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData) {
         logger.info("Player {} has left the game.", playerId);
+        playerStatesByPlayerId.remove(playerId);
     }
 
     @Override
@@ -122,5 +139,21 @@ public class FreeForAll extends GameMode {
     public GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
         logger.trace("FreeForAll: Checking transition from ROUND_OVER to WAITING.");
         return GameState.ROUND_OVER;
+    }
+
+    @Override
+    public void handlePlayerDeath(ServerContext serverContext, Integer playerId, TankData tankData) {
+        logger.info("Player {} has died.", playerId);
+        // Usually, decrementing the respawn count but this game mode allows unlimited respawns
+    }
+
+    @Override
+    public Integer getRemainingRespawnsForPlayer(Integer playerId) {
+        FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
+        if (playerState == null) {
+            logger.error("Player {} has no game mode player state.", playerId);
+            return 0;
+        }
+        return playerState.getRespawnsRemaining();
     }
 }

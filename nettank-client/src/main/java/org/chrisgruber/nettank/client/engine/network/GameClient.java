@@ -144,8 +144,7 @@ public class GameClient implements Runnable {
                         float r = Float.parseFloat(parts[6]);
                         float g = Float.parseFloat(parts[7]);
                         float b = Float.parseFloat(parts[8]);
-                        // Call handler, passing -1 for lives initially
-                        networkCallbackHandler.addOrUpdateTank(id, x, y, rot, name, r, g, b, -1);
+                        networkCallbackHandler.addOrUpdateTank(id, x, y, rot, name, r, g, b);
                     } else {
                         logger.error("Malformed NEW_PLAYER message: Expected 9 parts, got {}", parts.length);
                     }

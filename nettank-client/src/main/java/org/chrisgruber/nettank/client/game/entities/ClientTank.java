@@ -40,8 +40,9 @@ public class ClientTank extends Entity {
     public String getName() { return tankData.name; }
     public float getRotation() { return tankData.rotation; }
     public Vector3f getColor() { return tankData.color; } // Returns mutable ref
-    public int getLives() { return tankData.getLives(); }
-    public boolean isAlive() { return tankData.isAlive(); }
+    //public int getLives() { return tankData.getLives(); }
+    public int getHitPoints() { return tankData.getHitPoints(); }
+    public boolean isDestroyed() { return tankData.isDestroyed(); }
 
     // Override getPosition to ensure it uses the potentially updated data
     @Override
