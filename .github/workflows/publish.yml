@@ -22,6 +22,7 @@ jobs:
         with:
           fetch-depth: 0 # Important for release plugin
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -37,12 +38,13 @@ jobs:
         run: |
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
+          git fetch origin
+          git reset --hard origin/main
 
       # If manually triggered, prepare and perform a release
       - name: Release with Maven
         if: github.event_name == 'workflow_dispatch'
         run: |
-          git pull origin main --rebase
           mvn -B release:prepare release:perform \
             -DreleaseVersion=${{ github.event.inputs.version }} \
             -DdevelopmentVersion=${{ github.event.inputs.version }}-SNAPSHOT \
