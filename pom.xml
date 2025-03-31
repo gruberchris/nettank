@@ -2,6 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.chrisgruber.nettank</groupId>
     <artifactId>nettank</artifactId>
+    <!-- Keep the SNAPSHOT version here for development -->
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Nettank</name>
@@ -14,10 +15,18 @@
 
     <distributionManagement>
         <repository>
-            <id>github</id>
+            <id>github</id> <!-- This ID must match the server ID in setup-java -->
             <name>GitHub Packages</name>
             <url>https://maven.pkg.github.com/gruberchris/nettank</url>
         </repository>
+        <!-- You might want a snapshot repository too, but it's optional for this setup -->
+        <!--
+        <snapshotRepository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/gruberchris/nettank</url>
+        </snapshotRepository>
+        -->
     </distributionManagement>
 
     <properties>
@@ -166,37 +175,54 @@
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>2.16.2</version>
                 </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-release-plugin</artifactId>
-                    <version>3.0.1</version>
-                    <configuration>
-                        <scmCommentPrefix>[ci skip] [maven-release-plugin] </scmCommentPrefix>
-                        <tagNameFormat>v@{project.version}</tagNameFormat>
-                        <preparationGoals>clean verify</preparationGoals>
-                        <pushChanges>true</pushChanges>
-                        <remoteTagging>true</remoteTagging>
-                        <autoVersionSubmodules>true</autoVersionSubmodules>
-                        <checkModificationExcludes>
-                            <checkModificationExclude>pom.xml</checkModificationExclude>
-                        </checkModificationExcludes>
-                    </configuration>
-                </plugin>
+                <!-- MAVEN RELEASE PLUGIN REMOVED FROM HERE -->
             </plugins>
         </pluginManagement>
 
         <plugins>
+            <!-- MAVEN RELEASE PLUGIN REMOVED FROM HERE -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-release-plugin</artifactId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>3.1.1</version> <!-- Specify version for consistency -->
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version> <!-- Optional: Attach sources -->
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version> <!-- Optional: Attach Javadoc -->
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
 
+    <!-- SCM section is not strictly needed by the proposed workflow -->
+    <!-- but can be kept if other plugins use it. -->
+    <!--
     <scm>
         <connection>scm:git:https://github.com/gruberchris/nettank.git</connection>
         <developerConnection>scm:git:https://github.com/gruberchris/nettank.git</developerConnection>
         <url>https://github.com/gruberchris/nettank</url>
         <tag>HEAD</tag>
     </scm>
+    -->
 </project>
