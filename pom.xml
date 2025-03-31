@@ -2,18 +2,25 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <groupId>org.chrisgruber.nettank</groupId>
     <artifactId>nettank</artifactId>
-    <version>1.0.0</version>
+    <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
-
     <name>Nettank</name>
+
     <modules>
         <module>nettank-client</module>
         <module>nettank-server</module>
         <module>nettank-common</module>
     </modules>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/gruberchris/nettank</url>
+        </repository>
+    </distributionManagement>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -161,7 +168,31 @@
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>2.16.2</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>3.0.1</version>
+                    <configuration>
+                        <tagNameFormat>v@{project.version}</tagNameFormat>
+                        <autoVersionSubmodules>true</autoVersionSubmodules>
+                        <releaseProfiles>release</releaseProfiles>
+                    </configuration>
+                </plugin>
             </plugins>
         </pluginManagement>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+            </plugin>
+        </plugins>
     </build>
+
+    <scm>
+        <connection>scm:git:https://github.com/gruberchris/nettank.git</connection>
+        <developerConnection>scm:git:https://github.com/gruberchris/nettank.git</developerConnection>
+        <url>https://github.com/gruberchris/nettank</url>
+        <tag>HEAD</tag>
+    </scm>
 </project>
