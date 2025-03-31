@@ -42,6 +42,7 @@ jobs:
       - name: Release with Maven
         if: github.event_name == 'workflow_dispatch'
         run: |
+          git pull origin main --rebase
           mvn -B release:prepare release:perform \
             -DreleaseVersion=${{ github.event.inputs.version }} \
             -DdevelopmentVersion=${{ github.event.inputs.version }}-SNAPSHOT \
