@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.chrisgruber.nettank</groupId>
         <artifactId>nettank</artifactId>
-        <version>0.1.0</version>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>nettank-common</artifactId>
