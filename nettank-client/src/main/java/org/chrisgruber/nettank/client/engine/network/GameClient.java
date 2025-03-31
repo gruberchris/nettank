@@ -23,6 +23,8 @@ public class GameClient implements Runnable {
     private volatile boolean shuttingDown = false;
     private final Object connectionLock = new Object();
     private final NetworkCallbackHandler networkCallbackHandler;
+    private boolean isSpectating = false;
+    private long spectateEndTimeMillis = 0;
 
     private long lastInputSendTime = 0;
     private static final long INPUT_SEND_INTERVAL_MS = 50; // Send input updates roughly 20 times/sec
@@ -218,6 +220,22 @@ public class GameClient implements Runnable {
                         logger.error("Malformed RESPAWN message: Expected 4 parts, got {}", parts.length);
                     }
                     break;
+                case NetworkProtocol.SPECTATE_START:
+                    if (parts.length >= 2) {
+                        spectateEndTimeMillis = Long.parseLong(parts[1]);
+                        setSpectatorMode(true);
+                        // TODO: Maybe set camera to follow the player that killed you?
+                    }
+                    break;
+
+                case NetworkProtocol.SPECTATE_END:
+                    setSpectatorMode(false);
+                    break;
+
+                case NetworkProtocol.SPECTATE_PERMANENT:
+                    setSpectatorMode(true);
+                    spectateEndTimeMillis = -1; // Permanent spectating
+                    break;
                 case NetworkProtocol.ERROR_MSG: // ERR;<errorMessage> (2+ parts)
                     if(parts.length >= 2) {
                         String errorMsg = parts[1];
@@ -237,6 +255,30 @@ public class GameClient implements Runnable {
             logger.error("Error parsing server message {}", message, e);
         } finally {
             logger.trace("Finished parsing server message."); // Use Trace
+        }
+    }
+
+    private void setSpectatorMode(boolean spectating) {
+        this.isSpectating = spectating;
+
+        // Update UI to show spectator mode
+        if (spectating) {
+            // TODO: Show spectator UI, maybe show a countdown timer until respawn
+            logger.info("Entered spectator mode");
+        } else {
+            // TODO: Hide spectator UI
+            logger.info("Exited spectator mode");
+        }
+    }
+
+    private void renderSpectatorOverlay() {
+        if (isSpectating) {
+            if (spectateEndTimeMillis > 0) {
+                long timeLeft = Math.max(0, spectateEndTimeMillis - System.currentTimeMillis());
+                // renderText("RESPAWNING IN: " + (timeLeft / 1000 + 1) + "s", centerX, centerY - 50);
+            } else if (spectateEndTimeMillis == -1) {
+                // renderText("SPECTATING - NO RESPAWNS LEFT", centerX, centerY - 50);
+            }
         }
     }
 

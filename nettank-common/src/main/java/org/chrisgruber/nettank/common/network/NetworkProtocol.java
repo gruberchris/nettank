@@ -24,4 +24,7 @@ public class NetworkProtocol {
     public static final String ROUND_OVER = "ROV";   // ROV;<winnerId>;<winnerName>;<finalTimeMillis> (-1 ID for draw)
     public static final String PONG = "PON";         // PON (Optional response to PING)
     public static final String ERROR_MSG = "ERR";    // ERR;<errorMessage>
+    public static final String SPECTATE_START = "SPECTATE";         // SPECTATE;<playerId>;<respawnTimeMillis>
+    public static final String SPECTATE_END = "SPEC_END";           // SPECTATE_END;<playerId>
+    public static final String SPECTATE_PERMANENT = "SPEC_PERM";    // SPECTATE_PERM;<playerId>
 }

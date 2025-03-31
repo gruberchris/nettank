@@ -421,16 +421,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Check if local player just respawned or joined alive
             if (id == localPlayerId) {
-                // TODO: move this logic to spectate to its own NetworkProtocol command
-                /*
-                boolean shouldSpectate = (currentLives <= 0);
-                if (isSpectating != shouldSpectate) { // Only log change
-                    logger.info("Local player spectator status changed. Spectating: {}", shouldSpectate);
-                    isSpectating = shouldSpectate;
-                }
-
-                 */
-                localTank = tank; // Ensure localTank ref is correct
+                localTank = tank;
             }
         }
     }

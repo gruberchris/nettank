@@ -406,7 +406,6 @@ public class GameServer {
         for (BulletData bulletData : serverContext.bullets) {
             if (bulletsToRemove.contains(bulletData)) continue; // Skip if already marked for removal
             for (TankData tankData : serverContext.tanks.values()) {
-                // if (!tankData.alive || tankData.playerId == bulletData.ownerId) continue; // Skip if tank is dead or bullet owner is the same as tank
                 if (bulletData.position.distanceSquared(tankData.position) < Math.pow(TankData.COLLISION_RADIUS + BulletData.SIZE / 2.0f, 2)) {
                     handleHit(tankData, bulletData);
                     bulletsToRemove.add(bulletData);
@@ -428,6 +427,7 @@ public class GameServer {
                     int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.playerId);
                     broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);
                     broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, respawnsRemaining), -1);
+                    sendSpectatorEndMessage(tankData.playerId);
                 }
             }
         }
@@ -452,16 +452,56 @@ public class GameServer {
             int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.playerId);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.playerId, bulletData.ownerId), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, respawnsRemaining), -1);
+            sendSpectatorStartMessage(target.playerId, target);
             broadcastAnnouncement(shooterName + " KILLED " + targetName, -1);
 
             if (respawnsRemaining <= 0) {
                 logger.info("{} was defeated.", targetName);
                 broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
                 broadcastAnnouncement(targetName + " HAS BEEN DEFEATED!", -1);
-
-                // TODO: tell defeated target player to spectate
+                sendSpectatePermanentMessage(target.getPlayerId());
             }
         }
+    }
+
+    private synchronized void sendSpectatorStartMessage(int playerId, TankData tankData) {
+        ClientHandler targetHandler = serverContext.clients.get(playerId);
+
+        if (targetHandler == null) {
+            logger.error("Unable to send spectator start message to playerId: {} because no handler was found.", playerId);
+            return;
+        }
+
+        long respawnTime = tankData.getDeathTimeMillis() + serverContext.tankRespawnDelayMillis;
+        targetHandler.sendMessage(String.format("%s;%d", NetworkProtocol.SPECTATE_START, respawnTime));
+
+        logger.debug("Spectator started message sent to playerId: {} respawnTime: {}", playerId, respawnTime);
+    }
+
+    private synchronized void sendSpectatorEndMessage(int playerId) {
+        ClientHandler targetHandler = serverContext.clients.get(playerId);
+
+        if (targetHandler == null) {
+            logger.error("Unable to send spectator end message to playerId: {} because no handler was found.", playerId);
+            return;
+        }
+
+        targetHandler.sendMessage(NetworkProtocol.SPECTATE_END);
+
+        logger.debug("Spectator ended message sent to playerId: {}", playerId);
+    }
+
+    private synchronized void sendSpectatePermanentMessage(int playerId) {
+        ClientHandler targetHandler = serverContext.clients.get(playerId);
+
+        if (targetHandler == null) {
+            logger.error("Unable to send spectate permanent message to playerId: {} because no handler was found.", playerId);
+            return;
+        }
+
+        targetHandler.sendMessage(NetworkProtocol.SPECTATE_PERMANENT);
+
+        logger.debug("Spectate permanently message sent to playerId: {}", playerId);
     }
 
     // Process player movement input and set the tank's movement state
