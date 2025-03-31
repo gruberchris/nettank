@@ -171,9 +171,15 @@
                     <artifactId>maven-release-plugin</artifactId>
                     <version>3.0.1</version>
                     <configuration>
+                        <scmCommentPrefix>[ci skip] [maven-release-plugin] </scmCommentPrefix>
                         <tagNameFormat>v@{project.version}</tagNameFormat>
+                        <preparationGoals>clean verify</preparationGoals>
+                        <pushChanges>true</pushChanges>
+                        <remoteTagging>true</remoteTagging>
                         <autoVersionSubmodules>true</autoVersionSubmodules>
-                        <releaseProfiles>release</releaseProfiles>
+                        <checkModificationExcludes>
+                            <checkModificationExclude>pom.xml</checkModificationExclude>
+                        </checkModificationExcludes>
                     </configuration>
                 </plugin>
             </plugins>
