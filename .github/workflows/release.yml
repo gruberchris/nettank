@@ -78,9 +78,10 @@ jobs:
           echo "Updated POMs to version ${{ steps.get_version.outputs.version }}"
 
       - name: Build, Package and Publish to GitHub Packages
-        run: mvn -B deploy -DskipTests
+        # Explicitly tell Maven to use the settings file created by setup-java
+        run: mvn -B -s $HOME/.m2/settings.xml deploy -DskipTests
         env:
-          # GITHUB_TOKEN is automatically used by setup-java for authentication
+          # Keep GITHUB_TOKEN env var just in case, although setup-java/settings.xml is primary
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
