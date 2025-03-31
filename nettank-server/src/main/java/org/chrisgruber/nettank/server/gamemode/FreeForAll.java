@@ -16,7 +16,8 @@ public class FreeForAll extends GameMode {
     private static final Logger logger = LoggerFactory.getLogger(FreeForAll.class);
 
     // Game mode player state
-    protected Map<Integer, FreeForAllPlayerState> playerStatesByPlayerId;
+    protected final Map<Integer, FreeForAllPlayerState> playerStatesByPlayerId =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     public FreeForAll() {
         super();
@@ -31,25 +32,22 @@ public class FreeForAll extends GameMode {
         this.gameModeRule = GameModeRule.FREE_FOR_ALL;
         this.gameStartCondition = GameStartCondition.IMMEDIATE;
         this.gameWinCondition = GameWinCondition.NONE;
-
-        // Game mode player state
-        this.playerStatesByPlayerId = new java.util.HashMap<>();
     }
 
     @Override
-    public long getCountdownStateLengthInSeconds() {
+    public synchronized long getCountdownStateLengthInSeconds() {
         long delayPerSecond = 2;
         return gameStartOnCountdownInSeconds * delayPerSecond;
     }
 
     @Override
-    public boolean checkIsVictoryConditionMet(ServerContext serverContext) {
+    public synchronized boolean checkIsVictoryConditionMet(ServerContext serverContext) {
         // Since gameWinCondition is NONE, the game never will never end
         return false;
     }
 
     @Override
-    public void handleNewPlayerJoin(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
+    public synchronized void handleNewPlayerJoin(ServerContext serverContext, int playerId, String playerName, TankData tankData) {
         logger.info("New player {} has joined the game.", playerName);
         var playerState = new FreeForAllPlayerState(playerId);
         playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
@@ -58,7 +56,7 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData) {
+    public synchronized void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, int playerId, String playerName, TankData tankData) {
         logger.info("New player {} has joined the game in progress.", playerName);
         var playerState = new FreeForAllPlayerState(playerId);
         playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
@@ -67,13 +65,13 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData) {
+    public synchronized void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, int playerId, TankData tankData) {
         logger.info("Player {} has left the game.", playerId);
         playerStatesByPlayerId.remove(playerId);
     }
 
     @Override
-    public GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime) {
+    public synchronized GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime) {
         var playerCount = serverContext.getPlayerCount();
         var minRequiredPlayers = getMinRequiredPlayers();
 
@@ -90,7 +88,7 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public GameState shouldTransitionFromCountdown(ServerContext serverContext, long currentTime) {
+    public synchronized GameState shouldTransitionFromCountdown(ServerContext serverContext, long currentTime) {
         var playerCount = serverContext.getPlayerCount();
         var minRequiredPlayers = getMinRequiredPlayers();
 
@@ -130,25 +128,25 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime) {
+    public synchronized GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime) {
         logger.trace("FreeForAll: Checking transition from PLAYING to PLAYING.");
         return GameState.PLAYING;
     }
 
     @Override
-    public GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
+    public synchronized GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
         logger.trace("FreeForAll: Checking transition from ROUND_OVER to WAITING.");
         return GameState.ROUND_OVER;
     }
 
     @Override
-    public void handlePlayerDeath(ServerContext serverContext, Integer playerId, TankData tankData) {
+    public synchronized void handlePlayerDeath(ServerContext serverContext, int playerId, TankData tankData) {
         logger.info("Player {} has died.", playerId);
         // Usually, decrementing the respawn count but this game mode allows unlimited respawns
     }
 
     @Override
-    public Integer getRemainingRespawnsForPlayer(Integer playerId) {
+    public synchronized int getRemainingRespawnsForPlayer(int playerId) {
         FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
         if (playerState == null) {
             logger.error("Player {} has no game mode player state.", playerId);
@@ -158,7 +156,7 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public void handlePlayerRespawn(ServerContext serverContext, Integer playerId, TankData tankData) {
+    public synchronized void handlePlayerRespawn(ServerContext serverContext, int playerId, TankData tankData) {
         FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
         if (playerState == null) {
             logger.error("Player {} has no game mode player state.", playerId);

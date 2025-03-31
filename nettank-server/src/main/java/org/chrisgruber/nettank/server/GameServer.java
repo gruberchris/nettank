@@ -384,7 +384,7 @@ public class GameServer {
             // Bounds Check
             if (serverContext.gameMapData.isOutOfBounds(tankData.position.x, tankData.position.y, TankData.COLLISION_RADIUS)) {
                 tankData.setPosition(oldPos.x, oldPos.y);
-                logger.warn("PlayerId: {}. Player tank moved out of map bounds and was reset to previous position.", tankData.playerId);
+                logger.trace("PlayerId: {}. Player tank moved out of map bounds and was reset to previous position.", tankData.playerId);
             }
         }
 

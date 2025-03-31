@@ -48,13 +48,13 @@ public abstract class GameMode {
     }
 
     public abstract boolean checkIsVictoryConditionMet(ServerContext serverContext);
-    public abstract void handleNewPlayerJoin(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
-    public abstract void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, Integer playerId, String playerName, TankData tankData);
-    public abstract void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, Integer playerId, TankData tankData);
+    public abstract void handleNewPlayerJoin(ServerContext serverContext, int playerId, String playerName, TankData tankData);
+    public abstract void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, int playerId, String playerName, TankData tankData);
+    public abstract void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, int playerId, TankData tankData);
     public abstract long getCountdownStateLengthInSeconds();
-    public abstract void handlePlayerDeath(ServerContext serverContext, Integer playerId, TankData tankData);
-    public abstract Integer getRemainingRespawnsForPlayer(Integer playerId);
-    public abstract void handlePlayerRespawn(ServerContext serverContext, Integer playerId, TankData tankData);
+    public abstract void handlePlayerDeath(ServerContext serverContext, int playerId, TankData tankData);
+    public abstract int getRemainingRespawnsForPlayer(int playerId);
+    public abstract void handlePlayerRespawn(ServerContext serverContext, int playerId, TankData tankData);
 
     // Implementations for implementing conditions to transition between game states
     public abstract GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime);
@@ -62,57 +62,57 @@ public abstract class GameMode {
     public abstract GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime);
     public abstract GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime);
 
-    public int getTotalRespawnsAllowedOnStart() {
+    public synchronized int getTotalRespawnsAllowedOnStart() {
         return totalRespawnsAllowedOnStart;
     }
 
-    public int getMinRequiredPlayers() {
+    public synchronized int getMinRequiredPlayers() {
         return minRequiredPlayers;
     }
 
-    public int getMaxAllowedPlayers() {
+    public synchronized int getMaxAllowedPlayers() {
         return maxAllowedPlayers;
     }
 
-    public int getStartingMainWeaponAmmoCount() {
+    public synchronized int getStartingMainWeaponAmmoCount() {
         return startingMainWeaponAmmoCount;
     }
 
-    public GameModeRule getGameModeRule() {
+    public synchronized GameModeRule getGameModeRule() {
         return gameModeRule;
     }
 
-    public GameStartCondition getGameStartCondition() {
+    public synchronized GameStartCondition getGameStartCondition() {
         return gameStartCondition;
     }
 
-    public GameWinCondition getGameWinCondition() {
+    public synchronized GameWinCondition getGameWinCondition() {
         return gameWinCondition;
     }
 
-    public int getGameStartOnCountdownInSeconds() {
+    public synchronized int getGameStartOnCountdownInSeconds() {
         return gameStartOnCountdownInSeconds;
     }
 
-    public int getGameStartOnPlayerCountTotal() {
+    public synchronized int getGameStartOnPlayerCountTotal() {
         return gameStartOnPlayerCountTotal;
     }
 
-    public int getGameEndsOnCountdownInMinutes() {
+    public synchronized int getGameEndsOnCountdownInMinutes() {
         return gameEndsOnCountdownInMinutes;
     }
 
-    public int getGameEndsOnFirstPlayerToReachScore() {
+    public synchronized int getGameEndsOnFirstPlayerToReachScore() {
         return gameEndsOnFirstPlayerToReachScore;
     }
 
-    public int getGameEndsOnTotalPlayersRemaining() {
+    public synchronized int getGameEndsOnTotalPlayersRemaining() {
         return gameEndsOnTotalPlayersRemaining;
     }
 
-    public int getKillCountToBroadcastKillStreak() {
+    public synchronized int getKillCountToBroadcastKillStreak() {
         return killCountToBroadcastKillStreak;
     }
 
-    public int getCountdownTimeInSeconds() { return countdownTimeInSeconds; }
+    public synchronized int getCountdownTimeInSeconds() { return countdownTimeInSeconds; }
 }
