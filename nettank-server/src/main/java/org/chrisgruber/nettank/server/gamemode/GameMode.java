@@ -9,23 +9,24 @@ import org.chrisgruber.nettank.server.state.ServerContext;
 
 public abstract class GameMode {
 
-    protected int totalRespawnsAllowedOnStart;
-    protected int minRequiredPlayers;
-    protected int maxAllowedPlayers;
-    protected int startingMainWeaponAmmoCount;  // -1 for unlimited ammo allowed
-    protected int killCountToBroadcastKillStreak;
+    protected final Object stateLock = new Object();
+    protected volatile int totalRespawnsAllowedOnStart;
+    protected volatile int minRequiredPlayers;
+    protected volatile int maxAllowedPlayers;
+    protected volatile int startingMainWeaponAmmoCount;  // -1 for unlimited ammo allowed
+    protected volatile int killCountToBroadcastKillStreak;
 
-    protected GameModeRule gameModeRule;
-    protected GameStartCondition gameStartCondition;
-    protected GameWinCondition gameWinCondition;
+    protected volatile GameModeRule gameModeRule;
+    protected volatile GameStartCondition gameStartCondition;
+    protected volatile GameWinCondition gameWinCondition;
 
-    protected int gameStartOnCountdownInSeconds;
-    protected int gameStartOnPlayerCountTotal;
-    protected int gameEndsOnCountdownInMinutes;
-    protected int gameEndsOnFirstPlayerToReachScore;
-    protected int gameEndsOnTotalPlayersRemaining;
+    protected volatile int gameStartOnCountdownInSeconds;
+    protected volatile int gameStartOnPlayerCountTotal;
+    protected volatile int gameEndsOnCountdownInMinutes;
+    protected volatile int gameEndsOnFirstPlayerToReachScore;
+    protected volatile int gameEndsOnTotalPlayersRemaining;
 
-    protected int countdownTimeInSeconds;
+    protected volatile int countdownTimeInSeconds;
 
     protected GameMode() {
         this.totalRespawnsAllowedOnStart = Integer.MAX_VALUE;
@@ -62,57 +63,18 @@ public abstract class GameMode {
     public abstract GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime);
     public abstract GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime);
 
-    public synchronized int getTotalRespawnsAllowedOnStart() {
-        return totalRespawnsAllowedOnStart;
-    }
-
-    public synchronized int getMinRequiredPlayers() {
-        return minRequiredPlayers;
-    }
-
-    public synchronized int getMaxAllowedPlayers() {
-        return maxAllowedPlayers;
-    }
-
-    public synchronized int getStartingMainWeaponAmmoCount() {
-        return startingMainWeaponAmmoCount;
-    }
-
-    public synchronized GameModeRule getGameModeRule() {
-        return gameModeRule;
-    }
-
-    public synchronized GameStartCondition getGameStartCondition() {
-        return gameStartCondition;
-    }
-
-    public synchronized GameWinCondition getGameWinCondition() {
-        return gameWinCondition;
-    }
-
-    public synchronized int getGameStartOnCountdownInSeconds() {
-        return gameStartOnCountdownInSeconds;
-    }
-
-    public synchronized int getGameStartOnPlayerCountTotal() {
-        return gameStartOnPlayerCountTotal;
-    }
-
-    public synchronized int getGameEndsOnCountdownInMinutes() {
-        return gameEndsOnCountdownInMinutes;
-    }
-
-    public synchronized int getGameEndsOnFirstPlayerToReachScore() {
-        return gameEndsOnFirstPlayerToReachScore;
-    }
-
-    public synchronized int getGameEndsOnTotalPlayersRemaining() {
-        return gameEndsOnTotalPlayersRemaining;
-    }
-
-    public synchronized int getKillCountToBroadcastKillStreak() {
-        return killCountToBroadcastKillStreak;
-    }
-
-    public synchronized int getCountdownTimeInSeconds() { return countdownTimeInSeconds; }
+    public int getTotalRespawnsAllowedOnStart() { return totalRespawnsAllowedOnStart; }
+    public int getMinRequiredPlayers() { return minRequiredPlayers; }
+    public int getMaxAllowedPlayers() { return maxAllowedPlayers; }
+    public int getStartingMainWeaponAmmoCount() { return startingMainWeaponAmmoCount; }
+    public GameModeRule getGameModeRule() { return gameModeRule; }
+    public GameStartCondition getGameStartCondition() { return gameStartCondition; }
+    public GameWinCondition getGameWinCondition() { return gameWinCondition; }
+    public int getGameStartOnCountdownInSeconds() { return gameStartOnCountdownInSeconds; }
+    public int getGameStartOnPlayerCountTotal() { return gameStartOnPlayerCountTotal; }
+    public int getGameEndsOnCountdownInMinutes() { return gameEndsOnCountdownInMinutes; }
+    public int getGameEndsOnFirstPlayerToReachScore() { return gameEndsOnFirstPlayerToReachScore; }
+    public int getGameEndsOnTotalPlayersRemaining() { return gameEndsOnTotalPlayersRemaining; }
+    public int getKillCountToBroadcastKillStreak() { return killCountToBroadcastKillStreak; }
+    public int getCountdownTimeInSeconds() { return countdownTimeInSeconds; }
 }

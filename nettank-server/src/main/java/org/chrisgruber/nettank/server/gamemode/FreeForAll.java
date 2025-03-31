@@ -7,6 +7,7 @@ import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
 import org.chrisgruber.nettank.common.util.GameState;
 import org.chrisgruber.nettank.server.entities.FreeForAllPlayerState;
 import org.chrisgruber.nettank.server.state.ServerContext;
+import org.joml.Vector2f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,45 +36,60 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public synchronized long getCountdownStateLengthInSeconds() {
+    public long getCountdownStateLengthInSeconds() {
         long delayPerSecond = 2;
-        return gameStartOnCountdownInSeconds * delayPerSecond;
+        synchronized (stateLock) {
+            return gameStartOnCountdownInSeconds * delayPerSecond;
+        }
     }
 
     @Override
-    public synchronized boolean checkIsVictoryConditionMet(ServerContext serverContext) {
+    public boolean checkIsVictoryConditionMet(ServerContext serverContext) {
         // Since gameWinCondition is NONE, the game never will never end
         return false;
     }
 
     @Override
-    public synchronized void handleNewPlayerJoin(ServerContext serverContext, int playerId, String playerName, TankData tankData) {
+    public void handleNewPlayerJoin(ServerContext serverContext, int playerId, String playerName, TankData tankData) {
         logger.info("New player {} has joined the game.", playerName);
         var playerState = new FreeForAllPlayerState(playerId);
-        playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
-        playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
-        playerStatesByPlayerId.put(playerId, playerState);
+
+        synchronized (stateLock) {
+            playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
+            playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
+            playerStatesByPlayerId.put(playerId, playerState);
+        }
     }
 
     @Override
-    public synchronized void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, int playerId, String playerName, TankData tankData) {
+    public void handleNewPlayerJoinWhileGameInProgress(ServerContext serverContext, int playerId, String playerName, TankData tankData) {
         logger.info("New player {} has joined the game in progress.", playerName);
         var playerState = new FreeForAllPlayerState(playerId);
-        playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
-        playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
-        playerStatesByPlayerId.put(playerId, playerState);
+
+        synchronized (stateLock) {
+            playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
+            playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
+            playerStatesByPlayerId.put(playerId, playerState);
+        }
     }
 
     @Override
-    public synchronized void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, int playerId, TankData tankData) {
+    public void handlePlayerLeaveWhileGameInProgress(ServerContext serverContext, int playerId, TankData tankData) {
         logger.info("Player {} has left the game.", playerId);
-        playerStatesByPlayerId.remove(playerId);
+
+        synchronized (stateLock) {
+            playerStatesByPlayerId.remove(playerId);
+        }
     }
 
     @Override
-    public synchronized GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime) {
-        var playerCount = serverContext.getPlayerCount();
-        var minRequiredPlayers = getMinRequiredPlayers();
+    public GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime) {
+        var playerCount = serverContext.getPlayerCount();   // getting player count is thread-safe as it's a volatile field and synchronized with an Object lock
+        int minRequiredPlayers;
+
+        synchronized (stateLock) {
+            minRequiredPlayers = getMinRequiredPlayers();
+        }
 
         logger.trace("Checking transition from WAITING to COUNTDOWN. Current player count: {} Required player count: {}", playerCount, minRequiredPlayers);
 
@@ -88,9 +104,13 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public synchronized GameState shouldTransitionFromCountdown(ServerContext serverContext, long currentTime) {
-        var playerCount = serverContext.getPlayerCount();
-        var minRequiredPlayers = getMinRequiredPlayers();
+    public GameState shouldTransitionFromCountdown(ServerContext serverContext, long currentTime) {
+        var playerCount = serverContext.getPlayerCount();   // getting player count is thread-safe as it's a volatile field and synchronized with an Object lock
+        int minRequiredPlayers;
+
+        synchronized (stateLock) {
+            minRequiredPlayers = getMinRequiredPlayers();
+        }
 
         logger.trace("Checking transition from COUNTDOWN to PLAYING. Current player count: {} Required player count: {}", playerCount, minRequiredPlayers);
 
@@ -99,26 +119,34 @@ public class FreeForAll extends GameMode {
             return GameState.WAITING;
         }
 
-        // Get the total countdown duration and delay per step
-        long totalCountdownDuration = getCountdownStateLengthInSeconds();
-        double delayPerStep = (double)totalCountdownDuration / gameStartOnCountdownInSeconds;
+        long totalCountdownDuration;
+        int gameStartCountdown;
 
-        // Calculate which countdown number we're on (3,2,1)
+        synchronized (stateLock) {
+            totalCountdownDuration = getCountdownStateLengthInSeconds();
+            gameStartCountdown = getGameStartOnCountdownInSeconds();
+        }
+
+        double delayPerStep = (double)totalCountdownDuration / gameStartCountdown;
         long secondsElapsed = (currentTime - serverContext.stateChangeTime) / 1000;
         int countdownStep = (int)(secondsElapsed / delayPerStep);
-        int displayNumber = gameStartOnCountdownInSeconds - countdownStep;
+        int displayNumber = gameStartCountdown - countdownStep;
+        int lastAnnounced = serverContext.lastAnnouncedNumber;
+        boolean shouldTransition = currentTime >= serverContext.stateChangeTime + totalCountdownDuration * 1000L;
 
-        // Only announce when we reach a new countdown number
-        if (displayNumber > 0 && displayNumber != serverContext.lastAnnouncedNumber) {
+        if (displayNumber > 0 && displayNumber != lastAnnounced) {
             logger.info("Countdown announcement: {} seconds until start.", displayNumber);
             serverContext.lastAnnouncedNumber = displayNumber;
         }
 
-
-        if (currentTime >= serverContext.stateChangeTime + getCountdownStateLengthInSeconds() * 1000L) {
+        if (shouldTransition) {
             logger.info("Countdown complete! Transitioning to PLAYING state");
-            countdownTimeInSeconds = -1;    // Reset countdown state
-            serverContext.lastAnnouncedNumber = -1; // Reset last announced number
+
+            synchronized (stateLock) {
+                countdownTimeInSeconds = -1;    // Reset countdown state
+                serverContext.lastAnnouncedNumber = -1; // Reset last announced number
+            }
+
             return GameState.PLAYING;
         }
 
@@ -128,49 +156,66 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
-    public synchronized GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime) {
+    public GameState shouldTransitionFromPlaying(ServerContext serverContext, long currentTime) {
         logger.trace("FreeForAll: Checking transition from PLAYING to PLAYING.");
         return GameState.PLAYING;
     }
 
     @Override
-    public synchronized GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
+    public GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
         logger.trace("FreeForAll: Checking transition from ROUND_OVER to WAITING.");
         return GameState.ROUND_OVER;
     }
 
     @Override
-    public synchronized void handlePlayerDeath(ServerContext serverContext, int playerId, TankData tankData) {
+    public void handlePlayerDeath(ServerContext serverContext, int playerId, TankData tankData) {
         logger.info("Player {} has died.", playerId);
         // Usually, decrementing the respawn count but this game mode allows unlimited respawns
     }
 
     @Override
-    public synchronized int getRemainingRespawnsForPlayer(int playerId) {
-        FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
+    public int getRemainingRespawnsForPlayer(int playerId) {
+        FreeForAllPlayerState playerState;
+
+        synchronized (stateLock) {
+            playerState = playerStatesByPlayerId.get(playerId);
+        }
+
         if (playerState == null) {
             logger.error("Player {} has no game mode player state.", playerId);
+
             return 0;
         }
+
         return playerState.getRespawnsRemaining();
     }
 
     @Override
-    public synchronized void handlePlayerRespawn(ServerContext serverContext, int playerId, TankData tankData) {
-        FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
-        if (playerState == null) {
-            logger.error("Player {} has no game mode player state.", playerId);
-            return;
+    public void handlePlayerRespawn(ServerContext serverContext, int playerId, TankData tankData) {
+        Vector2f tankPosition;
+        float tankRotation;
+
+        synchronized (stateLock) {
+            FreeForAllPlayerState playerState = playerStatesByPlayerId.get(playerId);
+
+            if (playerState == null) {
+                logger.error("Player {} has no game mode player state.", playerId);
+
+                return;
+            }
+
+            tankData.setForSpawn(
+                    serverContext.gameMapData.getRandomSpawnPoint(),
+                    0, // Reset rotation to default
+                    1, // Reset hit points
+                    0, // Reset death time
+                    0  // Reset last shot time
+            );
+
+            tankPosition = tankData.getPosition();
+            tankRotation = tankData.getRotation();
         }
 
-        tankData.setForSpawn(
-                serverContext.gameMapData.getRandomSpawnPoint(),
-                0, // Reset rotation to default
-                1, // Reset hit points
-                0, // Reset death time
-                0  // Reset last shot time
-        );
-
-        logger.info("Player {} has respawned at position {} with rotation {}.", playerId, tankData.getPosition(), tankData.getRotation());
+        logger.info("Player {} has respawned at position {} with rotation {}.", playerId, tankPosition, tankRotation);
     }
 }

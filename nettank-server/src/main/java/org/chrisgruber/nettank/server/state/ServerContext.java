@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 // Holds the mutable runtime state of the game server
 public class ServerContext {
+    private final Object stateLock = new Object(); // Lock for synchronizing state changes
 
     // General Server State
     public volatile boolean running = false;
@@ -68,5 +69,9 @@ public class ServerContext {
     }
     */
 
-    public int getPlayerCount() { return clients.size(); }
+    public int getPlayerCount() {
+        synchronized (stateLock) {
+            return clients.size();
+        }
+    }
 }
