@@ -19,14 +19,6 @@
             <name>GitHub Packages</name>
             <url>https://maven.pkg.github.com/gruberchris/nettank</url>
         </repository>
-        <!-- You might want a snapshot repository too, but it's optional for this setup -->
-        <!--
-        <snapshotRepository>
-            <id>github</id>
-            <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/gruberchris/nettank</url>
-        </snapshotRepository>
-        -->
     </distributionManagement>
 
     <properties>
