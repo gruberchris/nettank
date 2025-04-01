@@ -34,10 +34,11 @@ jobs:
       - name: Create Maven settings.xml
         run: |
           mkdir -p ~/.m2
-          echo "<settings xmlns=\"http://maven.apache.org/SETTINGS/1.0.0\"
-                xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"
-                xsi:schemaLocation=\"http://maven.apache.org/SETTINGS/1.0.0
-                                https://maven.apache.org/xsd/settings-1.0.0.xsd\">
+          cat > ~/.m2/settings.xml << 'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                                    https://maven.apache.org/xsd/settings-1.0.0.xsd">
             <servers>
               <server>
                 <id>github</id>
@@ -45,13 +46,14 @@ jobs:
                   <httpHeaders>
                     <property>
                       <name>Authorization</name>
-                      <value>Bearer ${env.GITHUB_TOKEN}</value>
+                      <value>Bearer ${GITHUB_TOKEN}</value>
                     </property>
                   </httpHeaders>
                 </configuration>
               </server>
             </servers>
-          </settings>" > ~/.m2/settings.xml
+          </settings>
+          EOF
 
       - name: Get Version from Tag or Input
         id: get_version
