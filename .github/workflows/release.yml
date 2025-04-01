@@ -2,14 +2,11 @@
 name: Create Release and Publish to GitHub Packages
 
 on:
-  # Allows manual triggering from the Actions tab
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., 0.1.0) - Tag v<version> will be created'
+        description: 'Release version (e.g., 0.1.1) - Tag v<version> will be created'
         required: true
-
-  # Triggers when a tag matching the pattern v*.*.* (e.g., v0.1.0, v1.2.3) is pushed
   push:
     tags:
       - 'v*.*.*'
@@ -18,13 +15,12 @@ jobs:
   release_and_publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write      # Required for creating tags/releases
-      packages: write      # Required for publishing to GitHub Packages
+      contents: write
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        # Fetch all history and tags for versioning
         with:
           fetch-depth: 0
 
@@ -63,7 +59,8 @@ jobs:
               git config user.name "GitHub Actions"
               git config user.email "actions@github.com"
               git tag -a "$TAG_NAME" -m "Release $VERSION"
-              git push origin "$TAG_NAME"
+              # Ensure the push uses the token for authentication if needed
+              git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TAG_NAME"
             fi
             echo "version=$VERSION" >> $GITHUB_OUTPUT
             echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
@@ -71,34 +68,34 @@ jobs:
             echo "Unsupported event type: ${{ github.event_name }}"
             exit 1
           fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needed for git push in workflow_dispatch
 
       - name: Update POM versions to release version
         run: |
           mvn -B versions:set -DnewVersion=${{ steps.get_version.outputs.version }} -DprocessAllModules -DgenerateBackupPoms=false
           echo "Updated POMs to version ${{ steps.get_version.outputs.version }}"
 
+      - name: Display Maven settings.xml content
+        run: |
+          echo ">>> Content of $HOME/.m2/settings.xml <<<"
+          cat $HOME/.m2/settings.xml || echo "settings.xml not found or cannot be read."
+          echo ">>> End of settings.xml <<<"
+
       - name: Build, Package and Publish to GitHub Packages
         # Explicitly tell Maven to use the settings file created by setup-java
         run: mvn -B -s $HOME/.m2/settings.xml deploy -DskipTests
         env:
-          # Keep GITHUB_TOKEN env var just in case, although setup-java/settings.xml is primary
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # Use the tag that triggered the workflow (or was created)
           tag_name: ${{ steps.get_version.outputs.tag_name }}
-          # Name the release using the tag name
           name: Release ${{ steps.get_version.outputs.tag_name }}
-          # Optional: Mark as pre-release if version contains hyphen (e.g., 1.0.0-beta)
-          # prerelease: contains(${{ steps.get_version.outputs.version }}, '-')
-          # Optional: Generate release notes automatically from commits since last tag
           generate_release_notes: true
-          # Specify the files to upload as release assets
-          # Use wildcards to match the built shaded JARs
           files: |
             nettank-client/target/nettank-client-${{ steps.get_version.outputs.version }}.jar
             nettank-server/target/nettank-server-${{ steps.get_version.outputs.version }}.jar
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Required for the release action
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
