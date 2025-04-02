@@ -13,30 +13,26 @@ import java.io.IOException;
 
 public class UIManager {
     private static final Logger logger = LoggerFactory.getLogger(UIManager.class);
+    private static final int FONT_COLS = 18;
+    private static final int FONT_ROWS = 6;
 
     private Texture fontTexture;
-    private Renderer uiRenderer; // Assuming this is created in constructor
-    private Shader uiShader;     // Assuming this is created in constructor
 
-    // *** ENSURE THESE ARE CORRECT FOR YOUR FONT PNG ***
-    private int FONT_COLS = 18;
-    private int FONT_ROWS = 6;
-    // ***
-
+    private final Renderer uiRenderer;
+    private final Shader uiShader;
     private float charTexWidth;
     private float charTexHeight;
-
-    private Matrix4f uiProjectionMatrix;
-    private Matrix4f identityMatrix;
+    private final Matrix4f uiProjectionMatrix;
+    private final Matrix4f identityMatrix;
 
     public UIManager() {
         this.uiRenderer = new Renderer();
         this.uiProjectionMatrix = new Matrix4f();
         this.identityMatrix = new Matrix4f().identity();
+
         try {
             this.uiShader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
         } catch (IOException e) {
-            // Handle error...
             throw new RuntimeException(e);
         }
     }
@@ -45,22 +41,25 @@ public class UIManager {
         if (FONT_COLS <= 0 || FONT_ROWS <= 0) {
             throw new IllegalArgumentException("FONT_COLS and FONT_ROWS must be positive.");
         }
+
         try {
             this.fontTexture = new Texture(filepath);
-            this.charTexWidth = 1.0f / (float) FONT_COLS;
-            this.charTexHeight = 1.0f / (float) FONT_ROWS;
+            this.charTexWidth = 1.0f / FONT_COLS;
+            this.charTexHeight = 1.0f / FONT_ROWS;
+
             logger.info("Font Loaded: {} ({}x{} px, {}x{} grid -> charTexSize {}x{})",
                     filepath, fontTexture.getWidth(), fontTexture.getHeight(),
                     FONT_COLS, FONT_ROWS, charTexWidth, charTexHeight);
         } catch (IOException e) {
             logger.error("Failed to load font texture file: {}", filepath, e);
+
             this.fontTexture = null;
             throw e;
         }
     }
 
     public void startUIRendering(int screenWidth, int screenHeight) {
-        uiProjectionMatrix.setOrtho(0.0f, (float) screenWidth, (float) screenHeight, 0.0f, -1.0f, 1.0f);
+        uiProjectionMatrix.setOrtho(0.0f, screenWidth, screenHeight, 0.0f, -1.0f, 1.0f);
         uiShader.bind();
         uiShader.setUniformMat4f("u_projection", uiProjectionMatrix);
         uiShader.setUniformMat4f("u_view", identityMatrix);
@@ -81,7 +80,6 @@ public class UIManager {
         // Use float division here for character screen size calculation
         float charScreenWidth = ((float)fontTexture.getWidth() / FONT_COLS) * scale;
         float charScreenHeight = ((float)fontTexture.getHeight() / FONT_ROWS) * scale;
-
         float currentX = screenX;
 
         for (char c : text.toCharArray()) {
@@ -89,14 +87,12 @@ public class UIManager {
                 currentX += charScreenWidth;
                 continue;
             }
+
             if (c < 32 || c > 126) c = '?'; // Basic ASCII printable range
 
-            int charIndex = c - 32; // Assumes font starts with ASCII 32 (Space)
-            if (charIndex < 0 || charIndex >= FONT_COLS * FONT_ROWS) {
-                logger.warn("Character '{}' out of font range.", c);
-                currentX += charScreenWidth;
-                continue;
-            }
+            // c is an ASCII character value between 32 and 126
+            // charIndex value range is 0 to 94
+            int charIndex = c - 32;
 
             int col = charIndex % FONT_COLS;
             int row = charIndex / FONT_COLS;
@@ -121,13 +117,15 @@ public class UIManager {
 
         // Reset the texture rectangle uniform to default after drawing text
         uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
-        // Reset tint? Optional, depends if other UI elements need default white
+        // Reset tint? Optional, depends on if other UI elements need default white
         // uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
     }
 
     public float getTextWidth(String text, float scale) {
         if (fontTexture == null || FONT_COLS <= 0) return 0;
+
         float charScreenWidth = ((float)fontTexture.getWidth() / FONT_COLS) * scale;
+
         return text.length() * charScreenWidth;
     }
 
