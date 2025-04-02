@@ -7,7 +7,6 @@ uniform mat4 u_projection;
 uniform mat4 u_view;
 uniform mat4 u_model;
 
-// >>>>> MUST MATCH 'in' IN FRAGMENT SHADER <<<<<
 out vec2 v_texCoord; // Output to Fragment Shader
 
 void main() {

@@ -6,6 +6,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Texture;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.lwjgl.opengl.GL11;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ public class UIManager {
             logger.info("Font Loaded: {} ({}x{} px, {}x{} grid -> charTexSize {}x{})",
                     filepath, fontTexture.getWidth(), fontTexture.getHeight(),
                     FONT_COLS, FONT_ROWS, charTexWidth, charTexHeight);
+
         } catch (IOException e) {
             logger.error("Failed to load font texture file: {}", filepath, e);
 
@@ -74,6 +76,9 @@ public class UIManager {
         if (fontTexture == null || uiRenderer == null || uiShader == null) return;
 
         fontTexture.bind();
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+
         uiShader.bind();
         uiShader.setUniform3f("u_tintColor", color);
 
@@ -88,37 +93,43 @@ public class UIManager {
                 continue;
             }
 
-            if (c < 32 || c > 126) c = '?'; // Basic ASCII printable range
+            // Ensure character is in the valid range (ASCII 32-126)
+            int charIndex;
+            if (c < 32 || c > 126) {
+                charIndex = '?' - 32; // Use '?' for invalid characters
+            } else {
+                charIndex = c - 32;
+            }
 
             // c is an ASCII character value between 32 and 126
             // charIndex value range is 0 to 94
-            int charIndex = c - 32;
 
+            // Calculate row and column in the texture atlas
             int col = charIndex % FONT_COLS;
             int row = charIndex / FONT_COLS;
 
-            // Calculate NORMALIZED texture coords for the top-left corner and the size
+            // Calculate precise texture coordinates to avoid bleeding
             float texX = col * charTexWidth;
             float texY = row * charTexHeight;
 
-            // Set the uniform telling the shader which sub-rectangle to use
-            // u_texRect = vec4(offsetX, offsetY, widthScale, heightScale)
-            uiShader.setUniform4f("u_texRect", texX, texY, charTexWidth, charTexHeight);
+            // Add a small inset to avoid texture bleeding from adjacent characters
+            float inset = 0.001f;
+            uiShader.setUniform4f("u_texRect",
+                    texX + inset,
+                    texY + inset,
+                    charTexWidth - (2 * inset),
+                    charTexHeight - (2 * inset));
 
-            // Calculate the CENTER position for the standard quad renderer
+            // Calculate position (centered)
             float drawX = currentX + charScreenWidth / 2.0f;
             float drawY = screenY + charScreenHeight / 2.0f;
 
-            // Use the standard Renderer drawQuad
             uiRenderer.drawQuad(drawX, drawY, charScreenWidth, charScreenHeight, 0, uiShader);
-
             currentX += charScreenWidth;
         }
 
-        // Reset the texture rectangle uniform to default after drawing text
+        // Reset the texture rectangle uniform
         uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
-        // Reset tint? Optional, depends on if other UI elements need default white
-        // uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
     }
 
     public float getTextWidth(String text, float scale) {

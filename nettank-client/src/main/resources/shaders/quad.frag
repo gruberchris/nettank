@@ -1,17 +1,11 @@
 #version 410 core
 
-// >>>>> MUST MATCH 'out' IN VERTEX SHADER <<<<<
-in vec2 v_texCoord; // Input from Vertex Shader (Quad's 0-1 UVs)
-
+in vec2 v_texCoord;
 out vec4 f_color;
 
 uniform sampler2D u_texture;
-uniform vec3 u_tintColor = vec3(1.0, 1.0, 1.0);
-
-// Uniform for texture sub-rectangle:
-// u_texRect.xy = Top-Left corner offset (normalized 0-1)
-// u_texRect.zw = Size (normalized 0-1)
 uniform vec4 u_texRect = vec4(0.0, 0.0, 1.0, 1.0); // Default: full texture
+uniform vec3 u_tintColor = vec3(1.0, 1.0, 1.0);
 
 void main() {
     // Calculate the actual texture coordinate within the specified sub-rectangle
