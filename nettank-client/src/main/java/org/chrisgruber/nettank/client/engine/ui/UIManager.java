@@ -110,7 +110,8 @@ public class UIManager {
 
             // Calculate precise texture coordinates to avoid bleeding
             float texX = col * charTexWidth;
-            float texY = (FONT_ROWS - 1 - row)  * charTexHeight;
+            //float texY = row  * charTexHeight;
+            float texY = (FONT_ROWS - 1 - row) * charTexHeight;
 
             // Add a small inset to avoid texture bleeding from adjacent characters
             float inset = 0.001f;
