@@ -14,8 +14,8 @@ import java.io.IOException;
 
 public class UIManager {
     private static final Logger logger = LoggerFactory.getLogger(UIManager.class);
-    private static final int FONT_COLS = 18;
-    private static final int FONT_ROWS = 6;
+    private static final int FONT_COLS = 12;
+    private static final int FONT_ROWS = 8;
 
     private Texture fontTexture;
 
@@ -110,7 +110,7 @@ public class UIManager {
 
             // Calculate precise texture coordinates to avoid bleeding
             float texX = col * charTexWidth;
-            float texY = row * charTexHeight;
+            float texY = (FONT_ROWS - 1 - row)  * charTexHeight;
 
             // Add a small inset to avoid texture bleeding from adjacent characters
             float inset = 0.001f;

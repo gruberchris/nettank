@@ -110,7 +110,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             dirtTexture = new Texture("textures/dirt.png");
             bulletTexture = new Texture("textures/bullet.png");
             tankTexture = new Texture("textures/tank.png");
-            uiManager.loadFontTexture("textures/font.png");
+            uiManager.loadFontTexture("textures/font14px.png");
             logger.debug("Textures loaded.");
 
             gameMap = new ClientGameMap(50, 50);
