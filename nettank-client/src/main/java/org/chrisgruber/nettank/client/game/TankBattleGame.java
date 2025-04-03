@@ -37,8 +37,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private static final Logger logger = LoggerFactory.getLogger(TankBattleGame.class);
 
     private static final float UI_TEXT_SCALE_NORMAL = 0.5f; // Base size
-    private static final float UI_TEXT_SCALE_LARGE = 0.85f;  // Larger size for announcements
-    private static final float UI_TEXT_SCALE_STATUS = 0.75f; // Size for status messages like HIT POINTS
+    private static final float UI_TEXT_SCALE_LARGE = 0.85f;  // Larger size
+    private static final float UI_TEXT_SCALE_SECONDARY_STATUS = 0.65f; // Slightly smaller for secondary status
+    private static final float UI_TEXT_SCALE_STATUS = 0.8f; // Size for status messages like HIT POINTS
+    private static final float UI_TEXT_SCALE_ANNOUNCEMENT = 1.3f; // For large center messages like announcements
 
     private Shader shader;
     private Renderer renderer;
@@ -248,13 +250,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private void renderUI() {
         uiManager.startUIRendering(windowWidth, windowHeight);
 
+        // Define positions for top-left UI elements
+        final float statusTextX = 10; // X position for status text
+        final float hitPointsY = 10; // Y position for Hit Points
+        final float timerY = 35;     // Y position for Timer (below Hit Points + padding)
+
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            uiManager.drawText("HIT POINTS: " + localTank.getHitPoints(), 10, 10, UI_TEXT_SCALE_STATUS, Colors.GREEN);
+            uiManager.drawText("HIT POINTS: " + localTank.getHitPoints(), statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.GREEN);
         } else if (isSpectating) {
-            uiManager.drawText("SPECTATING", 10, 10, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
+            uiManager.drawText("SPECTATING", statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
         } else {
-            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", 10, 10, UI_TEXT_SCALE_STATUS, Colors.WHITE);
+            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.WHITE);
         }
 
         // Render Timer
@@ -262,19 +269,31 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             long elapsedMillis = System.currentTimeMillis() - roundStartTimeMillis;
             long seconds = (elapsedMillis / 1000) % 60;
             long minutes = (elapsedMillis / (1000 * 60)) % 60;
-            String timeStr = String.format("TIME: %02d:%02d", minutes, seconds);
-            uiManager.drawText(timeStr, windowWidth - 150, 10, UI_TEXT_SCALE_STATUS, Colors.WHITE);
+            long hours = (elapsedMillis / (1000 * 60 * 60)) % 24;
+
+            String timeStr;
+
+            if (hours > 0) {
+                timeStr = String.format("TIME: %02d:%02d:%02d", hours, minutes, seconds);
+            }
+            else {
+                timeStr = String.format("TIME: %02d:%02d", minutes, seconds);
+            }
+
+            uiManager.drawText(timeStr, statusTextX, timerY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
         } else if (currentGameState == GameState.ROUND_OVER && finalElapsedTimeMillis >= 0) {
             // TODO: Timer display handled by announcements in ROUND_OVER
         }
 
+        // --- Render Centered Messages ---
+        final float centerMessageY = windowHeight * 0.4f; // Vertical position (adjust 0.4f if needed)
+
         // Render Announcements
         if (!announcements.isEmpty()) {
             String announcement = announcements.getFirst();
-            float textWidth = uiManager.getTextWidth(announcement, 2.0f);
-            float x = (windowWidth - textWidth) / 2.0f;
-            float y = windowHeight * 0.4f; // Centered-ish
-            uiManager.drawText(announcement, x, y, UI_TEXT_SCALE_LARGE, Colors.YELLOW);
+            float textWidth = uiManager.getTextWidth(announcement, UI_TEXT_SCALE_ANNOUNCEMENT);
+            float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
+            uiManager.drawText(announcement, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
         }
 
         // Render Game State messages
@@ -285,15 +304,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 stateMessage = "WAITING FOR PLAYERS (" + tanks.size() + ")";
                 break;
             case COUNTDOWN:
-                stateMessage = "ROUND STARTING..."; // Announcements show numbers
+                // TODO: I want to show the countdown number here, "3... 2... 1...FIGHT!"
+                if (announcements.isEmpty()) { // Only show if no countdown number announcement
+                    stateMessage = "ROUND STARTING...";
+                }
                 break;
         }
 
-        if (!stateMessage.isEmpty() && announcements.isEmpty()) {
-            float textWidth = uiManager.getTextWidth(stateMessage, 2.0f);
-            float x = (windowWidth - textWidth) / 2.0f;
-            float y = windowHeight * 0.4f;
-            uiManager.drawText(stateMessage, x, y, UI_TEXT_SCALE_LARGE, Colors.WHITE);
+        if (!stateMessage.isEmpty()) { // Check if we have a state message to display
+            // Calculate width needed to center the text
+            float textWidth = uiManager.getTextWidth(stateMessage, UI_TEXT_SCALE_ANNOUNCEMENT);
+            float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
+            // Draw using the large announcement scale
+            uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
         }
 
         uiManager.endUIRendering();
