@@ -36,6 +36,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     private static final Logger logger = LoggerFactory.getLogger(TankBattleGame.class);
 
+    private static final float UI_TEXT_SCALE_NORMAL = 0.5f; // Base size
+    private static final float UI_TEXT_SCALE_LARGE = 0.85f;  // Larger size for announcements
+    private static final float UI_TEXT_SCALE_STATUS = 0.75f; // Size for status messages like HIT POINTS
+
     private Shader shader;
     private Renderer renderer;
     private Camera camera;
@@ -246,11 +250,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            uiManager.drawText("HIT POINTS: " + localTank.getHitPoints(), 10, 10, 1.5f, Colors.GREEN);
+            uiManager.drawText("HIT POINTS: " + localTank.getHitPoints(), 10, 10, UI_TEXT_SCALE_STATUS, Colors.GREEN);
         } else if (isSpectating) {
-            uiManager.drawText("SPECTATING", 10, 10, 1.5f, Colors.YELLOW);
+            uiManager.drawText("SPECTATING", 10, 10, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
         } else {
-            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", 10, 10, 1.5f, Colors.WHITE);
+            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", 10, 10, UI_TEXT_SCALE_STATUS, Colors.WHITE);
         }
 
         // Render Timer
@@ -259,7 +263,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             long seconds = (elapsedMillis / 1000) % 60;
             long minutes = (elapsedMillis / (1000 * 60)) % 60;
             String timeStr = String.format("TIME: %02d:%02d", minutes, seconds);
-            uiManager.drawText(timeStr, windowWidth - 150, 10, 1.5f, Colors.WHITE);
+            uiManager.drawText(timeStr, windowWidth - 150, 10, UI_TEXT_SCALE_STATUS, Colors.WHITE);
         } else if (currentGameState == GameState.ROUND_OVER && finalElapsedTimeMillis >= 0) {
             // TODO: Timer display handled by announcements in ROUND_OVER
         }
@@ -270,7 +274,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float textWidth = uiManager.getTextWidth(announcement, 2.0f);
             float x = (windowWidth - textWidth) / 2.0f;
             float y = windowHeight * 0.4f; // Centered-ish
-            uiManager.drawText(announcement, x, y, 2.0f, Colors.YELLOW);
+            uiManager.drawText(announcement, x, y, UI_TEXT_SCALE_LARGE, Colors.YELLOW);
         }
 
         // Render Game State messages
@@ -289,7 +293,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float textWidth = uiManager.getTextWidth(stateMessage, 2.0f);
             float x = (windowWidth - textWidth) / 2.0f;
             float y = windowHeight * 0.4f;
-            uiManager.drawText(stateMessage, x, y, 2.0f, Colors.WHITE);
+            uiManager.drawText(stateMessage, x, y, UI_TEXT_SCALE_LARGE, Colors.WHITE);
         }
 
         uiManager.endUIRendering();
