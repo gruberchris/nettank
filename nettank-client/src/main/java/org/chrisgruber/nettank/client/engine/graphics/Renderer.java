@@ -23,19 +23,11 @@ public class Renderer {
 
     // Quad vertices (pos x, y, tex s, t) - centered at origin
     private static final float[] VERTICES = {
-            // Positions      // Texture Coords (normal orientation)
-            -0.5f,  0.5f,   0.0f, 0.0f, // Top-left vertex
-            -0.5f, -0.5f,   0.0f, 1.0f, // Bottom-left vertex
-            0.5f, -0.5f,   1.0f, 1.0f, // Bottom-right vertex
-            0.5f,  0.5f,   1.0f, 0.0f  // Top-right vertex
-    };
-
-    private static final float[] VERTICES2 = {
-            // Positions      // Texture Coords (Flipped U AND Flipped V)
-            -0.5f,  0.5f,   1.0f, 0.0f, // Top-left vertex -> TexCoord (U=1, V=0) TOP
-            -0.5f, -0.5f,   1.0f, 1.0f, // Bottom-left vertex -> TexCoord (U=1, V=1) BOTTOM
-            0.5f, -0.5f,   0.0f, 1.0f, // Bottom-right vertex -> TexCoord (U=0, V=1) BOTTOM
-            0.5f,  0.5f,   0.0f, 0.0f  // Top-right vertex -> TexCoord (U=0, V=0) TOP
+            // Positions      // Texture Coords (Corrected V for STBI flip)
+            -0.5f,  0.5f,   0.0f, 1.0f, // Top-left vertex     -> TexCoord (U=0, V=1) TOP
+            -0.5f, -0.5f,   0.0f, 0.0f, // Bottom-left vertex  -> TexCoord (U=0, V=0) BOTTOM
+            0.5f, -0.5f,   1.0f, 0.0f, // Bottom-right vertex -> TexCoord (U=1, V=0) BOTTOM
+            0.5f,  0.5f,   1.0f, 1.0f  // Top-right vertex    -> TexCoord (U=1, V=1) TOP
     };
 
     private static final int[] INDICES = {
