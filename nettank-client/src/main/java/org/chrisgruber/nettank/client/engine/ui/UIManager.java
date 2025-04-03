@@ -6,7 +6,7 @@ import org.chrisgruber.nettank.common.util.Colors;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
-import org.lwjgl.opengl.GL11;
+// Removed unused GL11 import
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,233 +15,312 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 // Static imports for OpenGL constants
+import static org.lwjgl.opengl.GL11.GL_NO_ERROR;
+import static org.lwjgl.opengl.GL11.glGetError; // For error checking
 import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.*;
 import static org.lwjgl.opengl.GL30.*;
 
 
+/**
+ * Manages rendering of UI elements, particularly text using a bitmap font atlas.
+ * Uses its own dedicated Shader and VAO/VBO for rendering UI components
+ * in screen space coordinates (pixels, origin top-left).
+ */
 public class UIManager {
     private static final Logger logger = LoggerFactory.getLogger(UIManager.class);
+
+    // Configuration for the font atlas texture grid
     private static final int FONT_COLS = 12;
     private static final int FONT_ROWS = 8;
 
+    // Resources for UI rendering
     private Texture fontTexture;
     private final Shader uiShader;
-    private float charTexWidth;
-    private float charTexHeight;
-    private final Matrix4f uiProjectionMatrix;
-    private final Matrix4f identityMatrix;
-    private final Matrix4f uiModelMatrix; // Added for drawing
-
-    // --- UI Specific VAO/VBO/EBO ---
     private int uiVaoId;
     private int uiVboId;
     private int uiEboId;
 
-    // Quad vertices specifically for UI (Top-Left texture origin)
-    private static final float[] VERTICES_UI = {
-            // Positions      // Texture Coords (Original - Top-Left origin matching image files)
-            -0.5f,  0.5f,   0.0f, 0.0f, // Top-left vertex
-            -0.5f, -0.5f,   0.0f, 1.0f, // Bottom-left vertex
-            0.5f, -0.5f,   1.0f, 1.0f, // Bottom-right vertex
-            0.5f,  0.5f,   1.0f, 0.0f  // Top-right vertex
-    };
-    private static final int[] INDICES_UI = { 0, 1, 2, 2, 3, 0 }; // Standard quad indices
+    // Calculated texture coordinate dimensions for a single character in the atlas
+    private float charTexWidth;
+    private float charTexHeight;
 
+    // Matrices for UI rendering transformations
+    private final Matrix4f uiProjectionMatrix; // Orthographic projection for screen space
+    private final Matrix4f identityMatrix;     // Simple identity matrix for view (no camera)
+    private final Matrix4f uiModelMatrix;      // Reusable matrix for positioning individual UI elements
+
+    // Vertex data for a standard quad, using top-left UV origin (0,0).
+    // This matches the Renderer's setup and works correctly with textures
+    // that have been flipped vertically on load via STB.
+    private static final float[] VERTICES_UI = {
+            // Positions(X,Y)  // Texture Coords(U,V) (0,0 = Top-Left)
+            -0.5f,  0.5f,    0.0f, 0.0f, // Top-left
+            -0.5f, -0.5f,    0.0f, 1.0f, // Bottom-left
+            0.5f, -0.5f,    1.0f, 1.0f, // Bottom-right
+            0.5f,  0.5f,    1.0f, 0.0f  // Top-right
+    };
+
+    // Indices for drawing the quad using two triangles.
+    private static final int[] INDICES_UI = { 0, 1, 2,  2, 3, 0 };
+
+    /**
+     * Initializes the UIManager, loading its shader and creating OpenGL resources (VAO/VBO/EBO).
+     */
     public UIManager() {
-        // Keep its own shader
+        // Load the dedicated UI shader (usually simple quad shader)
         try {
             this.uiShader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
         } catch (IOException e) {
             logger.error("Failed to load UI shader", e);
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to load UI shader", e);
         }
 
+        // Initialize matrices
         this.uiProjectionMatrix = new Matrix4f();
-        this.identityMatrix = new Matrix4f().identity();
-        this.uiModelMatrix = new Matrix4f(); // Initialize model matrix
+        this.identityMatrix = new Matrix4f().identity(); // Constant identity matrix
+        this.uiModelMatrix = new Matrix4f();      // For character positioning
 
-        // --- Create UI Specific VAO/VBO/EBO ---
+        // --- Create VAO/VBO/EBO specifically for UI quads ---
         uiVaoId = glGenVertexArrays();
         glBindVertexArray(uiVaoId);
 
-        // VBO
+        // Setup VBO (Vertex Buffer Object)
         uiVboId = glGenBuffers();
         glBindBuffer(GL_ARRAY_BUFFER, uiVboId);
         FloatBuffer vertexBuffer = BufferUtils.createFloatBuffer(VERTICES_UI.length);
         vertexBuffer.put(VERTICES_UI).flip();
-        glBufferData(GL_ARRAY_BUFFER, vertexBuffer, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, vertexBuffer, GL_STATIC_DRAW); // Data is static
 
-        // EBO
+        // Setup EBO (Element Buffer Object)
         uiEboId = glGenBuffers();
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, uiEboId);
         IntBuffer elementBuffer = BufferUtils.createIntBuffer(INDICES_UI.length);
         elementBuffer.put(INDICES_UI).flip();
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, elementBuffer, GL_STATIC_DRAW);
 
-        // Vertex Attributes
-        int stride = 4 * Float.BYTES;
-        // Position attribute (location = 0)
+        // Setup Vertex Attribute Pointers (how to interpret VBO data)
+        final int stride = 4 * Float.BYTES; // 4 floats per vertex
+        // Position Attribute (layout location = 0)
         glVertexAttribPointer(0, 2, GL_FLOAT, false, stride, 0);
         glEnableVertexAttribArray(0);
-        // Texture coordinate attribute (location = 1)
-        glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, 2 * Float.BYTES);
+        // Texture Coordinate Attribute (layout location = 1)
+        final long texCoordOffset = 2 * Float.BYTES;
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, texCoordOffset);
         glEnableVertexAttribArray(1);
 
-        // Unbind
+        // Unbind all buffers and the VAO
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); // Unbind EBO after VAO unbind is fine
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
         //--------------------------------------
+        checkGLError("UIManager Constructor End"); // Check for errors during setup
     }
 
+    /**
+     * Loads the font atlas texture used for rendering text.
+     * Calculates character dimensions based on atlas grid size.
+     *
+     * @param filepath Path to the font texture file.
+     * @throws IOException If the texture fails to load.
+     */
     public void loadFontTexture(String filepath) throws IOException {
         if (FONT_COLS <= 0 || FONT_ROWS <= 0) {
             throw new IllegalArgumentException("FONT_COLS and FONT_ROWS must be positive.");
         }
         try {
+            // Load the texture using the Texture class (which handles flipping)
             this.fontTexture = new Texture(filepath);
-            // These calculations remain the same
+
+            // Calculate the normalized width/height of a single character cell in the texture atlas
             this.charTexWidth = 1.0f / FONT_COLS;
             this.charTexHeight = 1.0f / FONT_ROWS;
-            logger.info("Font Loaded: {} ({}x{} px, {}x{} grid -> charTexSize {}x{})",
+
+            logger.info("Font Loaded: {} ({}x{} px, {}x{} grid -> charTex UV Size {}x{})",
                     filepath, fontTexture.getWidth(), fontTexture.getHeight(),
                     FONT_COLS, FONT_ROWS, charTexWidth, charTexHeight);
         } catch (IOException e) {
             logger.error("Failed to load font texture file: {}", filepath, e);
-            this.fontTexture = null;
-            throw e;
+            this.fontTexture = null; // Ensure texture is null on failure
+            throw e; // Re-throw the exception
         }
     }
 
+    /**
+     * Prepares for rendering UI elements for the current frame.
+     * Sets up orthographic projection and binds the UI shader.
+     *
+     * @param screenWidth  The width of the screen/window in pixels.
+     * @param screenHeight The height of the screen/window in pixels.
+     */
     public void startUIRendering(int screenWidth, int screenHeight) {
-        // Set up projection and view for UI space
+        // Set up orthographic projection: 0,0 top-left, width/height bottom-right
         uiProjectionMatrix.setOrtho(0.0f, screenWidth, screenHeight, 0.0f, -1.0f, 1.0f);
+
+        // Bind the UI shader and set common uniforms
         uiShader.bind();
         uiShader.setUniformMat4f("u_projection", uiProjectionMatrix);
-        uiShader.setUniformMat4f("u_view", identityMatrix); // UI typically doesn't use camera view
-        uiShader.setUniform1i("u_texture", 0);
-        // Reset tint and texRect at the start of UI rendering for safety
-        uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
-        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
+        uiShader.setUniformMat4f("u_view", identityMatrix); // Use identity matrix for view (no camera)
+        uiShader.setUniform1i("u_texture", 0); // Tell shader to use texture unit 0
+
+        // Reset default uniforms at the start of UI rendering pass
+        uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Default white tint
+        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f); // Default full texture rectangle
     }
 
+    /**
+     * Draws text using the loaded font texture with default white color.
+     *
+     * @param text    The string to draw.
+     * @param screenX The X coordinate (in pixels, from left) of the text's starting position.
+     * @param screenY The Y coordinate (in pixels, from top) of the text's starting position.
+     * @param scale   The scaling factor applied to the text size.
+     */
     public void drawText(String text, float screenX, float screenY, float scale) {
-        drawText(text, screenX, screenY, scale, Colors.WHITE);
+        drawText(text, screenX, screenY, scale, Colors.WHITE); // Delegate with white color
     }
 
+    /**
+     * Draws text using the loaded font texture with a specified color.
+     * Renders each character as a separate quad, selecting the correct sub-region
+     * from the font atlas texture.
+     *
+     * @param text    The string to draw.
+     * @param screenX The X coordinate (in pixels, from left) of the text's starting position.
+     * @param screenY The Y coordinate (in pixels, from top) of the text's starting position.
+     * @param scale   The scaling factor applied to the text size.
+     * @param color   The color tint (RGB) to apply to the text.
+     */
     public void drawText(String text, float screenX, float screenY, float scale, Vector3f color) {
-        if (fontTexture == null || uiShader == null || uiVaoId == 0) { // Check VAO ID
-            logger.warn("UI Text rendering prerequisites not met.");
+        // Check if prerequisites are met
+        if (fontTexture == null || fontTexture.getTextureId() == 0 || uiShader == null || uiVaoId == 0) {
+            logger.warn("UI Text rendering prerequisites not met (Font Texture ID: {}, Shader valid: {}, VAO ID: {}).",
+                    (fontTexture != null ? fontTexture.getTextureId() : "null"), (uiShader != null), uiVaoId);
             return;
         }
 
-        fontTexture.bind(); // Bind font texture to unit 0 (set in startUIRendering)
-        // Set font texture sampling to nearest (good for pixel fonts)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        // Bind the font texture to texture unit 0
+        // Assumes texture filtering (GL_NEAREST) was set correctly during texture loading.
+        fontTexture.bind();
 
-        uiShader.bind(); // Ensure UI shader is bound
-        uiShader.setUniform3f("u_tintColor", color); // Set text color
+        // Ensure the correct UI shader is active and set the text color
+        uiShader.bind();
+        uiShader.setUniform3f("u_tintColor", color);
 
-        float charScreenWidth = ((float)fontTexture.getWidth() / FONT_COLS) * scale;
-        float charScreenHeight = ((float)fontTexture.getHeight() / FONT_ROWS) * scale;
+        // Calculate the on-screen dimensions of a single character based on font texture size and scale
+        final float charBaseWidth = (float)fontTexture.getWidth() / FONT_COLS;
+        final float charBaseHeight = (float)fontTexture.getHeight() / FONT_ROWS;
+        final float charScreenWidth = charBaseWidth * scale;
+        final float charScreenHeight = charBaseHeight * scale;
+
+        // Current drawing position on screen
         float currentX = screenX;
 
-        // *** Bind the UI-specific VAO ***
+        // Bind the VAO containing the quad geometry setup ONCE before the loop
         glBindVertexArray(uiVaoId);
 
+        // Iterate through each character in the text string
         for (char c : text.toCharArray()) {
+            // Handle spaces by simply advancing the drawing position
             if (c == ' ') {
                 currentX += charScreenWidth;
                 continue;
             }
+            // Use '?' for characters outside the expected ASCII range (32-126)
             if (c < 32 || c > 126) {
-                c = '?'; // Use '?' for invalid characters
+                c = '?';
             }
-            int charIndex = c - 32; // Index relative to space (ASCII 32)
+            // Calculate index relative to the start of the font atlas characters (ASCII 32 = space)
+            int charIndex = c - 32;
 
+            // Calculate the row and column of the character in the font atlas grid
             int col = charIndex % FONT_COLS;
-            int row = charIndex / FONT_COLS;
+            int row = charIndex / FONT_COLS; // row 0 = top row in image file
 
-            float texX = col * charTexWidth;    // U coordinate of left edge
+            // Calculate the texture coordinates (UV) for the character's sub-rectangle
+            // U coordinate of the left edge
+            float texX = (float)col * charTexWidth;
 
-            float texY_top_edge = 1.0f - (row * charTexHeight);
-            float texY_top_left = 1.0f - (row * charTexHeight) - charTexHeight;
-            texY_top_left = 1.0f - ((row + 1) * charTexHeight);
-
-
-
-            // *** CRITICAL: Adjust texY calculation for flipped VBO + flipped texture ***
-            // We need the V coordinate of the *bottom* edge of the character cell in the atlas,
-            // mapped to the *flipped* texture's coordinate space (where V=0 is bottom).
-            // Row 0 (top row in file) is near V=1 after flip.
-            // Row 'max' (bottom row in file) is near V=0 after flip.
-            // The V coordinate for the bottom edge of character at row 'row' is:
-            // V = 1.0f - ((row + 1) * charTexHeight)
-            // OR, calculate the top-left V and use that for u_texRect.y?
-            // Let's try calculating the top-left V coord in the *flipped* space:
-            // Top-left V for row 'row' = 1.0f - (row * charTexHeight) - charTexHeight (approx)
-            // Let's rethink: the VERTICES_UI now go from V=0 (bottom) to V=1 (top).
-            // The texRect needs the bottom-left UV.
-            // In the flipped texture, row 0 is near V=1, row max is near V=0.
-            // The bottom-left V coord for row 'row' is 1.0f - (row + 1) * charTexHeight
-            //float texY_bottom_left = 1.0f - ((float)(row + 1) * charTexHeight);
-            //float texY_bottom_edge = 1.0f - ((float)(row + 1) * charTexHeight);
+            // V coordinate of the BOTTOM edge of the character cell in the FLIPPED texture space.
+            // Since the texture is loaded flipped (V=0 bottom, V=1 top), and the VBO uses
+            // V=0 top / V=1 bottom, this calculation correctly identifies the starting V
+            // coordinate for the u_texRect uniform needed by the shader.
             float texY_bottom_left = 1.0f - ((float)(row + 1) * charTexHeight);
 
-            // Calculate sub-rectangle for the character in the texture atlas
-            float inset = 0.001f; // Small inset to prevent bleeding
+            // Apply a small inset to prevent sampling pixels from adjacent characters (texture bleeding)
+            final float inset = 0.001f;
 
+            // Set the u_texRect uniform in the shader: (startX, startY, width, height) in UV space
             uiShader.setUniform4f("u_texRect",
                     texX + inset,
-                    texY_bottom_left + inset, // Bottom V coord of char in flipped texture
-                    charTexWidth - (2 * inset),
-                    charTexHeight - (2 * inset)); // Positive height
+                    texY_bottom_left + inset,   // Starting V coordinate (bottom-left)
+                    charTexWidth - (2 * inset),   // Width of character in UV space
+                    charTexHeight - (2 * inset)); // Height of character in UV space
 
-            // Calculate screen position for the center of the character quad
+            // Calculate the screen position for the CENTER of this character's quad
             float drawX = currentX + charScreenWidth / 2.0f;
             float drawY = screenY + charScreenHeight / 2.0f;
 
-            // Calculate model matrix for this character quad
+            // Calculate and set the model matrix for this character quad (position and scale)
             uiModelMatrix.identity()
                     .translate(drawX, drawY, 0)
                     .scale(charScreenWidth, charScreenHeight, 1);
             uiShader.setUniformMat4f("u_model", uiModelMatrix);
 
-            // *** Draw using the UI EBO ***
+            // Draw the single character quad using the bound VAO and EBO
             glDrawElements(GL_TRIANGLES, INDICES_UI.length, GL_UNSIGNED_INT, 0);
 
+            // Advance the drawing position for the next character
             currentX += charScreenWidth;
         }
 
-        // Unbind VAO after drawing all characters
+        // Unbind the VAO after drawing all characters
         glBindVertexArray(0);
 
-        // Reset the texture rectangle uniform for safety (important if shader is reused)
+        // Reset the texture rectangle uniform to cover the full texture, preventing
+        // potential issues if the same shader is reused for non-atlas drawing later.
         uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
-        // Optionally reset tint color
+        // Optional: Reset tint color if needed, though startUIRendering usually handles this.
         // uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
     }
 
+    /**
+     * Calculates the approximate screen width of a given text string when rendered
+     * with the specified scale.
+     *
+     * @param text  The text string.
+     * @param scale The scaling factor.
+     * @return The width in pixels, or 0 if the font texture is not loaded.
+     */
     public float getTextWidth(String text, float scale) {
         if (fontTexture == null || FONT_COLS <= 0) return 0;
-        float charScreenWidth = ((float)fontTexture.getWidth() / FONT_COLS) * scale;
-        return text.length() * charScreenWidth;
+        // Calculate base width from texture and apply scale
+        float charBaseWidth = (float)fontTexture.getWidth() / FONT_COLS;
+        float charScreenWidth = charBaseWidth * scale;
+        return text.length() * charScreenWidth; // Total width is length * char width
     }
 
+    /**
+     * Placeholder method called after all UI rendering for the frame is done.
+     * Can be used to reset any specific GL states if needed.
+     */
     public void endUIRendering() {
-        // Maybe unbind shader here if needed, or reset GL state
-        // glUseProgram(0); // Generally not needed if next draw call binds its own
+        // Currently no specific actions needed here.
+        // Could potentially unbind the UI shader if desired: glUseProgram(0);
     }
 
+    /**
+     * Cleans up all resources used by the UIManager (Texture, Shader, VAO, VBO, EBO).
+     * Should be called when the UI is no longer needed (e.g., game shutdown).
+     */
     public void cleanup() {
         logger.debug("Cleaning up UIManager resources...");
+        // Delete Font Texture
         if (fontTexture != null) {
             try { fontTexture.delete(); } catch (Exception e) { logger.error("Error deleting font texture", e); }
             fontTexture = null;
         }
-        // Delete UI VAO, VBO, EBO
+        // Delete OpenGL buffers and array object
         if (uiVaoId != 0) {
             try { glDeleteVertexArrays(uiVaoId); } catch (Exception e) { logger.error("Error deleting UI VAO", e); }
             uiVaoId = 0;
@@ -254,11 +333,36 @@ public class UIManager {
             try { glDeleteBuffers(uiEboId); } catch (Exception e) { logger.error("Error deleting UI EBO", e); }
             uiEboId = 0;
         }
-        // Delete UI shader
+        // Delete UI Shader
         if (uiShader != null) {
             try { uiShader.delete(); } catch (Exception e) { logger.error("Error deleting UI shader", e); }
-            // Don't nullify uiShader here if constructor might fail before cleanup
+            // Avoid nullifying shader here in case cleanup is called after constructor failure
         }
         logger.debug("UIManager cleanup finished.");
+    }
+
+    /**
+     * Helper method to check for OpenGL errors after an operation within UIManager.
+     * Logs any errors found.
+     *
+     * @param operation A description of the OpenGL operation just performed.
+     */
+    private void checkGLError(String operation) {
+        int errorCode;
+        while ((errorCode = glGetError()) != GL_NO_ERROR) {
+            String errorStr;
+            switch (errorCode) {
+                // ... (same error code mapping as in Texture.java) ...
+                case GL_INVALID_ENUM:                  errorStr = "INVALID_ENUM"; break;
+                case GL_INVALID_VALUE:                 errorStr = "INVALID_VALUE"; break;
+                case GL_INVALID_OPERATION:             errorStr = "INVALID_OPERATION"; break;
+                case GL_STACK_OVERFLOW:                errorStr = "STACK_OVERFLOW"; break;
+                case GL_STACK_UNDERFLOW:               errorStr = "STACK_UNDERFLOW"; break;
+                case GL_OUT_OF_MEMORY:                 errorStr = "OUT_OF_MEMORY"; break;
+                case GL_INVALID_FRAMEBUFFER_OPERATION: errorStr = "INVALID_FRAMEBUFFER_OPERATION"; break;
+                default:                               errorStr = String.format("UNKNOWN(0x%X)", errorCode); break;
+            }
+            logger.error("OpenGL Error after [UIManager - {}]: {} ({})", operation, errorStr, errorCode);
+        }
     }
 }
