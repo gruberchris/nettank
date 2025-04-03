@@ -230,11 +230,41 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Render Bullets
         bulletTexture.bind(); // Bind bullet texture once
+        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
 
         for (ClientBullet bullet : bullets) {
-            // ClientBullet needs getPosition()
             if (isObjectVisible(bullet.getPosition(), playerPos, renderRangeSq)) {
-                renderer.drawQuad(bullet.getPosition().x, bullet.getPosition().y, BulletData.SIZE, BulletData.SIZE, 0, shader); // No rotation for bullets
+                Vector2f velocity = bullet.getVelocity();
+
+                float rotationDegrees = 0.0f;
+
+                // Calculate rotation only if the bullet is actually moving
+                // (Avoids issues with atan2(0, 0) which is undefined but often returns 0)
+                if (velocity.lengthSquared() > 0.0001f) { // Use a small threshold
+                    // Calculate angle in radians from velocity vector components
+                    // atan2(y, x) gives angle relative to positive X axis
+                    double angleRadians = Math.atan2(velocity.y, velocity.x);
+
+                    // Convert radians to degrees
+                    float angleDegrees = (float) Math.toDegrees(angleRadians);
+
+                    // Adjust angle:
+                    // Texture points UP at 0 degrees rotation.
+                    // atan2 gives 90 degrees for UP.
+                    // atan2 gives 0 degrees for RIGHT.
+                    // We need to subtract 90 degrees from atan2 result.
+                    rotationDegrees = angleDegrees - 90.0f;
+                }
+
+                Vector2f bulletPosition = bullet.getPosition();
+                logger.trace("Rendering Bullet: Pos=({}, {}), Vel=({}, {}), Rotation={}",
+                        bulletPosition.x, bulletPosition.y, velocity.x, velocity.y, rotationDegrees);
+
+                // Draw the quad using the calculated rotation
+                renderer.drawQuad(bullet.getPosition().x, bullet.getPosition().y,
+                        BulletData.SIZE, BulletData.SIZE,
+                        rotationDegrees,
+                        shader);
             }
         }
 

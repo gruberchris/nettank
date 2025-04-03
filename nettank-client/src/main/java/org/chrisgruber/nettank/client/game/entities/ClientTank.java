@@ -12,7 +12,7 @@ public class ClientTank extends Entity {
 
     public ClientTank(TankData data) {
         // Initialize Entity position/size based on TankData
-        super(data.position.x, data.position.y, TankData.SIZE, TankData.SIZE);
+        super(data.position.x, data.position.y, TankData.SIZE, TankData.SIZE, 0f, 0f);
         this.tankData = data;
 
         updatePositionFromData();
@@ -20,9 +20,9 @@ public class ClientTank extends Entity {
 
     // Call this after tankData is updated by network messages
     public void updatePositionFromData() {
-        this.position.set(tankData.position);
-        this.width = TankData.SIZE;
-        this.height = TankData.SIZE;
+        this.setPosition(tankData.position.x, tankData.position.y);
+        this.setWidth(TankData.SIZE);
+        this.setHeight(TankData.SIZE);
     }
 
     // Getters that expose data needed for rendering or logic

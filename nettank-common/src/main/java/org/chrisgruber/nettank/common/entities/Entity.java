@@ -2,22 +2,20 @@ package org.chrisgruber.nettank.common.entities;
 
 import org.joml.Vector2f;
 
-// Basic abstract entity with position - no rendering or update logic here
 public abstract class Entity {
 
-    // Use public fields for simple data structures, or getters if encapsulation preferred
-    public final Vector2f position; // final reference, but Vector2f itself is mutable
-    public float width;
-    public float height;
+    private final Vector2f position;
+    private final Vector2f velocity;
+    private float width;
+    private float height;
 
-    // Constructor
-    protected Entity(float x, float y, float width, float height) {
+    protected Entity(float x, float y, float width, float height, float velX, float velY) {
         this.position = new Vector2f(x, y);
         this.width = width;
         this.height = height;
+        this.velocity = new Vector2f(velX, velY);
     }
 
-    // Common getters might be useful
     public float getX() {
         return position.x;
     }
@@ -26,13 +24,44 @@ public abstract class Entity {
         return position.y;
     }
 
-    public Vector2f getPosition() {
-        return position; // Returns the mutable vector reference
+    public float getWidth() {
+        return width;
     }
 
-    // Maybe a setter - use with caution as it bypasses physics/collision
+    public float getHeight() {
+        return height;
+    }
+
+    public Vector2f getVelocity() {
+        return velocity;
+    }
+
+    public float getXVelocity() {
+        return velocity.x;
+    }
+
+    public float getYVelocity() {
+        return velocity.y;
+    }
+
+    public Vector2f getPosition() {
+        return position;
+    }
+
     public void setPosition(float x, float y) {
         this.position.set(x, y);
+    }
+
+    public void setVelocity(float x, float y) {
+        this.velocity.set(x, y);
+    }
+
+    public void setWidth(float width) {
+        this.width = width;
+    }
+
+    public void setHeight(float height) {
+        this.height = height;
     }
 
     // This update method is primarily for the SERVER's authoritative simulation
