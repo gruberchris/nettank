@@ -4,6 +4,7 @@ import org.chrisgruber.nettank.client.game.TankBattleGame;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
+import org.lwjgl.system.MemoryStack;
 
 import java.io.*;
 import java.nio.FloatBuffer;
@@ -113,27 +114,16 @@ public class Shader {
         glUniform3f(getUniformLocation(name), value.x, value.y, value.z);
     }
 
-
     public void setUniformMat4f(String name, Matrix4f matrix) {
-        // Use try-with-resources for buffer allocation on stack
-        try (java.nio.channels.ReadableByteChannel rbc = java.nio.channels.Channels.newChannel(System.in)) {
-            FloatBuffer buffer = BufferUtils.createFloatBuffer(16);
-            matrix.get(buffer);
-            glUniformMatrix4fv(getUniformLocation(name), false, buffer);
-        } catch(IOException e) {
-            // Handle exception if necessary, though unlikely for System.in channel here
-            // This try-with-resources is just a way to use stack allocation via JOML/LWJGL interop
-            // A better way with MemoryStack:
-            // try (MemoryStack stack = MemoryStack.stackPush()) {
-            //     FloatBuffer buffer = stack.mallocFloat(16);
-            //     matrix.get(buffer);
-            //     glUniformMatrix4fv(getUniformLocation(name), false, buffer);
-            // }
-            FloatBuffer buffer = BufferUtils.createFloatBuffer(16); // Fallback to heap allocation
-            matrix.get(buffer);
-            glUniformMatrix4fv(getUniformLocation(name), false, buffer);
-        }
-
+        // Use MemoryStack for efficient temporary buffer allocation
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            FloatBuffer buffer = stack.mallocFloat(16); // Allocate 16 floats on the stack
+            matrix.get(buffer); // Put matrix data into the buffer
+            int location = getUniformLocation(name);
+            if (location != -1) { // Only set if found
+                glUniformMatrix4fv(location, false, buffer);
+            }
+        } // Buffer is automatically freed when the try-with-resources block exits
     }
 
     public void setUniform4f(String name, float v0, float v1, float v2, float v3) {

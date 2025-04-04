@@ -4,7 +4,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Camera;
 import org.chrisgruber.nettank.client.engine.graphics.Renderer;
 import org.chrisgruber.nettank.client.engine.graphics.Shader;
 import org.chrisgruber.nettank.client.engine.graphics.Texture;
-import org.chrisgruber.nettank.common.world.GameMapData; // Use common data
+import org.chrisgruber.nettank.common.world.GameMapData;
 import org.joml.Vector2f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,19 +20,18 @@ public class ClientGameMap {
     private final TileType[][] tiles; // Client-specific tile grid for rendering
 
     private static final float FOG_DARKNESS = 0.15f;
+    private static final Random random = new Random();
 
-    // Constructor uses GameMapData constants implicitly
     public ClientGameMap(int width, int height) {
         logger.debug("Creating ClientGameMap ({}x{})", width, height);
-        // Create GameMapData using its constructor which uses the DEFAULT_TILE_SIZE constant
         this.mapData = new GameMapData(width, height);
         this.tiles = new TileType[width][height];
         generateSimpleMap();
     }
 
     private void generateSimpleMap() {
-        Random random = new Random();
         logger.debug("Generating simple map pattern...");
+
         for (int y = 0; y < mapData.getHeightTiles(); y++) {
             for (int x = 0; x < mapData.getWidthTiles(); x++) {
                 tiles[x][y] = random.nextFloat() > 0.3f ? TileType.GRASS : TileType.DIRT;
@@ -44,6 +43,7 @@ public class ClientGameMap {
                        Camera camera, float viewRange) {
 
         shader.bind();
+
         final float tileSize = GameMapData.DEFAULT_TILE_SIZE; // Use constant from common
         float renderRangeSq = viewRange * viewRange;
         boolean isSpectating = (viewRange == Float.MAX_VALUE);
@@ -83,40 +83,15 @@ public class ClientGameMap {
                 }
             }
         }
+
         shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
     }
 
-    // Delegate boundary check to common data object
+    // TODO: Delegate boundary check to common data object
     public boolean isOutOfBounds(float x, float y, float objectRadius) {
         return mapData.isOutOfBounds(x, y, objectRadius);
     }
 
-    // --- Getters for dimensions ---
-    public int getWidthTiles() { return mapData.getWidthTiles(); }
-    public int getHeightTiles() { return mapData.getHeightTiles(); }
-    public float getTileSize() { return GameMapData.DEFAULT_TILE_SIZE; } // Return the constant
     public float getWorldWidth() { return mapData.getWorldWidth(); }
     public float getWorldHeight() { return mapData.getWorldHeight(); }
-
-    // --- Example method - Note: Spawn logic is primarily server-side ---
-    // public Vector2f getRandomSpawnPoint() {
-    //    return mapData.getRandomSpawnPoint(); // Delegate if needed client-side
-    // }
-
-    public TileType getTileAt(int x, int y) {
-        if (x < 0 || x >= mapData.widthTiles || y < 0 || y >= mapData.heightTiles) {
-            return null;
-        }
-        return tiles[x][y];
-    }
-
-    public Vector2f getRandomSpawnPoint() {
-        // This logic should primarily be server-side, but if needed client-side:
-        Random random = new Random();
-        // Use the constant from GameMapData
-        float margin = GameMapData.DEFAULT_TILE_SIZE * 2;
-        float spawnX = margin + random.nextFloat() * (mapData.getWorldWidth() - 2 * margin);
-        float spawnY = margin + random.nextFloat() * (mapData.getWorldHeight() - 2 * margin);
-        return new Vector2f(spawnX, spawnY);
-    }
 }

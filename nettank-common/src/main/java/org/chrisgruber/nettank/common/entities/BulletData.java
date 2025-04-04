@@ -5,8 +5,8 @@ import org.joml.Vector2f;
 public class BulletData {
 
     // --- Constants needed by both Client and Server ---
-    public static final float SIZE = 8.0f;
-    public static final float SPEED = 350.0f; // Pixels per second
+    public static final float SIZE = 15.0f; // Size of the bullet in pixels
+    public static final float SPEED = 450.0f; // Pixels per second
     public static final long LIFETIME_MS = 2000; // Max travel time in ms
 
     // --- Data Fields ---
