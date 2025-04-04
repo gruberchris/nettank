@@ -705,7 +705,6 @@ public class GameServer {
         for(TankData tankData : serverContext.tanks.values()) {
             Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
             tankData.setPosition(spawnPos.x, spawnPos.y);
-            tankData.setRotation(0);
             tankData.setInputState(false, false, false, false);
             tankData.lastShotTime = 0; // Reset shot timer
             broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);

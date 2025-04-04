@@ -7,7 +7,11 @@ import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
 import org.chrisgruber.nettank.common.util.GameState;
 import org.chrisgruber.nettank.server.state.ServerContext;
 
+import java.util.Random;
+
 public abstract class GameMode {
+
+    protected final Random random = new Random();
 
     protected final Object stateLock = new Object();
     protected volatile int totalRespawnsAllowedOnStart;
