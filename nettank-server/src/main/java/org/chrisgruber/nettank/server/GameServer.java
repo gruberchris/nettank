@@ -267,6 +267,13 @@ public class GameServer {
     private long getTimeDataForGameState(GameState state) {
         long gameStartOnCountdownInSeconds = serverContext.gameMode.getCountdownStateLengthInSeconds();
 
+        long fallbackTime = System.currentTimeMillis();
+
+        if (serverContext.roundStartTimeMillis == 0) {
+            logger.warn("Round start time is zero for game state: {}", state);
+            serverContext.roundStartTimeMillis = fallbackTime;
+        }
+
         return switch (state) {
             case PLAYING -> serverContext.roundStartTimeMillis;
             case COUNTDOWN -> serverContext.stateChangeTime + gameStartOnCountdownInSeconds * 1000L;
@@ -635,6 +642,11 @@ public class GameServer {
         // Update server context state
         serverContext.currentGameState = newState;
         serverContext.stateChangeTime = System.currentTimeMillis();
+
+        // Set roundStartTimeMillis when entering PLAYING state
+        if (newState == GameState.PLAYING) {
+            serverContext.roundStartTimeMillis = System.currentTimeMillis();
+        }
 
         // Calculate appropriate time data for client notification
         long broadcastTimeData = calculateBroadcastTimeData(newState, timeData);
