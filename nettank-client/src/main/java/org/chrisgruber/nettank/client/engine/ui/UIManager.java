@@ -31,8 +31,8 @@ public class UIManager {
     private static final Logger logger = LoggerFactory.getLogger(UIManager.class);
 
     // Configuration for the font atlas texture grid
-    private static final int FONT_COLS = 12;
-    private static final int FONT_ROWS = 8;
+    private static final int FONT_COLS = 19;
+    private static final int FONT_ROWS = 5;
 
     // Resources for UI rendering
     private Texture fontTexture;
