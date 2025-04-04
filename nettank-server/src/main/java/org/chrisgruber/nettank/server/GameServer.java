@@ -461,11 +461,9 @@ public class GameServer {
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, respawnsRemaining), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
             sendSpectatorStartMessage(target.playerId, target);
-            broadcastAnnouncement(shooterName + " KILLED " + targetName, -1);
 
             if (respawnsRemaining <= 0) {
                 logger.info("{} was eliminated from the round.", targetName);
-                //broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
                 broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
                 sendSpectatePermanentMessage(target.getPlayerId());
             }

@@ -192,6 +192,10 @@ public class UIManager {
      * @param color   The color tint (RGB) to apply to the text.
      */
     public void drawText(String text, float screenX, float screenY, float scale, Vector3f color) {
+        drawText(text, screenX, screenY, scale, color, 0.35f); // Use 80% of full width as default
+    }
+
+    public void drawText(String text, float screenX, float screenY, float scale, Vector3f color, float spaceWidthFactor) {
         // Check if prerequisites are met
         if (fontTexture == null || fontTexture.getTextureId() == 0 || uiShader == null || uiVaoId == 0) {
             logger.warn("UI Text rendering prerequisites not met (Font Texture ID: {}, Shader valid: {}, VAO ID: {}).",
@@ -223,7 +227,7 @@ public class UIManager {
         for (char c : text.toCharArray()) {
             // Handle spaces by simply advancing the drawing position
             if (c == ' ') {
-                currentX += charScreenWidth;
+                currentX += charScreenWidth * spaceWidthFactor; // Use a factor to control space width
                 continue;
             }
             // Use '?' for characters outside the expected ASCII range (32-126)
@@ -239,13 +243,13 @@ public class UIManager {
 
             // Calculate the texture coordinates (UV) for the character's sub-rectangle
             // U coordinate of the left edge
-            float texX = (float)col * charTexWidth;
+            float texX = col * charTexWidth;
 
             // V coordinate of the BOTTOM edge of the character cell in the FLIPPED texture space.
             // Since the texture is loaded flipped (V=0 bottom, V=1 top), and the VBO uses
             // V=0 top / V=1 bottom, this calculation correctly identifies the starting V
             // coordinate for the u_texRect uniform needed by the shader.
-            float texY_bottom_left = 1.0f - ((float)(row + 1) * charTexHeight);
+            float texY_bottom_left = 1.0f - ((row + 1) * charTexHeight);
 
             // Apply a small inset to prevent sampling pixels from adjacent characters (texture bleeding)
             final float inset = 0.001f;
