@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.lwjgl.glfw.GLFW.*;
+import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
 import static org.lwjgl.opengl.GL13.glActiveTexture;
 import static org.lwjgl.system.MemoryUtil.NULL;
@@ -102,7 +103,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     public void initGame() {
         logger.info("Initializing TankBattleGame...");
         try {
-            // Load shaders (specific to this game's rendering needs)
+            glEnable(GL_BLEND); // Enable blending
+            // Set the blend function for standard alpha blending
+            // Formula: finalColor = (sourceColor * sourceAlpha) + (destColor * (1 - sourceAlpha))
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            logger.debug("OpenGL blending enabled (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA).");
+
             shader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
             shader.bind();
 

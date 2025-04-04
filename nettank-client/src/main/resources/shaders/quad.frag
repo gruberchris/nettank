@@ -15,11 +15,8 @@ void main() {
     // Sample the texture at the calculated coordinate
     vec4 texColor = texture(u_texture, subTexCoord);
 
-    // Apply tint
-    f_color = texColor * vec4(u_tintColor, 1.0);
-
-    // Discard transparent pixels (important for bitmap fonts)
-    if (f_color.a < 0.1) { // Use a small threshold
-        discard;
-    }
+    // Apply the tint color ONLY to the RGB components of the texture color.
+    // Preserve the original alpha value directly from the texture.
+    f_color.rgb = texColor.rgb * u_tintColor; // Multiply RGB by tint
+    f_color.a = texColor.a;                   // Use original texture alpha
 }
