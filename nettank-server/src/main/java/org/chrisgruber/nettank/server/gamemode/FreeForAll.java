@@ -58,6 +58,13 @@ public class FreeForAll extends GameMode {
             playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
             playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
             playerStatesByPlayerId.put(playerId, playerState);
+            tankData.setForSpawn(
+                    serverContext.gameMapData.getRandomSpawnPoint(),
+                    this.random.nextFloat(0f, 359f), // Random rotation
+                    1, // Hit points
+                    0, // Death time
+                    0  // Last shot time
+            );
         }
     }
 
@@ -70,6 +77,13 @@ public class FreeForAll extends GameMode {
             playerState.setRespawnsRemaining(getTotalRespawnsAllowedOnStart());
             playerState.setMainWeaponAmmoCount(getStartingMainWeaponAmmoCount());
             playerStatesByPlayerId.put(playerId, playerState);
+            tankData.setForSpawn(
+                    serverContext.gameMapData.getRandomSpawnPoint(),
+                    this.random.nextFloat(0f, 359f), // Random rotation
+                    1, // Hit points
+                    0, // Death time
+                    0  // Last shot time
+            );
         }
     }
 
@@ -206,7 +220,7 @@ public class FreeForAll extends GameMode {
 
             tankData.setForSpawn(
                     serverContext.gameMapData.getRandomSpawnPoint(),
-                    0, // Reset rotation to default
+                    this.random.nextFloat(0f, 359f), // Reset rotation to default
                     1, // Reset hit points
                     0, // Reset death time
                     0  // Reset last shot time

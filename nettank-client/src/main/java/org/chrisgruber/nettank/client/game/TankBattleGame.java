@@ -7,6 +7,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Shader;
 import org.chrisgruber.nettank.client.engine.graphics.Texture;
 import org.chrisgruber.nettank.client.engine.network.GameClient;
 import org.chrisgruber.nettank.client.engine.network.NetworkCallbackHandler;
+import org.chrisgruber.nettank.client.engine.ui.KillFeedMessage;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
 import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
@@ -39,9 +40,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     private static final float UI_TEXT_SCALE_NORMAL = 0.5f; // Base size
     private static final float UI_TEXT_SCALE_LARGE = 0.85f;  // Larger size
-    private static final float UI_TEXT_SCALE_SECONDARY_STATUS = 0.65f; // Slightly smaller for secondary status
-    private static final float UI_TEXT_SCALE_STATUS = 0.8f; // Size for status messages like HIT POINTS
+    private static final float UI_TEXT_SCALE_SECONDARY_STATUS = 0.95f; // Slightly smaller for secondary status
+    private static final float UI_TEXT_SCALE_STATUS = 1.0f; // Size for status messages like HIT POINTS
     private static final float UI_TEXT_SCALE_ANNOUNCEMENT = 1.3f; // For large center messages like announcements
+    private static final float UI_TEXT_SCALE_KILL_FEED = 0.65f; // Scale for kill feed messages
+
+    private static final long KILL_FEED_DISPLAY_TIME_MS = 5000L; // 5 seconds display time
 
     private Shader shader;
     private Renderer renderer;
@@ -66,6 +70,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
     private long finalElapsedTimeMillis = -1;
+    private int playerKills = 0;
+    private final List<KillFeedMessage> killFeedMessages = new CopyOnWriteArrayList<>();
 
     // Networking
     private GameClient gameClient;
@@ -173,6 +179,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Update local bullet positions for client-side prediction
         List<ClientBullet> bulletsToRemove = new ArrayList<>();
         long now = System.currentTimeMillis();
+
+        killFeedMessages.removeIf(msg -> now >= msg.expiryTimeMillis());
 
         for (ClientBullet bullet : bullets) {
             bullet.update(deltaTime);
@@ -290,6 +298,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         final float statusTextX = 10; // X position for status text
         final float hitPointsY = 10; // Y position for Hit Points
         final float timerY = 35;     // Y position for Timer (below Hit Points + padding)
+        final float killsY = 55;     // Y position for Player Kills (below Timer + padding)
+        final float killFeedPaddingX = 10; // Padding from the right edge
+        final float killFeedStartY = 10;   // Starting Y position from the top
+        final float killFeedLineHeight = 20; // Vertical space between messages (adjust as needed)
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
@@ -319,6 +331,31 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             uiManager.drawText(timeStr, statusTextX, timerY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
         } else if (currentGameState == GameState.ROUND_OVER && finalElapsedTimeMillis >= 0) {
             // TODO: Timer display handled by announcements in ROUND_OVER
+        }
+
+        // Render Player's Kills
+        if (localTank != null && !isSpectating) {
+            String killsStr = "KILLS: " + playerKills;
+            // Use statusTextX, the new killsY, a suitable scale, and color
+            uiManager.drawText(killsStr,
+                    statusTextX, killsY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED); // Using secondary scale, white color
+        }
+
+        // Render Kill Feed Messages
+        float currentKillFeedY = killFeedStartY;
+
+        for (KillFeedMessage feedMessage : killFeedMessages) {
+            // Calculate the width of the message text
+            float textWidth = uiManager.getTextWidth(feedMessage.message(), UI_TEXT_SCALE_KILL_FEED);
+
+            // Calculate the X position (right-aligned)
+            float x = windowWidth - textWidth - killFeedPaddingX;
+
+            // Draw the text
+            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, UI_TEXT_SCALE_KILL_FEED, Colors.ORANGE); // Orange color?
+
+            // Move down for the next message
+            currentKillFeedY += killFeedLineHeight;
         }
 
         // --- Render Centered Messages ---
@@ -541,7 +578,32 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     @Override
     public void handlePlayerDestroyed(int targetId, int shooterId) {
-        // TODO: Handle player destroyed logic
+        // Existing logic to handle visual effects or messages for any destruction might go here.
+        logger.debug("Received PlayerDestroyed: Target={}, Shooter={}", targetId, shooterId);
+
+        // Check if the shooter is the *local* player
+        if (shooterId == this.localPlayerId && localPlayerId != -1) {
+            // Increment the local player's kill count
+            this.playerKills++;
+            logger.info("Local player ({}) got a kill! Total kills: {}", localPlayerId, playerKills);
+            // TODO: maybe add a temporary announcement here like "YOU DESTROYED A TANK!"
+        }
+
+        ClientTank shooterTank = tanks.get(shooterId);
+        ClientTank targetTank = tanks.get(targetId);
+
+        String shooterName = (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
+        String targetName = (targetTank != null) ? targetTank.getName() : ("Player " + targetId);
+
+        // Construct the message
+        String killMessage = shooterName + " KILLED " + targetName;
+
+        // Calculate expiry time
+        long expiryTime = System.currentTimeMillis() + KILL_FEED_DISPLAY_TIME_MS;
+
+        // Create and add the message object
+        killFeedMessages.add(new KillFeedMessage(killMessage, expiryTime));
+        logger.trace("Added kill feed message: '{}'", killMessage);
     }
 
     // Called when PLAYER_LIVES is received
@@ -580,7 +642,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         this.currentGameState = state;
 
         // Clear announcements on most state changes, except maybe within countdown?
-        if(state != GameState.COUNTDOWN) { // Keep announcements during countdown? Optional.
+        if (state != GameState.COUNTDOWN) { // Keep announcements during countdown? Optional.
             announcements.clear();
             lastAnnouncementTime = 0;
         }
@@ -600,6 +662,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                     logger.info("Local tank object not found. Spectating.");
                     isSpectating = true; // Spectate if local tank doesn't exist yet
                 }
+                playerKills = 0; // Reset player kills on new round
+                this.killFeedMessages.clear();
                 logger.info("Game state PLAYING. Spectating: {}", isSpectating);
                 break;
             case ROUND_OVER:

@@ -459,13 +459,12 @@ public class GameServer {
             int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.playerId);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.playerId, bulletData.ownerId), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, respawnsRemaining), -1);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
             sendSpectatorStartMessage(target.playerId, target);
-            broadcastAnnouncement(shooterName + " KILLED " + targetName, -1);
 
             if (respawnsRemaining <= 0) {
-                logger.info("{} was defeated.", targetName);
-                broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
-                broadcastAnnouncement(targetName + " HAS BEEN DEFEATED!", -1);
+                logger.info("{} was eliminated from the round.", targetName);
+                broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
                 sendSpectatePermanentMessage(target.getPlayerId());
             }
         }
@@ -706,7 +705,6 @@ public class GameServer {
         for(TankData tankData : serverContext.tanks.values()) {
             Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
             tankData.setPosition(spawnPos.x, spawnPos.y);
-            tankData.setRotation(0);
             tankData.setInputState(false, false, false, false);
             tankData.lastShotTime = 0; // Reset shot timer
             broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);

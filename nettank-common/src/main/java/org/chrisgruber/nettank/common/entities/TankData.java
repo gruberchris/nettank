@@ -103,7 +103,7 @@ public class TankData {
         this.deathTimeMillis = deathTimeMillis;
         this.lastShotTime = lastShotTime;
 
-        logger.debug("Tank for playerId {} set to respawn at {} with rotation {} and hit points {}", this.playerId, this.position, this.rotation, this.hitPoints);
+        logger.debug("Tank for playerId {} set to spawn at {} with rotation {} and hit points {}", this.playerId, this.position, this.rotation, this.hitPoints);
     }
 
     public int getPlayerId() { return playerId; }
