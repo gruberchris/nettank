@@ -66,6 +66,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
     private long finalElapsedTimeMillis = -1;
+    private int playerKills = 0;
+    private int remainingLives = 0;
 
     // Networking
     private GameClient gameClient;
@@ -290,6 +292,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         final float statusTextX = 10; // X position for status text
         final float hitPointsY = 10; // Y position for Hit Points
         final float timerY = 35;     // Y position for Timer (below Hit Points + padding)
+        final float killsY = 55;     // Y position for Player Kills (below Timer + padding)
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
@@ -319,6 +322,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             uiManager.drawText(timeStr, statusTextX, timerY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
         } else if (currentGameState == GameState.ROUND_OVER && finalElapsedTimeMillis >= 0) {
             // TODO: Timer display handled by announcements in ROUND_OVER
+        }
+
+        // Render Player's Kills
+        if (localTank != null && !isSpectating) {
+            String killsStr = "KILLS: " + playerKills;
+            // Use statusTextX, the new killsY, a suitable scale, and color
+            uiManager.drawText(killsStr,
+                    statusTextX, killsY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED); // Using secondary scale, white color
         }
 
         // --- Render Centered Messages ---
@@ -541,7 +552,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     @Override
     public void handlePlayerDestroyed(int targetId, int shooterId) {
-        // TODO: Handle player destroyed logic
+        // Existing logic to handle visual effects or messages for any destruction might go here.
+        logger.debug("Received PlayerDestroyed: Target={}, Shooter={}", targetId, shooterId);
+
+        // Check if the shooter is the *local* player
+        if (shooterId == this.localPlayerId && localPlayerId != -1) {
+            // Increment the local player's kill count
+            this.playerKills++;
+            logger.info("Local player ({}) got a kill! Total kills: {}", localPlayerId, playerKills);
+            // TODO: maybe add a temporary announcement here like "YOU DESTROYED A TANK!"
+        }
     }
 
     // Called when PLAYER_LIVES is received
@@ -600,6 +620,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                     logger.info("Local tank object not found. Spectating.");
                     isSpectating = true; // Spectate if local tank doesn't exist yet
                 }
+                playerKills = 0; // Reset player kills on new round
                 logger.info("Game state PLAYING. Spectating: {}", isSpectating);
                 break;
             case ROUND_OVER:
