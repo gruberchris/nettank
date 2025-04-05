@@ -1,6 +1,5 @@
 package org.chrisgruber.nettank.server;
 
-// Imports using common package
 import org.chrisgruber.nettank.common.entities.BulletData;
 import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
@@ -38,17 +37,18 @@ public class GameServer {
     public static final long BULLET_LIFETIME_MS = 2000;
     public static final long TANK_SHOOT_COOLDOWN_MS = 500;
 
+    // Game World Map
+    public static final int MAP_WIDTH = 100;
+    public static final int MAP_HEIGHT = 100;
+
     private final List<Vector3f> availableColors;
-
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
-
-    // Server context holds mutable state
     private final ServerContext serverContext = new ServerContext();
 
     public GameServer(int port) {
         this.port = port;
         this.serverContext.gameMode = new FreeForAll();
-        this.serverContext.gameMapData = new GameMapData(50, 50, GameMapData.DEFAULT_TILE_SIZE);
+        this.serverContext.gameMapData = new GameMapData(MAP_WIDTH, MAP_HEIGHT, GameMapData.DEFAULT_TILE_SIZE);
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
         Collections.shuffle(availableColors);
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
@@ -214,18 +214,30 @@ public class GameServer {
         handler.setPlayerInfo(playerId, playerName, assignedColor);
 
         Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
+        Vector2f velocity = new Vector2f(0, 0);
+        // TODO: random init rotation?
+        float rotation = 0.0f;
 
-        TankData newTankData = new TankData(playerId, spawnPos.x, spawnPos.y, assignedColor, playerName);
+        TankData newTankData = new TankData(playerId, spawnPos, velocity, rotation, assignedColor, playerName);
         serverContext.clients.put(playerId, handler);
         serverContext.tanks.put(playerId, newTankData);
 
         logger.info("Player registered: ID={}, Name={}, Color={}", playerId, playerName, assignedColor);
 
-        // Send ASSIGN_ID (5 parts now)
+        // Send ASSIGN_ID
         handler.sendMessage(String.format("%s;%d;%f;%f;%f",
                 NetworkProtocol.ASSIGN_ID, playerId, assignedColor.x, assignedColor.y, assignedColor.z));
 
         logger.info("Sent ASSIGN_ID to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
+
+        GameMapData mapData = serverContext.gameMapData; // Get the authoritative map data
+        handler.sendMessage(String.format("%s;%d;%d;%f",
+                NetworkProtocol.MAP_INFO,
+                mapData.getWidthTiles(),
+                mapData.getHeightTiles(),
+                mapData.getTileSize()));
+
+        logger.info("Sent MAP_INFO ({};{};{}) to player ID {}: {}", mapData.getWidthTiles(), mapData.getHeightTiles(), mapData.getTileSize(), playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         handler.sendMessage(String.format("%s;%s;%d",
                 NetworkProtocol.GAME_STATE,
@@ -244,23 +256,24 @@ public class GameServer {
 
         // Send all tanks and their lives to new player
         for (TankData tankData : serverContext.tanks.values()) {
+            var tankColor = tankData.getColor();
             handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
-                    NetworkProtocol.NEW_PLAYER, tankData.playerId, tankData.position.x, tankData.position.y, tankData.rotation,
-                    tankData.name, tankData.color.x, tankData.color.y, tankData.color.z));
-            handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, totalRespawnsAllowed));
+                    NetworkProtocol.NEW_PLAYER, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(),
+                    tankData.getPlayerName(), tankColor.x(), tankColor.y(), tankColor.z()));
+            handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed));
         }
 
         logger.info("Sent existing player's tanks to new player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         // Inform others about new player & lives
         String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
-                NetworkProtocol.NEW_PLAYER, newTankData.playerId, newTankData.position.x, newTankData.position.y, newTankData.rotation,
-                newTankData.name, newTankData.color.x, newTankData.color.y, newTankData.color.z);
-        String livesMsg = String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, newTankData.playerId, totalRespawnsAllowed);
+                NetworkProtocol.NEW_PLAYER, newTankData.getPlayerId(), newTankData.getX(), newTankData.getY(), newTankData.getRotation(),
+                newTankData.getPlayerName(), newTankData.getColor().x(), newTankData.getColor().y(), newTankData.getColor().z());
+        String livesMsg = String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, newTankData.getPlayerId(), totalRespawnsAllowed);
         broadcast(newPlayerMsg, playerId);
         broadcast(livesMsg, playerId);
 
-        logger.info("Broadcasted new player info to others: ID={}, Name={}", playerId, playerName);
+        logger.info("Broadcast new player info to others: ID={}, Name={}", playerId, playerName);
     }
 
     // Returns the time data for the new connected player based on the current game state when they connected - invoked from registerPlayer()
@@ -286,8 +299,8 @@ public class GameServer {
         TankData tankData = serverContext.tanks.remove(playerId);
 
         if (handler != null && tankData != null) {
-            logger.info("Player removed: ID={}, Name={}", playerId, tankData.name);
-            if (tankData.color != null) { availableColors.add(tankData.color); Collections.shuffle(availableColors); }
+            logger.info("Player removed: ID={}, Name={}", playerId, tankData.getPlayerName());
+            if (tankData.getColor() != null) { availableColors.add(tankData.getColor()); Collections.shuffle(availableColors); }
             broadcast(NetworkProtocol.PLAYER_LEFT + ";" + playerId, -1);
         }
 
@@ -369,30 +382,30 @@ public class GameServer {
         // Update Tanks
         for (TankData tankData : serverContext.tanks.values()) {
             if (tankData.isDestroyed()) continue;  // No need to update destroyed tanks
-            Vector2f oldPos = new Vector2f(tankData.position);
+
             // Movement Logic
             float turnAmount = 0;
-            if (tankData.turningLeft) turnAmount += TANK_TURN_SPEED * deltaTime;
-            if (tankData.turningRight) turnAmount -= TANK_TURN_SPEED * deltaTime;
-            tankData.rotation += turnAmount;
-            tankData.rotation = (tankData.rotation % 360.0f + 360.0f) % 360.0f;
+            if (tankData.isTurningLeft()) turnAmount += TANK_TURN_SPEED * deltaTime;
+            if (tankData.isTurningRight()) turnAmount -= TANK_TURN_SPEED * deltaTime;
+            tankData.setRotation(tankData.getRotation() + turnAmount);
+
+            if (tankData.isTurningLeft() || tankData.isTurningRight()) {
+                logger.debug("Updated tank rotation for playerId {}: new heading is {} degrees. Player turned {} by {} degrees", tankData.getPlayerId(), tankData.getRotation(), tankData.isTurningLeft() ? "left" : "right", turnAmount);
+            }
 
             float moveAmount = 0;
-            if (tankData.movingForward) moveAmount = TANK_MOVE_SPEED * deltaTime;
-            else if (tankData.movingBackward) moveAmount = -TANK_MOVE_SPEED * deltaTime * 0.7f;
+            if (tankData.isMovingForward()) moveAmount = TANK_MOVE_SPEED * deltaTime;
+            else if (tankData.isMovingBackward()) moveAmount = -TANK_MOVE_SPEED * deltaTime * 0.7f;
 
             if (moveAmount != 0) {
-                float angleRad = (float) Math.toRadians(tankData.rotation);
+                float angleRad = (float) Math.toRadians(tankData.getRotation());
                 float dx = (float) -Math.sin(angleRad) * moveAmount;
                 float dy = (float) Math.cos(angleRad) * moveAmount; // Assuming 0=UP, +Y=UP (adjust if needed)
                 tankData.addPosition(dx, dy);
             }
 
             // Bounds Check
-            if (serverContext.gameMapData.isOutOfBounds(tankData.position.x, tankData.position.y, TankData.COLLISION_RADIUS)) {
-                tankData.setPosition(oldPos.x, oldPos.y);
-                logger.trace("PlayerId: {}. Player tank moved out of map bounds and was reset to previous position.", tankData.playerId);
-            }
+            serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
         }
 
         logger.trace("Tanks updated. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
@@ -400,9 +413,9 @@ public class GameServer {
         // Update Bullets
         List<BulletData> bulletsToRemove = new ArrayList<>();
         for (BulletData bulletData : serverContext.bullets) {
-            bulletData.position.add(bulletData.velocity.x * deltaTime, bulletData.velocity.y * deltaTime);
-            boolean expired = (currentTime - bulletData.spawnTime) >= BULLET_LIFETIME_MS;
-            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData.position.x, bulletData.position.y, BulletData.SIZE / 2.0f)) {
+            bulletData.getPosition().add(bulletData.getXVelocity() * deltaTime, bulletData.getYVelocity() * deltaTime);
+            boolean expired = (currentTime - bulletData.getSpawnTime()) >= BULLET_LIFETIME_MS;
+            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData)) {
                 bulletsToRemove.add(bulletData);
             }
         }
@@ -413,7 +426,7 @@ public class GameServer {
         for (BulletData bulletData : serverContext.bullets) {
             if (bulletsToRemove.contains(bulletData)) continue; // Skip if already marked for removal
             for (TankData tankData : serverContext.tanks.values()) {
-                if (bulletData.position.distanceSquared(tankData.position) < Math.pow(TankData.COLLISION_RADIUS + BulletData.SIZE / 2.0f, 2)) {
+                if (bulletData.getPosition().distanceSquared(tankData.getPosition()) < Math.pow(TankData.COLLISION_RADIUS + BulletData.SIZE / 2.0f, 2)) {
                     handleHit(tankData, bulletData);
                     bulletsToRemove.add(bulletData);
                     break;
@@ -429,12 +442,12 @@ public class GameServer {
             if (tankData.isDestroyed() && tankData.getDeathTimeMillis() > 0) {
                 long timeSinceDeath = currentTime - tankData.getDeathTimeMillis();
                 if (timeSinceDeath >= serverContext.tankRespawnDelayMillis) {
-                    serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.playerId, tankData);
+                    serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
                     Vector2f spawnPos = tankData.getPosition();
-                    int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.playerId);
-                    broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);
-                    broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, respawnsRemaining), -1);
-                    sendSpectatorEndMessage(tankData.playerId);
+                    int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId());
+                    broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y), -1);
+                    broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), respawnsRemaining), -1);
+                    sendSpectatorEndMessage(tankData.getPlayerId());
                 }
             }
         }
@@ -445,9 +458,9 @@ public class GameServer {
     }
 
     private synchronized void handleHit(TankData target, BulletData bulletData) {
-        TankData shooter = serverContext.tanks.get(bulletData.ownerId);
-        String shooterName = (shooter != null) ? shooter.name : "Unknown";
-        String targetName = target.name;
+        TankData shooter = serverContext.tanks.get(bulletData.getPlayerId());
+        String shooterName = (shooter != null) ? shooter.getPlayerName() : "Unknown";
+        String targetName = target.getPlayerName();
         logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
         // TODO: implement weapon damage and ammo
@@ -456,11 +469,11 @@ public class GameServer {
 
         if (target.isDestroyed()) {
             target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
-            int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.playerId);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.playerId, bulletData.ownerId), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.playerId, respawnsRemaining), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.playerId, bulletData.ownerId), -1);
-            sendSpectatorStartMessage(target.playerId, target);
+            int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.getPlayerId(), bulletData.getPlayerId()), -1);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), bulletData.getPlayerId()), -1);
+            sendSpectatorStartMessage(target.getPlayerId(), target);
 
             if (respawnsRemaining <= 0) {
                 logger.info("{} was eliminated from the round.", targetName);
@@ -556,29 +569,33 @@ public class GameServer {
         long currentTime = System.currentTimeMillis();
 
         // Check main weapon cooldown to see if the tank can shoot
-        boolean hasCooledDown = currentTime - tankData.lastShotTime >= TANK_SHOOT_COOLDOWN_MS;
+        boolean hasCooledDown = currentTime - tankData.getLastShotTime() >= TANK_SHOOT_COOLDOWN_MS;
 
         if (!hasCooledDown) {
-            var cooldownTimeRemainingInMilliseconds = TANK_SHOOT_COOLDOWN_MS - (currentTime - tankData.lastShotTime);
-            var timeSinceLastShotInMilliseconds = currentTime - tankData.lastShotTime;
+            var cooldownTimeRemainingInMilliseconds = TANK_SHOOT_COOLDOWN_MS - (currentTime - tankData.getLastShotTime());
+            var timeSinceLastShotInMilliseconds = currentTime - tankData.getLastShotTime();
             logger.warn("PlayerId: {} attempted to shoot but the weapon is still cooling down. Time since last shot: {}ms. Cooldown time remaining: {}ms", playerId, timeSinceLastShotInMilliseconds, cooldownTimeRemainingInMilliseconds);
             return;
         }
 
         tankData.recordShot(currentTime);
 
-        float angleRad = (float) Math.toRadians(tankData.rotation);
+        float angleRad = (float) Math.toRadians(tankData.getRotation());
         float dirX = (float) -Math.sin(angleRad);
         float dirY = (float) Math.cos(angleRad);
 
         float spawnDist = TankData.SIZE / 2.0f + BulletData.SIZE / 2.0f; // Spawn slightly ahead
-        float startX = tankData.position.x + dirX * spawnDist;
-        float startY = tankData.position.y + dirY * spawnDist;
+        float startX = tankData.getX() + dirX * spawnDist;
+        float startY = tankData.getY() + dirY * spawnDist;
 
+        Vector2f position = new Vector2f(startX, startY);
         Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BULLET_SPEED);
 
+        // TODO: where is bullet rotation set and should it be here?
+        float rotation = 0.0f;
+
         // Create BulletData object
-        BulletData bullet = new BulletData(playerId, startX, startY, velocity.x, velocity.y, currentTime);
+        BulletData bullet = new BulletData(playerId, position, velocity, rotation, currentTime);
         serverContext.bullets.add(bullet);
 
         logger.debug("PlayerId: {} shot a bullet at position ({}, {}) with direction ({}, {})", playerId, startX, startY, dirX, dirY);
@@ -706,9 +723,9 @@ public class GameServer {
             Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
             tankData.setPosition(spawnPos.x, spawnPos.y);
             tankData.setInputState(false, false, false, false);
-            tankData.lastShotTime = 0; // Reset shot timer
-            broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.playerId, spawnPos.x, spawnPos.y), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.playerId, totalRespawnsAllowed), -1);
+            tankData.setLastShotTime(0);
+            broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y), -1);
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed), -1);
         }
     }
 
@@ -797,7 +814,7 @@ public class GameServer {
             */
 
             broadcast(String.format("%s;%d;%f;%f;%f",
-                    NetworkProtocol.PLAYER_UPDATE, tankData.playerId, tankData.position.x, tankData.position.y, tankData.rotation), -1);
+                    NetworkProtocol.PLAYER_UPDATE, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
         }
     }
 

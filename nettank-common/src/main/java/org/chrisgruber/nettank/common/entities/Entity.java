@@ -4,16 +4,20 @@ import org.joml.Vector2f;
 
 public abstract class Entity {
 
-    private final Vector2f position;
-    private final Vector2f velocity;
-    private float width;
-    private float height;
+    protected final Vector2f position;
+    protected final Vector2f velocity;
+    protected float width;
+    protected float height;
+    protected int playerId;
+    protected float rotation;
 
-    protected Entity(float x, float y, float width, float height, float velX, float velY) {
-        this.position = new Vector2f(x, y);
+    protected Entity(int playerId, Vector2f position, float width, float height, Vector2f velocity, float rotation) {
+        this.playerId = playerId;
+        this.position = position;
         this.width = width;
         this.height = height;
-        this.velocity = new Vector2f(velX, velY);
+        this.velocity = velocity;
+        this.rotation = rotation;
     }
 
     public float getX() {
@@ -44,9 +48,13 @@ public abstract class Entity {
         return velocity.y;
     }
 
+    public int getPlayerId() { return playerId; }
+
     public Vector2f getPosition() {
         return position;
     }
+
+    public float getRotation() { return rotation; }
 
     public void setPosition(float x, float y) {
         this.position.set(x, y);
@@ -64,6 +72,15 @@ public abstract class Entity {
         this.height = height;
     }
 
-    // This update method is primarily for the SERVER's authoritative simulation
+    public void setPlayerId(int playerId) { this.playerId = playerId; }
+
+    public void setRotation(float rotation) { this.rotation = (rotation % 360.0f + 360.0f) % 360.0f; }
+
     public abstract void update(float deltaTime);
+
+    public abstract float getSize();
+
+    public float getCollisionRadius() {
+        return this.getSize() / 2.0f;
+    }
 }
