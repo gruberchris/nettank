@@ -47,7 +47,7 @@ public class GameServer {
     public GameServer(int port) {
         this.port = port;
         this.serverContext.gameMode = new FreeForAll();
-        this.serverContext.gameMapData = new GameMapData(50, 50, GameMapData.DEFAULT_TILE_SIZE);
+        this.serverContext.gameMapData = new GameMapData(300, 300, GameMapData.DEFAULT_TILE_SIZE);
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
         Collections.shuffle(availableColors);
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));

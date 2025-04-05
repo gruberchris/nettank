@@ -32,36 +32,48 @@ public class GameMapData {
         float mapWidth = widthTiles * tileSize;
         float mapHeight = heightTiles * tileSize;
 
-        boolean wasOutOfBounds = false;
+        // Get half the entity's size (assuming width and height are the same for tanks)
+        // Or use the collision radius directly if that's more appropriate
+        float radius = entity.getCollisionRadius(); // Uses getSize() / 2.0f
 
+        // Calculate the allowed boundaries for the CENTER of the entity
+        float minAllowedX = radius;
+        float maxAllowedX = mapWidth - radius;
+        float minAllowedY = radius;
+        float maxAllowedY = mapHeight - radius;
+
+        boolean wasOutOfBounds = false;
         var tankPosition = entity.getPosition();
+        float currentX = tankPosition.x();
+        float currentY = tankPosition.y();
 
         // Create a corrected position starting with current position
-        float correctedX = tankPosition.x();
-        float correctedY = tankPosition.y();
+        float correctedX = currentX;
+        float correctedY = currentY;
 
-        // Check X boundaries
-        if (tankPosition.x() < 0) {
-            correctedX = 0;
+        // Check X boundaries against allowed center range
+        if (currentX < minAllowedX) {
+            correctedX = minAllowedX; // Clamp center to the minimum allowed position
             wasOutOfBounds = true;
-        } else if (tankPosition.x() > mapWidth) {
-            correctedX = mapWidth;
+        } else if (currentX > maxAllowedX) {
+            correctedX = maxAllowedX; // Clamp center to the maximum allowed position
             wasOutOfBounds = true;
         }
 
-        // Check Y boundaries
-        if (tankPosition.y() < 0) {
-            correctedY = 0;
+        // Check Y boundaries against allowed center range
+        if (currentY < minAllowedY) {
+            correctedY = minAllowedY;
             wasOutOfBounds = true;
-        } else if (tankPosition.y() > mapHeight) {
-            correctedY = mapHeight;
+        } else if (currentY > maxAllowedY) {
+            correctedY = maxAllowedY;
             wasOutOfBounds = true;
         }
 
         // If player was out of bounds, log it and set to corrected position
         if (wasOutOfBounds) {
-            logger.debug("PlayerId: {} is out of bounds at x: {}, y: {}. Resetting to valid position at x: {}, y: {}",
-                    entity.getPlayerId(), tankPosition.x(), tankPosition.y(), correctedX, correctedY);
+            // Log the original position that triggered the correction
+            logger.debug("PlayerId: {} was out of bounds at x: {}, y: {}. Resetting to valid position at x: {}, y: {}",
+                    entity.getPlayerId(), currentX, currentY, correctedX, correctedY);
 
             entity.setPosition(correctedX, correctedY);
         }
