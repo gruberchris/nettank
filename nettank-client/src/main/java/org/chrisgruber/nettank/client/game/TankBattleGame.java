@@ -93,6 +93,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Config
     public static final float VIEW_RANGE = 300.0f;
 
+    // Game world map
+    private int mapWidthTiles = -1;
+    private int mapHeightTiles = -1;
+    private float mapTileSize = -1.0f;
+    private boolean mapInitialized = false;
+    private volatile boolean mapInfoReceivedForProcessing = false;
+
     /**
      * Constructor for the Tank Battle Game.
      */
@@ -124,14 +131,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Load game textures
             logger.debug("Loading textures...");
-            grassTexture = new Texture("textures/grass.png");
-            dirtTexture = new Texture("textures/dirt.png");
             bulletTexture = new Texture("textures/bullet.png");
             tankTexture = new Texture("textures/tank.png");
             uiManager.loadFontTexture("textures/font.png");
             logger.debug("Textures loaded.");
-
-            gameMap = new ClientGameMap(300, 300);
 
             // Setup projection matrix
             shader.bind();
@@ -140,6 +143,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Start networking game client AFTER core graphics setup
             logger.info("Starting network client...");
+            currentGameState = GameState.CONNECTING;
             gameClient = new GameClient(serverIp, serverPort, playerName, this);
             new Thread(gameClient, "GameClientThread").start();
 
@@ -176,6 +180,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     @Override
     public void updateGame(float deltaTime) {
+        if (mapInfoReceivedForProcessing && !mapInitialized) {
+            initializeMapAndTextures();
+            mapInfoReceivedForProcessing = false; // Reset the signal flag
+        }
+
         // Update local bullet positions for client-side prediction
         List<ClientBullet> bulletsToRemove = new ArrayList<>();
         long now = System.currentTimeMillis();
@@ -187,7 +196,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Check for bullet expiry or out of bounds
             if ((now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS) ||
-                    (gameMap != null && gameMap.isOutOfBounds(bullet))) {
+                    (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet))) {
                 bulletsToRemove.add(bullet);
             }
         }
@@ -197,8 +206,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Update camera position to follow local tank (if it exists)
         if (localTank != null) {
             camera.setPosition(localTank.getX(), localTank.getY());
-        } else if (isSpectating && gameMap != null) {
+        } else if (isSpectating && mapInitialized && gameMap != null) {
             camera.setPosition(gameMap.getWorldWidth() / 2.0f, gameMap.getWorldHeight() / 2.0f);
+        } else if (!mapInitialized) {
+            // Keep camera at default or 0,0 while map loads
+            camera.setPosition(0,0);
         }
 
         camera.update(); // Update camera matrices
@@ -211,6 +223,48 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
+    public void storeMapInfo(int widthTiles, int heightTiles, float tileSize) {
+        logger.info("Stored Map Info from network: WidthTiles={}, HeightTiles={}, TileSize={}", widthTiles, heightTiles, tileSize);
+        this.mapWidthTiles = widthTiles;
+        this.mapHeightTiles = heightTiles;
+        this.mapTileSize = tileSize;
+        this.mapInfoReceivedForProcessing = true; // Signal the main thread
+    }
+
+    private void initializeMapAndTextures() {
+        if (mapInitialized) return; // Should not happen if logic is correct, but safe check
+
+        logger.info("Main thread initializing map with dimensions: {}x{}", mapWidthTiles, mapHeightTiles);
+        try {
+            // Create the map object (uses the stored dimensions)
+            this.gameMap = new ClientGameMap(mapWidthTiles, mapHeightTiles);
+
+            logger.debug("Main thread loading map textures...");
+            grassTexture = new Texture("textures/grass.png");
+            dirtTexture = new Texture("textures/dirt.png");
+            logger.debug("Map textures loaded by main thread.");
+
+            mapInitialized = true; // Mark map as fully ready
+            logger.info("ClientGameMap and textures initialized successfully.");
+
+        } catch (IOException e) {
+            logger.error("Failed to initialize map or map textures on main thread", e);
+            handleInitializationError("Failed to load map resources:\n" + e.getMessage());
+        } catch (Exception e) {
+            logger.error("Unexpected error during map initialization on main thread", e);
+            handleInitializationError("Unexpected error initializing map:\n" + e.getMessage());
+        }
+    }
+
+    // Helper for error handling during initialization
+    private void handleInitializationError(String message) {
+        if (gameClient != null) gameClient.stop();
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, message, "Initialization Error", JOptionPane.ERROR_MESSAGE));
+        if (windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
+    }
+
+
+    @Override
     public void renderGame() {
         shader.bind();
         shader.setUniformMat4f("u_view", camera.getViewMatrix());
@@ -218,10 +272,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         glActiveTexture(GL_TEXTURE0);
 
         // Render Map
-        if (gameMap != null) {
-            // Remove unused centerPos variable
+        if (mapInitialized && gameMap != null) {
             float range = isSpectating ? Float.MAX_VALUE : VIEW_RANGE;
-            gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range);
+            // Ensure map textures are loaded before rendering
+            if (grassTexture != null && dirtTexture != null) {
+                gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range);
+            } else {
+                logger.warn("Attempted to render map, but map textures are not loaded.");
+            }
+        } else if (!mapInitialized) {
+            // Optionally render a "Loading Map..." message or just black background
+            // logger.trace("Map not yet initialized, skipping map rendering.");
         }
 
         // Render Tanks
@@ -466,8 +527,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         try { if (tankTexture != null) tankTexture.delete(); } catch (Exception e) { logger.error("Error deleting tankTexture", e); }
         try { if (bulletTexture != null) bulletTexture.delete(); } catch (Exception e) { logger.error("Error deleting bulletTexture", e); }
-        try { if (grassTexture != null) grassTexture.delete(); } catch (Exception e) { logger.error("Error deleting grassTexture", e); }
-        try { if (dirtTexture != null) dirtTexture.delete(); } catch (Exception e) { logger.error("Error deleting dirtTexture", e); }
+
+        if (mapInitialized) {
+            try { if (grassTexture != null) grassTexture.delete(); } catch (Exception e) { logger.error("Error deleting grassTexture", e); }
+            try { if (dirtTexture != null) dirtTexture.delete(); } catch (Exception e) { logger.error("Error deleting dirtTexture", e); }
+        }
 
         // UIManager cleanup deletes its font texture, shader, renderer
         try {
@@ -484,6 +548,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         tanks.clear();
         bullets.clear();
         announcements.clear();
+        killFeedMessages.clear();
 
         logger.info("TankBattleGame cleanup finished.");
     }
@@ -561,12 +626,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         var tankData = tank.getTankData();
 
-        logger.debug("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tankData.getX(), tankData.getY(), tankData.getRotation());
+        logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tankData.getX(), tankData.getY(), tankData.getRotation());
 
         tankData.setPosition(x, y);
         tankData.setRotation(rotation);
 
-        logger.debug("Updated tank state for player ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
+        logger.trace("Updated tank state for player ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
     }
 
     // Called when SHOOT is received

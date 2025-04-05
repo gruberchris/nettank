@@ -313,6 +313,16 @@ public class GameClient implements Runnable {
                     setSpectatorMode(true);
                     spectateEndTimeMillis = -1; // Permanent spectating
                     break;
+                case NetworkProtocol.MAP_INFO:
+                    if (parts.length == 4) {
+                        int widthTiles = Integer.parseInt(parts[1]);
+                        int heightTiles = Integer.parseInt(parts[2]);
+                        float tileSize = Float.parseFloat(parts[3]);
+                        networkCallbackHandler.storeMapInfo(widthTiles, heightTiles, tileSize);
+                    } else {
+                        logger.error("Received malformed MAP_INFO: Expected 4 parts got {} message was: {}", parts.length, message);
+                    }
+                    break;
                 case NetworkProtocol.ERROR_MSG:
                     // ERR;<errorMessage> (2+ parts)
                     if(parts.length >= 2) {

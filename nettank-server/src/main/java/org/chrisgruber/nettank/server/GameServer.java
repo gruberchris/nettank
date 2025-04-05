@@ -37,17 +37,18 @@ public class GameServer {
     public static final long BULLET_LIFETIME_MS = 2000;
     public static final long TANK_SHOOT_COOLDOWN_MS = 500;
 
+    // Game World Map
+    public static final int MAP_WIDTH = 100;
+    public static final int MAP_HEIGHT = 100;
+
     private final List<Vector3f> availableColors;
-
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
-
-    // Server context holds mutable state
     private final ServerContext serverContext = new ServerContext();
 
     public GameServer(int port) {
         this.port = port;
         this.serverContext.gameMode = new FreeForAll();
-        this.serverContext.gameMapData = new GameMapData(300, 300, GameMapData.DEFAULT_TILE_SIZE);
+        this.serverContext.gameMapData = new GameMapData(MAP_WIDTH, MAP_HEIGHT, GameMapData.DEFAULT_TILE_SIZE);
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
         Collections.shuffle(availableColors);
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
@@ -223,11 +224,20 @@ public class GameServer {
 
         logger.info("Player registered: ID={}, Name={}, Color={}", playerId, playerName, assignedColor);
 
-        // Send ASSIGN_ID (5 parts now)
+        // Send ASSIGN_ID
         handler.sendMessage(String.format("%s;%d;%f;%f;%f",
                 NetworkProtocol.ASSIGN_ID, playerId, assignedColor.x, assignedColor.y, assignedColor.z));
 
         logger.info("Sent ASSIGN_ID to player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
+
+        GameMapData mapData = serverContext.gameMapData; // Get the authoritative map data
+        handler.sendMessage(String.format("%s;%d;%d;%f",
+                NetworkProtocol.MAP_INFO,
+                mapData.getWidthTiles(),
+                mapData.getHeightTiles(),
+                mapData.getTileSize()));
+
+        logger.info("Sent MAP_INFO ({};{};{}) to player ID {}: {}", mapData.getWidthTiles(), mapData.getHeightTiles(), mapData.getTileSize(), playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         handler.sendMessage(String.format("%s;%s;%d",
                 NetworkProtocol.GAME_STATE,

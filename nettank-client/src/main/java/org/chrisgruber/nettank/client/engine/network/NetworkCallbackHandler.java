@@ -18,4 +18,5 @@ public interface NetworkCallbackHandler {
     void spawnBullet(int ownerId, float x, float y, float dirX, float dirY);
     void handlePlayerHit(int targetId, int shooterId);
     void handlePlayerDestroyed(int targetId, int shooterId);
+    void storeMapInfo(int widthTiles, int heightTiles, float tileSize);
 }
