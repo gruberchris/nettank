@@ -1,39 +1,33 @@
 package org.chrisgruber.nettank.common.entities;
 
 import org.joml.Vector2f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class BulletData {
-
-    // --- Constants needed by both Client and Server ---
+public class BulletData extends Entity {
+    private static final Logger logger = LoggerFactory.getLogger(BulletData.class);
     public static final float SIZE = 15.0f; // Size of the bullet in pixels
     public static final float SPEED = 450.0f; // Pixels per second
     public static final long LIFETIME_MS = 2000; // Max travel time in ms
 
-    // --- Data Fields ---
-    public int ownerId;
-    public Vector2f position = new Vector2f();
-    public Vector2f velocity = new Vector2f(); // Initial velocity sent by server
-    public long spawnTime; // Authoritative server spawn time OR client receive time
+    protected long spawnTime;
 
-    // Constructor used by Server
-    public BulletData(int ownerId, float x, float y, float velX, float velY, long serverSpawnTime) {
-        this.ownerId = ownerId;
-        this.position.set(x, y);
-        this.velocity.set(velX, velY);
-        this.spawnTime = serverSpawnTime;
+    public BulletData(int playerId, Vector2f position, Vector2f velocity, float rotation, long spawnTime) {
+        super(playerId, position, SIZE, SIZE, velocity, rotation);
+        this.spawnTime = spawnTime;
     }
 
-    // Constructor used by Client when receiving a SHOOT message
-    public BulletData(int ownerId, float startX, float startY, float velX, float velY) {
-        this.ownerId = ownerId;
-        this.position.set(startX, startY);
-        this.velocity.set(velX, velY);
-        this.spawnTime = System.currentTimeMillis(); // Client uses local time for prediction expiry
+    @Override
+    public void update(float deltaTime) {
+        // TODO:
     }
 
-    // Getters
-    public Vector2f getPosition() { return position; }
-    public int getOwnerId() { return ownerId; }
+    @Override
+    public float getSize() {
+        return SIZE;
+    }
+
     public long getSpawnTime() { return spawnTime; }
-    public Vector2f getVelocity() { return velocity; }
+
+    public void setSpawnTime(long spawnTime) { this.spawnTime = spawnTime; }
 }

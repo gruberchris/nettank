@@ -131,7 +131,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             uiManager.loadFontTexture("textures/font.png");
             logger.debug("Textures loaded.");
 
-            gameMap = new ClientGameMap(50, 50);
+            gameMap = new ClientGameMap(300, 300);
 
             // Setup projection matrix
             shader.bind();
@@ -187,7 +187,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Check for bullet expiry or out of bounds
             if ((now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS) ||
-                    (gameMap != null && gameMap.isOutOfBounds(bullet.getPosition().x, bullet.getPosition().y, BulletData.SIZE / 2.0f))) {
+                    (gameMap != null && gameMap.isOutOfBounds(bullet))) {
                 bulletsToRemove.add(bullet);
             }
         }
@@ -196,7 +196,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Update camera position to follow local tank (if it exists)
         if (localTank != null) {
-            camera.setPosition(localTank.getPosition().x, localTank.getPosition().y);
+            camera.setPosition(localTank.getX(), localTank.getY());
         } else if (isSpectating && gameMap != null) {
             camera.setPosition(gameMap.getWorldWidth() / 2.0f, gameMap.getWorldHeight() / 2.0f);
         }
@@ -235,7 +235,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 shader.setUniform3f("u_tintColor", tank.getColor());
 
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
-                        TankData.SIZE, TankData.SIZE, // <<< CHANGED HERE
+                        TankData.SIZE, TankData.SIZE,
                         tank.getRotation(), shader);
             }
         }
@@ -548,21 +548,39 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     public void updateTankState(int id, float x, float y, float rotation) {
         ClientTank tank = tanks.get(id);
 
-        if (tank != null) {
-            var tankData = tank.getTankData();
-            tankData.setPosition(x, y);
-            tankData.setRotation(rotation);
+        if (tank == null) {
+            logger.warn("Received updateTankState for unknown Player ID: {}", id);
+            return;
         }
+
+        if (tank.getX() == x && tank.getY() == y && tank.getRotation() == rotation) {
+            // no change in state
+            logger.trace("No state change for tank ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
+            return;
+        }
+
+        var tankData = tank.getTankData();
+
+        logger.debug("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tankData.getX(), tankData.getY(), tankData.getRotation());
+
+        tankData.setPosition(x, y);
+        tankData.setRotation(rotation);
+
+        logger.debug("Updated tank state for player ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
     }
 
     // Called when SHOOT is received
     public void spawnBullet(int ownerId, float x, float y, float dirX, float dirY) {
         // Calculate velocity based on direction and common speed
         Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BulletData.SPEED);
+        Vector2f position = new Vector2f(x, y);
         long spawnTime = System.currentTimeMillis(); // Client uses its own time for prediction expiry
 
+        // TODO: Where is bullet rotation set and should it be here?
+        float rotation = 0.0f;
+
         // Create common BulletData
-        BulletData bulletData = new BulletData(ownerId, x, y, velocity.x, velocity.y, spawnTime);
+        BulletData bulletData = new BulletData(ownerId, position, velocity, rotation, spawnTime);
         // Create ClientBullet wrapper for rendering/prediction
         ClientBullet clientBullet = new ClientBullet(bulletData);
 

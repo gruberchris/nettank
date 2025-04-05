@@ -12,25 +12,20 @@ public class ClientTank extends Entity {
 
     public ClientTank(TankData data) {
         // Initialize Entity position/size based on TankData
-        super(data.position.x, data.position.y, TankData.SIZE, TankData.SIZE, 0f, 0f);
+        super(data.getPlayerId(), data.getPosition(), TankData.SIZE, TankData.SIZE, data.getVelocity(), data.getRotation());
         this.tankData = data;
-
         updatePositionFromData();
     }
 
     // Call this after tankData is updated by network messages
     public void updatePositionFromData() {
-        this.setPosition(tankData.position.x, tankData.position.y);
+        this.setPosition(tankData.getX(), tankData.getY());
         this.setWidth(TankData.SIZE);
         this.setHeight(TankData.SIZE);
     }
 
-    // Getters that expose data needed for rendering or logic
-    // Delegate to the contained TankData
-    public int getPlayerId() { return tankData.playerId; }
-    public String getName() { return tankData.name; }
-    public float getRotation() { return tankData.rotation; }
-    public Vector3f getColor() { return tankData.color; } // Returns mutable ref
+    public String getName() { return tankData.getPlayerName(); }
+    public Vector3f getColor() { return tankData.getColor(); } // Returns mutable ref
     public int getHitPoints() { return tankData.getHitPoints(); }
     public boolean isDestroyed() { return tankData.isDestroyed(); }
 
@@ -43,9 +38,20 @@ public class ClientTank extends Entity {
     }
 
     @Override
+    public float getRotation() {
+        // Return the rotation directly from the authoritative TankData object
+        return this.tankData.getRotation();
+    }
+
+    @Override
     public void update(float deltaTime) {
         // TODO: Client-side prediction or interpolation logic could go here
         // For now, we rely solely on server updates via addOrUpdateTank/updateTankState
+    }
+
+    @Override
+    public float getSize() {
+        return TankData.SIZE;
     }
 
     // Provides direct access to the underlying data if needed elsewhere

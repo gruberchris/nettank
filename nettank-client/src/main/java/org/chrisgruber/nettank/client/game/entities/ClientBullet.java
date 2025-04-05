@@ -9,16 +9,14 @@ public class ClientBullet extends Entity {
     private final BulletData bulletData; // Holds initial state + client spawn time
 
     public ClientBullet(BulletData data) {
-        super(data.position.x, data.position.y, BulletData.SIZE, BulletData.SIZE,
-              data.velocity.x, data.velocity.y);
-
+        super(data.getPlayerId(), data.getPosition(), BulletData.SIZE, BulletData.SIZE, data.getVelocity(), data.getRotation());
         this.bulletData = data;
         updatePositionFromData();
     }
 
     // Call this if BulletData state needs to re-sync with Entity state
     public void updatePositionFromData() {
-        this.setPosition(bulletData.position.x, bulletData.position.y);
+        this.setPosition(bulletData.getX(), bulletData.getY());
         this.setWidth(BulletData.SIZE);
         this.setHeight(BulletData.SIZE);
     }
@@ -26,8 +24,8 @@ public class ClientBullet extends Entity {
     // Client-side prediction update
     public void update(float deltaTime) {
         // Calculate change in position based on velocity
-        float deltaX = bulletData.velocity.x * deltaTime;
-        float deltaY = bulletData.velocity.y * deltaTime;
+        float deltaX = bulletData.getXVelocity() * deltaTime;
+        float deltaY = bulletData.getYVelocity() * deltaTime;
 
         // Get the Entity's current position Vector2f
         Vector2f currentPos = this.getPosition(); // Assumes this gets the internal Entity position
@@ -41,12 +39,17 @@ public class ClientBullet extends Entity {
 
         // Keep the BulletData position synced with the Entity's position
         // (Assuming this is desired for consistency if BulletData is accessed elsewhere)
-        bulletData.position.set(newX, newY);
+        bulletData.setPosition(newX, newY);
+    }
+
+    @Override
+    public float getSize() {
+        return BulletData.SIZE;
     }
 
     // Getters for rendering/logic
-    public long getSpawnTime() { return bulletData.spawnTime; }
-    public int getOwnerId() { return bulletData.ownerId; }
+    public long getSpawnTime() { return bulletData.getSpawnTime(); }
+    public int getOwnerId() { return bulletData.getPlayerId(); }
 
     public BulletData getBulletData() {
         return bulletData;

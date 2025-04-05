@@ -4,6 +4,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Camera;
 import org.chrisgruber.nettank.client.engine.graphics.Renderer;
 import org.chrisgruber.nettank.client.engine.graphics.Shader;
 import org.chrisgruber.nettank.client.engine.graphics.Texture;
+import org.chrisgruber.nettank.common.entities.Entity;
 import org.chrisgruber.nettank.common.world.GameMapData;
 import org.joml.Vector2f;
 import org.slf4j.Logger;
@@ -87,9 +88,12 @@ public class ClientGameMap {
         shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
     }
 
-    // TODO: Delegate boundary check to common data object
-    public boolean isOutOfBounds(float x, float y, float objectRadius) {
-        return mapData.isOutOfBounds(x, y, objectRadius);
+    public boolean isOutOfBounds(Entity entity) {
+        return mapData.isOutOfBounds(entity);
+    }
+
+    public void checkAndCorrectBoundaries(Entity entity) {
+        mapData.checkAndCorrectBoundaries(entity);
     }
 
     public float getWorldWidth() { return mapData.getWorldWidth(); }
