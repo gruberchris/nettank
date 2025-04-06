@@ -8,6 +8,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Texture;
 import org.chrisgruber.nettank.client.engine.network.GameClient;
 import org.chrisgruber.nettank.client.engine.network.NetworkCallbackHandler;
 import org.chrisgruber.nettank.client.engine.ui.KillFeedMessage;
+import org.chrisgruber.nettank.client.engine.ui.StatusMessageKind;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
 import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
@@ -18,6 +19,7 @@ import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
 import org.joml.Vector2f;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.swing.*; // For JOptionPane on error/disconnect
@@ -43,9 +45,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private static final float UI_TEXT_SCALE_SECONDARY_STATUS = 0.95f; // Slightly smaller for secondary status
     private static final float UI_TEXT_SCALE_STATUS = 1.0f; // Size for status messages like HIT POINTS
     private static final float UI_TEXT_SCALE_ANNOUNCEMENT = 1.3f; // For large center messages like announcements
-    private static final float UI_TEXT_SCALE_KILL_FEED = 0.65f; // Scale for kill feed messages
+    private static final float UI_TEXT_SCALE_KILL_FEED = 0.75f; // Scale for kill feed messages
 
-    private static final long KILL_FEED_DISPLAY_TIME_MS = 5000L; // 5 seconds display time
+    private static final long KILL_FEED_DISPLAY_TIME_MS = 10000L; // 10 seconds display time
 
     private Shader shader;
     private Renderer renderer;
@@ -363,6 +365,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         final float killFeedPaddingX = 10; // Padding from the right edge
         final float killFeedStartY = 10;   // Starting Y position from the top
         final float killFeedLineHeight = 20; // Vertical space between messages (adjust as needed)
+        final float playersCountY = 75; // Y position for Players Count (below Kills + padding)
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
@@ -402,6 +405,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                     statusTextX, killsY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED); // Using secondary scale, white color
         }
 
+        if (localTank != null && !isSpectating) {
+            var playersCountStr = "PLAYERS: " + tanks.size();
+            uiManager.drawText(playersCountStr, statusTextX, playersCountY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
+        }
+
         // Render Kill Feed Messages
         float currentKillFeedY = killFeedStartY;
 
@@ -412,8 +420,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // Calculate the X position (right-aligned)
             float x = windowWidth - textWidth - killFeedPaddingX;
 
+            // Select the text color
+            Vector3f textColor;
+
+            switch (feedMessage.getStatusMessageKind()) {
+                case StatusMessageKind.PlayerKilled -> textColor = Colors.RED;
+                case StatusMessageKind.PlayerLeft -> textColor = Colors.ORANGE;
+                case StatusMessageKind.PlayerJoined -> textColor = Colors.WHITE;
+                default -> textColor = Colors.CYAN;
+            }
+
             // Draw the text
-            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, UI_TEXT_SCALE_KILL_FEED, Colors.ORANGE); // Orange color?
+            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, UI_TEXT_SCALE_KILL_FEED, textColor);
 
             // Move down for the next message
             currentKillFeedY += killFeedLineHeight;
@@ -579,6 +597,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 isSpectating = tank.isDestroyed();
                 logger.info("Local tank object created. Spectating: {}", isSpectating);
             }
+
+            var statusMessage = String.format("%s has joined", tank.getName());
+            addStatusMessage(StatusMessageKind.PlayerJoined, statusMessage);
         } else {
             logger.trace("Updating existing ClientTank for player ID: {}", id);
 
@@ -598,12 +619,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (removed != null) {
             logger.info("Removed tank for player ID: {} Name: {}", id, removed.getName());
 
-            if (id == localPlayerId) {
-                localTank = null;
-                isSpectating = true;
-
-                logger.info("Local tank removed. Entering spectator mode.");
-            }
+            var statusMessage = String.format("%s has left", removed.getName());
+            addStatusMessage(StatusMessageKind.PlayerLeft, statusMessage);
         } else {
             logger.warn("Received removeTank for unknown ID: {}", id);
         }
@@ -680,13 +697,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Construct the message
         String killMessage = shooterName + " KILLED " + targetName;
-
-        // Calculate expiry time
-        long expiryTime = System.currentTimeMillis() + KILL_FEED_DISPLAY_TIME_MS;
-
-        // Create and add the message object
-        killFeedMessages.add(new KillFeedMessage(killMessage, expiryTime));
-        logger.trace("Added kill feed message: '{}'", killMessage);
+        addStatusMessage(StatusMessageKind.PlayerKilled, killMessage);
     }
 
     // Called when PLAYER_LIVES is received
@@ -811,5 +822,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         });
 
         if (windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
+    }
+
+    private void addStatusMessage(StatusMessageKind statusMessageKind, String message) {
+        // Calculate expiry time
+        long expiryTime = System.currentTimeMillis() + KILL_FEED_DISPLAY_TIME_MS;
+
+        // Create and add the message object
+        killFeedMessages.add(new KillFeedMessage(statusMessageKind, message, expiryTime));
+        logger.trace("Added status message: '{}'", message);
     }
 }
