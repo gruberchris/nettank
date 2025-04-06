@@ -136,7 +136,7 @@ jobs:
           name: Release ${{ steps.get_version.outputs.tag_name }}
           generate_release_notes: true
           files: |
-            nettank-client/target/nettank-client-${{ steps.get_version.outputs.version }}.jar
+            nettank-client/target/nettank-client-${{ steps.get_version.outputs.version }}-with-dependencies.jar
             nettank-server/target/nettank-server-${{ steps.get_version.outputs.version }}.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
