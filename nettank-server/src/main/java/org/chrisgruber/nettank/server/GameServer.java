@@ -894,7 +894,7 @@ public class GameServer {
             handler.sendMessage(message);
         }
 
-        logger.info("Broadcast message sent to all clients except player ID {}: {}", excludePlayerId, message);
+        logger.trace("Broadcast message sent to all clients except player ID {}: {}", excludePlayerId, message);
     }
 
     // Broadcasts an announcement to all players, excluding the specified player IDs
