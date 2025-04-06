@@ -20,7 +20,7 @@
 
     <!-- Set root logger level and add appenders -->
     <!-- Use DEBUG or TRACE for more detail during development -->
-    <root level="DEBUG">
+    <root level="INFO">
         <appender-ref ref="STDOUT" />
         <appender-ref ref="FILE" />
     </root>

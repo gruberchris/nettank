@@ -38,8 +38,8 @@ public class GameServer {
     public static final long TANK_SHOOT_COOLDOWN_MS = 500;
 
     // Game World Map
-    public static final int MAP_WIDTH = 100;
-    public static final int MAP_HEIGHT = 100;
+    public static final int MAP_WIDTH = 50;
+    public static final int MAP_HEIGHT = 50;
 
     private final List<Vector3f> availableColors;
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
@@ -463,7 +463,11 @@ public class GameServer {
         String targetName = target.getPlayerName();
         logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
-        // TODO: implement weapon damage and ammo
+        if (target.isDestroyed()) {
+            logger.debug("Hit ignored: {} is already destroyed.", targetName);
+            return;
+        }
+
         int weaponDamage = 1;
         target.takeHit(weaponDamage);
 
