@@ -463,7 +463,11 @@ public class GameServer {
         String targetName = target.getPlayerName();
         logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
-        // TODO: implement weapon damage and ammo
+        if (target.isDestroyed()) {
+            logger.debug("Hit ignored: {} is already destroyed.", targetName);
+            return;
+        }
+
         int weaponDamage = 1;
         target.takeHit(weaponDamage);
 
