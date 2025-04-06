@@ -38,8 +38,8 @@ public class GameServer {
     public static final long TANK_SHOOT_COOLDOWN_MS = 500;
 
     // Game World Map
-    public static final int MAP_WIDTH = 100;
-    public static final int MAP_HEIGHT = 100;
+    public static final int MAP_WIDTH = 50;
+    public static final int MAP_HEIGHT = 50;
 
     private final List<Vector3f> availableColors;
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
