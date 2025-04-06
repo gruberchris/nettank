@@ -2,6 +2,7 @@ package org.chrisgruber.nettank.client.main;
 
 import ch.qos.logback.classic.LoggerContext;
 import org.chrisgruber.nettank.client.game.TankBattleGame; // Import the game implementation
+import org.chrisgruber.nettank.client.util.NativeLibraryLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,6 +37,8 @@ public class ClientMain {
             }
         }
         if (args.length >= 3) { playerName = args[2]; }
+
+        NativeLibraryLoader.loadNativeLibraries();
 
         logger.info("Starting Nettank Client for {} connecting to {}:{}", playerName, hostIp, port);
 
