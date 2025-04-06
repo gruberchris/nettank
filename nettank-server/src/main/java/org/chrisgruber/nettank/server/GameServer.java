@@ -32,10 +32,10 @@ public class GameServer {
 
     // Server-specific Constants
     public static final float TANK_MOVE_SPEED = 100.0f;
-    public static final float TANK_TURN_SPEED = 100.0f;
+    public static final float TANK_TURN_SPEED = 50.0f;
     public static final float BULLET_SPEED = 350.0f;
     public static final long BULLET_LIFETIME_MS = 2000;
-    public static final long TANK_SHOOT_COOLDOWN_MS = 500;
+    public static final long TANK_SHOOT_COOLDOWN_MS = 2000;
 
     // Game World Map
     public static final int MAP_WIDTH = 50;
@@ -809,14 +809,6 @@ public class GameServer {
                 continue;
             }
 
-            // Save this code and decide if a dead player should still see game state as a spectator, if spectator feature allowed
-            /*
-            if (!tankData.isAlive()) {
-                logger.debug("Skipping broadcastState: tankData is not alive for playerId {}", tankData.playerId);
-                continue;
-            }
-            */
-
             broadcast(String.format("%s;%d;%f;%f;%f",
                     NetworkProtocol.PLAYER_UPDATE, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
         }
@@ -854,7 +846,7 @@ public class GameServer {
             handler.sendMessage(message);
         }
 
-        logger.trace("Broadcast message sent to all clients except player ID {}: {}", excludePlayerId, message);
+        logger.info("Broadcast message sent to all clients except player ID {}: {}", excludePlayerId, message);
     }
 
     // Broadcasts an announcement to all players, excluding the specified player IDs
