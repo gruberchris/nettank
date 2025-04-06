@@ -26,11 +26,20 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+# Create a non-root user and group
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 # Server port
 EXPOSE 5555
 
 # Copy the built JAR file from the build stage
 COPY --from=build /app/nettank-server/target/nettank-server*.jar /app/nettank-server.jar
+
+# Set ownership of the application files
+RUN chown -R appuser:appgroup /app
+
+# Switch to non-root user
+USER appuser
 
 # Set default JVM options
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
