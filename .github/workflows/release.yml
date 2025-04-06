@@ -13,28 +13,26 @@ on:
 
 jobs:
   release_and_publish:
-    # Run on Linux - it doesn't matter for building the universal client JAR now
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed for version update, tag push, and release creation
-      packages: write # Needed for mvn deploy to GitHub Packages and docker push to GHCR
-      security-events: write # Optional: For dependency graph submission
+      contents: write
+      packages: write
+      security-events: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Needed for version bumping and tagging
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: maven # Cache Maven dependencies
+          cache: maven
 
       - name: Create Maven settings.xml
-        # Using bash heredoc for clarity
         run: |
           mkdir -p ~/.m2
           cat > ~/.m2/settings.xml <<'EOF'
@@ -90,7 +88,6 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
         env:
-          # GITHUB_TOKEN is automatically available, but explicitly passing it for git push
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update POM versions to release version
@@ -116,7 +113,6 @@ jobs:
         # The client JAR produced now contains all natives
         run: mvn -B deploy -DskipTests
         env:
-          # GITHUB_TOKEN is used by Maven deploy via settings.xml or env var inference
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Optional: Update dependency graph
@@ -124,7 +120,6 @@ jobs:
         uses: advanced-security/maven-dependency-submission-action@v4
         continue-on-error: true
 
-      # --- Docker Build Steps (Keep as is or adjust context/Dockerfile path) ---
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -138,8 +133,8 @@ jobs:
       - name: Build and Push Server Docker Image
         uses: docker/build-push-action@v5
         with:
-          context: . # Assuming Dockerfile is in the root
-          file: ./Dockerfile # Specify Dockerfile location
+          context: .
+          file: ./Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/nettank-server:${{ steps.get_version.outputs.version }}
@@ -150,7 +145,6 @@ jobs:
             # Ensure your Dockerfile copies the correct server JAR path
             SERVER_JAR_PATH=nettank-server/target/nettank-server-${{ steps.get_version.outputs.version }}.jar
 
-      # --- GitHub Release Step ---
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -163,4 +157,4 @@ jobs:
             nettank-server/target/nettank-server-${{ steps.get_version.outputs.version }}.jar
             # Add any other files you want to attach to the release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needs token to create release and upload assets
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
