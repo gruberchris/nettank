@@ -41,29 +41,53 @@ public class GameServer {
     public static final int MAP_WIDTH = 50;
     public static final int MAP_HEIGHT = 50;
 
+    // Configure and set network protocol rates
+    private static final int DEFAULT_NETWORK_HZ = 30; // Default updates per second
+    private final long networkUpdateIntervalMillis; // Made non-final
+    private long lastNetworkUpdateTimeMillis = 0; // Tracks when the last update was sent
+
     private final List<Vector3f> availableColors;
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
     private final ServerContext serverContext = new ServerContext();
 
-    public GameServer(int port) {
+    public GameServer(int port, int networkHz) throws IOException {
         this.port = port;
+
+        // Set network update rate
+        this.networkUpdateIntervalMillis = 1000L / networkHz;
+        logger.info("Configuring server for network update rate: {} Hz ({} ms interval)",
+                networkHz, this.networkUpdateIntervalMillis);
+
+        // Initialize server context
         this.serverContext.gameMode = new FreeForAll();
         this.serverContext.gameMapData = new GameMapData(MAP_WIDTH, MAP_HEIGHT, GameMapData.DEFAULT_TILE_SIZE);
+
+        // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
         Collections.shuffle(availableColors);
+
+        // Set up the server shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "ServerShutdownHook"));
     }
 
     public static void main(String[] args) {
         int port = 5555; // Default port
+
+        int networkHz = DEFAULT_NETWORK_HZ; // Default network rate
+
         if (args.length >= 1) {
             try { port = Integer.parseInt(args[0]); }
             catch (NumberFormatException e) { System.err.println("Invalid port: " + args[0] + ". Using default " + port); }
         }
 
+        if (args.length >= 2) {
+            try { networkHz = Integer.parseInt(args[1]); }
+            catch (NumberFormatException e) { System.err.println("Invalid network Hz: " + args[1] + ". Using default " + networkHz); }
+        }
+
         try {
             logger.info("Attempting to start server on port {}...", port);
-            GameServer server = new GameServer(port);
+            GameServer server = new GameServer(port, networkHz);
             logger.info("Server object created.");
             server.start(); // Blocks until server stops
             logger.info("GameServer.main() finished after server.start() returned.");
@@ -321,6 +345,8 @@ public class GameServer {
         double nsPerTick = 1_000_000_000.0 / 60.0;  // 60 ticks per second
         double delta = 0;   // Time accumulator for game updates
 
+        lastNetworkUpdateTimeMillis = System.currentTimeMillis();
+
         logger.trace("GameLoop thread started.");
 
         while (serverContext.running) {
@@ -348,25 +374,33 @@ public class GameServer {
     // Manages when and how often the game logic is mutated, ensuring a consistent experience regardless of the frame rate.
     private synchronized double processGameUpdates(double delta) {
         // "delta" is the amount of accumulated time since the last update and is measured in "ticks". 1 tick = one full update cycle
-        boolean updated = false;
+        boolean tankStateUpdated = false;
 
         // While delta is >= 1.0, call updateGameLogic() to process game logic
         while (delta >= 1.0) {
             // Call updateGameLogic() with fixed time step. Each call represents a game tick, 1/60th of a second of game time.
-            updateGameLogic(1.0f / 60.0f);
+            tankStateUpdated = updateGameLogic(1.0f / 60.0f);
             delta -= 1.0;
-            updated = true;
         }
 
-        if (updated) {
-            // Broadcast state to all players after calling updateGameLogic() changes state
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Check if it's time to send AND if the game is in a state where updates are needed
+        if (serverContext.currentGameState == GameState.PLAYING && tankStateUpdated &&
+                (currentTimeMillis - lastNetworkUpdateTimeMillis >= networkUpdateIntervalMillis))
+        {
+            logger.trace("Network update interval triggered ({} ms). Broadcasting state.", networkUpdateIntervalMillis);
+
             broadcastState();
+
+            lastNetworkUpdateTimeMillis = currentTimeMillis; // IMPORTANT: Reset the timer
         }
 
         return delta;
     }
 
-    private synchronized void updateGameLogic(float deltaTime) {
+    private synchronized boolean updateGameLogic(float deltaTime) {
+        boolean stateChangedThisTick = false;
         long currentTime = System.currentTimeMillis();
 
         logger.trace("Processing game state transitions. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
@@ -375,7 +409,7 @@ public class GameServer {
 
         logger.trace("Game state transitions processed. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
 
-        if (serverContext.currentGameState != GameState.PLAYING) return;    // Only update game state if in PLAYING state
+        if (serverContext.currentGameState != GameState.PLAYING) return false;    // Only update game state if in PLAYING state
 
         logger.trace("Game is in PLAYING state. Updating game logic. Time: {}", currentTime);
 
@@ -387,10 +421,14 @@ public class GameServer {
             float turnAmount = 0;
             if (tankData.isTurningLeft()) turnAmount += TANK_TURN_SPEED * deltaTime;
             if (tankData.isTurningRight()) turnAmount -= TANK_TURN_SPEED * deltaTime;
-            tankData.setRotation(tankData.getRotation() + turnAmount);
 
-            if (tankData.isTurningLeft() || tankData.isTurningRight()) {
-                logger.debug("Updated tank rotation for playerId {}: new heading is {} degrees. Player turned {} by {} degrees", tankData.getPlayerId(), tankData.getRotation(), tankData.isTurningLeft() ? "left" : "right", turnAmount);
+            if (turnAmount != 0) {
+                tankData.setRotation(tankData.getRotation() + turnAmount);
+                stateChangedThisTick = true;
+
+                if (tankData.isTurningLeft() || tankData.isTurningRight()) {
+                    logger.debug("Updated tank rotation for playerId {}: new heading is {} degrees. Player turned {} by {} degrees", tankData.getPlayerId(), tankData.getRotation(), tankData.isTurningLeft() ? "left" : "right", turnAmount);
+                }
             }
 
             float moveAmount = 0;
@@ -402,10 +440,12 @@ public class GameServer {
                 float dx = (float) -Math.sin(angleRad) * moveAmount;
                 float dy = (float) Math.cos(angleRad) * moveAmount; // Assuming 0=UP, +Y=UP (adjust if needed)
                 tankData.addPosition(dx, dy);
-            }
 
-            // Bounds Check
-            serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
+                // Check bounds
+                serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
+
+                stateChangedThisTick = true;
+            }
         }
 
         logger.trace("Tanks updated. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
@@ -441,13 +481,19 @@ public class GameServer {
         for (TankData tankData : serverContext.tanks.values()) {
             if (tankData.isDestroyed() && tankData.getDeathTimeMillis() > 0) {
                 long timeSinceDeath = currentTime - tankData.getDeathTimeMillis();
-                if (timeSinceDeath >= serverContext.tankRespawnDelayMillis) {
+
+                if (timeSinceDeath >= serverContext.tankRespawnDelayMillis && serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId()) > 0) {
                     serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
+
                     Vector2f spawnPos = tankData.getPosition();
-                    int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId());
                     broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y), -1);
+
+                    int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId());
                     broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), respawnsRemaining), -1);
+
                     sendSpectatorEndMessage(tankData.getPlayerId());
+
+                    stateChangedThisTick = true;
                 }
             }
         }
@@ -455,6 +501,8 @@ public class GameServer {
         checkWinCondition();
 
         logger.trace("Game logic update complete. Current state: {}, Time: {}", serverContext.currentGameState, currentTime);
+
+        return stateChangedThisTick;
     }
 
     private synchronized void handleHit(TankData target, BulletData bulletData) {

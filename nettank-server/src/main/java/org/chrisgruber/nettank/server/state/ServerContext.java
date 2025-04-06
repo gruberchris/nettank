@@ -20,7 +20,7 @@ public class ServerContext {
 
     // General Server State
     public volatile boolean running = false;
-    public final AtomicBoolean stopping = new AtomicBoolean(false);
+    public AtomicBoolean stopping = new AtomicBoolean(false);
 
     // Player/Client Management
     public final Map<Integer, ClientHandler> clients = new ConcurrentHashMap<>();
