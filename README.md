@@ -6,9 +6,7 @@ A multiplayer top down 2D tank battle game where players control tanks and try t
 
 ## Launching The Game Client
 
-The game client is a Java application that requires Java 21 or higher to run.
-
-```shell
+Note: Java 21 Runtime is required to run the game client or the server.
 
 The game client is a universal jar file that can be run on any platform with Java installed. To run the game client, use the following command:
 
