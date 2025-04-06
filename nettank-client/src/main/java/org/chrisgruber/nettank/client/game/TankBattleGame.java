@@ -93,7 +93,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean prevKeyD = false;
 
     // Config
-    public static final float VIEW_RANGE = 300.0f;
+    public static final float VIEW_RANGE = 400.0f;
 
     // Game world map
     private int mapWidthTiles = -1;
