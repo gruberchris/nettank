@@ -244,6 +244,15 @@ public class ClientHandler implements Runnable {
 
     private void parseClientMessage(String message) {
         logger.debug("Received from client {}: {}", (playerId == -1 ? "UNKNOWN" : playerId), message);
+
+        int maxMessageLength = 100; // Define a maximum message length
+
+        if (message.length() > maxMessageLength) {
+            logger.warn("Received message size too long from client {}: {}", playerId, message);
+            closeConnection("Threat detected. IP logged. Missile launched. __!__");
+            return;
+        }
+
         try {
             String[] parts = message.split(";");
             if (parts.length == 0) return;
