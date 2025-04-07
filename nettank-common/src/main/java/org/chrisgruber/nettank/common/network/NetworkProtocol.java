@@ -14,10 +14,10 @@ public class NetworkProtocol {
     public static final String NEW_PLAYER = "NEW";   // NEW;<id>;<x>;<y>;<rot>;<name>;<r>;<g>;<b> // Lives sent separately
     public static final String PLAYER_UPDATE = "UPD"; // UPD;<id>;<x>;<y>;<rot>
     public static final String PLAYER_LEFT = "LEF";  // LEF;<id>
-    public static final String SHOOT = "SHO";        // SHO;<ownerId>;<x>;<y>;<dirX>;<dirY>
-    public static final String HIT = "HIT";          // HIT;<targetId>;<shooterId>
+    public static final String SHOOT = "SHO";        // SHO;<bulletId>;<ownerId>;<x>;<y>;<dirX>;<dirY>
+    public static final String HIT = "HIT";          // HIT;<targetId>;<shooterId>;<bulletId>;<damage>
     public static final String DESTROYED = "DES";    // DES;<targetId>;<shooterId>
-    public static final String RESPAWN = "RSP";      // RSP;<id>;<x>;<y>
+    public static final String RESPAWN = "RSP";      // RSP;<id>;<x>;<y>;<rotation>
     public static final String PLAYER_LIVES = "LIV"; // LIV;<id>;<lives>
     public static final String GAME_STATE = "GST";   // GST;<stateName>;<timeData>
     public static final String ANNOUNCE = "ANN";     // ANN;<messageText>

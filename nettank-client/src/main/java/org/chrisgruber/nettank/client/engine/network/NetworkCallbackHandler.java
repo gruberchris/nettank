@@ -2,6 +2,8 @@ package org.chrisgruber.nettank.client.engine.network;
 
 import org.chrisgruber.nettank.common.util.GameState;
 
+import java.util.UUID;
+
 public interface NetworkCallbackHandler {
     // Connection Status
     void connectionFailed(String reason);
@@ -15,8 +17,8 @@ public interface NetworkCallbackHandler {
     void updateTankState(int id, float x, float y, float rotation);
     void removeTank(int id);
     void updatePlayerLives(int playerId, int lives);
-    void spawnBullet(int ownerId, float x, float y, float dirX, float dirY);
-    void handlePlayerHit(int targetId, int shooterId);
+    void spawnBullet(UUID bulletId, int ownerId, float x, float y, float dirX, float dirY);
+    void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage);
     void handlePlayerDestroyed(int targetId, int shooterId);
     void storeMapInfo(int widthTiles, int heightTiles, float tileSize);
 }

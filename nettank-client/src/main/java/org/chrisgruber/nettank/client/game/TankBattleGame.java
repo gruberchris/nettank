@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -310,7 +311,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
 
         for (ClientBullet bullet : bullets) {
-            if (isObjectVisible(bullet.getPosition(), playerPos, renderRangeSq)) {
+            if (isObjectVisible(bullet.getPosition(), playerPos, renderRangeSq) && !bullet.isDestroyed()) {
                 Vector2f velocity = bullet.getVelocity();
 
                 float rotationDegrees = 0.0f;
@@ -652,7 +653,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     // Called when SHOOT is received
-    public void spawnBullet(int ownerId, float x, float y, float dirX, float dirY) {
+    public void spawnBullet(UUID bulletId, int ownerId, float x, float y, float dirX, float dirY) {
         // Calculate velocity based on direction and common speed
         Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BulletData.SPEED);
         Vector2f position = new Vector2f(x, y);
@@ -662,7 +663,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         float rotation = 0.0f;
 
         // Create common BulletData
-        BulletData bulletData = new BulletData(ownerId, position, velocity, rotation, spawnTime);
+        BulletData bulletData = new BulletData(bulletId, ownerId, position, velocity, rotation, spawnTime, false);
         // Create ClientBullet wrapper for rendering/prediction
         ClientBullet clientBullet = new ClientBullet(bulletData);
 
@@ -672,8 +673,26 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
-    public void handlePlayerHit(int targetId, int shooterId) {
-        // TODO: Handle player hit logic
+    public void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage) {
+        // TODO: sprites, animations and UI updates
+
+        logger.debug("Player hit: Target={}, Shooter={}, BulletID={}, Damage={}",
+                targetId, shooterId, bulletId, damage);
+
+        // Create a separate list to avoid ConcurrentModificationException
+        List<ClientBullet> bulletsToRemove = new ArrayList<>();
+
+        // Find the bullet to remove
+        for (ClientBullet bullet : bullets) {
+            if (bullet.getId().equals(bulletId)) {
+                bulletsToRemove.add(bullet);
+                logger.debug("Marked bullet with ID {} for removal", bulletId);
+                break;
+            }
+        }
+
+        // Remove the bullets outside the iteration
+        bullets.removeAll(bulletsToRemove);
     }
 
     @Override

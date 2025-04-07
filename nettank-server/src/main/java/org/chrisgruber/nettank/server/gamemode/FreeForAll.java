@@ -226,6 +226,8 @@ public class FreeForAll extends GameMode {
                     0  // Reset last shot time
             );
 
+            tankData.setInputState(false, false, false, false);
+
             tankPosition = tankData.getPosition();
             tankRotation = tankData.getRotation();
         }
