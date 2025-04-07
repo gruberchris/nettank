@@ -232,6 +232,6 @@ public class FreeForAll extends GameMode {
             tankRotation = tankData.getRotation();
         }
 
-        logger.info("Player {} has respawned at position {} with rotation {}.", playerId, tankPosition, tankRotation);
+        logger.info("Player {} has respawned at position {}, {} with rotation {}.", playerId, tankPosition.x(), tankPosition.y(), tankRotation);
     }
 }

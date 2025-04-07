@@ -1,7 +1,6 @@
 package org.chrisgruber.nettank.server;
 
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
-import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,26 +24,29 @@ public class ClientHandler implements Runnable {
     // Player specific info
     private int playerId = -1;
     private String playerName = null;
-    private Vector3f playerColor = null;
 
     // --- Send Queue ---
     private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>();
     private Thread senderThread;
     private static final String POISON_PILL = "///POISON_PILL///"; // Special message to stop sender
 
+    private static final String CLIENT_HANDLER_READER = "ClientHandler-Reader-";
+    private static final String CLIENT_HANDLER_SENDER = "ClientHandler-Sender-";
+
     public ClientHandler(Socket socket, GameServer server) {
         this.socket = socket;
         this.server = server;
     }
 
-    public void setPlayerInfo(int id, String name, Vector3f color) {
+    public void setPlayerInfo(int id, String name) {
         this.playerId = id;
         this.playerName = name;
-        this.playerColor = color;
+
         // Set thread name now that we have player info
-        Thread.currentThread().setName("ClientHandler-Reader-" + id + "-" + name);
+        Thread.currentThread().setName(CLIENT_HANDLER_READER + id + "-" + name);
+
         if (senderThread != null) {
-            senderThread.setName("ClientHandler-Sender-" + id + "-" + name);
+            senderThread.setName(CLIENT_HANDLER_SENDER + id + "-" + name);
         }
     }
 
@@ -122,7 +124,7 @@ public class ClientHandler implements Runnable {
     // Sender Thread Logic
     private void runSenderLoop() {
         // Name might be set later by setPlayerInfo
-        Thread.currentThread().setName("ClientHandler-Sender-" + playerId + "-" + (playerName != null ? playerName : "Connecting"));
+        Thread.currentThread().setName(CLIENT_HANDLER_SENDER + playerId + "-" + (playerName != null ? playerName : "Connecting"));
         logger.info("Client handler sender loop started for player {}.", playerId);
 
         PrintWriter localOut;
@@ -214,7 +216,7 @@ public class ClientHandler implements Runnable {
 
             // Start the sender thread (now set as daemon in startClientThread's target Thread)
             senderThread = new Thread(this::runSenderLoop);
-            senderThread.setName("ClientHandler-Sender-" + playerId + "-Connecting"); // Temporary name
+            senderThread.setName(CLIENT_HANDLER_SENDER + playerId + "-Connecting"); // Temporary name
             senderThread.setDaemon(true); // Explicitly set daemon here too
             senderThread.start();
 
@@ -241,79 +243,111 @@ public class ClientHandler implements Runnable {
         }
     }
 
-
     private void parseClientMessage(String message) {
+        if (message == null) {
+            logger.warn("Null message received from client {}", playerId);
+            closeConnection("Null message received");
+            return;
+        }
+
         logger.debug("Received from client {}: {}", (playerId == -1 ? "UNKNOWN" : playerId), message);
 
-        int maxMessageLength = 100; // Define a maximum message length
-
+        // Security check: message length
+        final int maxMessageLength = 100;
         if (message.length() > maxMessageLength) {
-            logger.warn("Received message size too long from client {}: {}", playerId, message);
-            closeConnection("");
+            logger.warn("Message too long from client {}: {} chars", playerId, message.length());
+            closeConnection("Message exceeds maximum length");
             return;
         }
 
         try {
             String[] parts = message.split(";");
-            if (parts.length == 0) return;
-
-            String command = parts[0];
-
-            if (playerId == -1 && !command.equals(NetworkProtocol.CONNECT)) {
-                logger.warn("Received message before registration: {}", message);
-                closeConnection("");
+            if (parts.length == 0) {
+                logger.warn("Empty message received from client {}", playerId);
                 return;
             }
 
+            String command = parts[0];
+
+            // Authenticate: Only allow CONNECT messages before player registration
+            if (playerId == -1 && !NetworkProtocol.CONNECT.equals(command)) {
+                logger.warn("Unauthorized message before registration: {}", message);
+                closeConnection("Authentication required");
+                return;
+            }
+
+            // Process based on command type
             switch (command) {
-                case NetworkProtocol.CONNECT:
-                    if (parts.length >= 2) {
-                        if (playerId != -1) {
-                            logger.warn("Client {} sent duplicate CONNECT message.", playerId);
-                            return;
-                        }
-                        String name = parts[1];
-                        if (name.isEmpty() || name.contains(";") || name.length() > 16) {
-                            logger.warn("Invalid player name received: '{}'", name);
-                            sendMessage(NetworkProtocol.ERROR_MSG + ";Invalid player name"); // Add to queue
-                            closeConnection("Invalid player name");
-                            return;
-                        }
-                        logger.info("Registration request from client: {}", name);
-                        // server.registerPlayer MUST be synchronized or handle concurrency carefully
-                        server.registerPlayer(this, name);
-                    } else {
-                        logger.warn("Malformed CONNECT message: {}", message);
-                    }
-                    break;
-
-                case NetworkProtocol.INPUT:
-                    if (parts.length >= 5) {
-                        try {
-                            boolean w = Boolean.parseBoolean(parts[1]);
-                            boolean s = Boolean.parseBoolean(parts[2]);
-                            boolean a = Boolean.parseBoolean(parts[3]);
-                            boolean d = Boolean.parseBoolean(parts[4]);
-                            server.handlePlayerMovementInput(playerId, w, s, a, d);
-                        } catch (Exception e) {
-                            logger.error("Error parsing INPUT message parts: {}", message, e);
-                        }
-                    } else {
-                        logger.warn("Received INPUT before registration or malformed INPUT message: {}", message);
-                    }
-                    break;
-
-                case NetworkProtocol.SHOOT_CMD:
-                    // server.handlePlayerShootMainWeaponInput might need synchronization
-                    server.handlePlayerShootMainWeaponInput(playerId);
-                    break;
-
-                default:
-                    logger.warn("Unknown message from client {}: {}", playerId, message);
+                case NetworkProtocol.CONNECT -> handleConnectMessage(parts);
+                case NetworkProtocol.INPUT -> handleInputMessage(parts);
+                case NetworkProtocol.SHOOT_CMD -> handleShootCommand();
+                default -> {
+                    logger.warn("Unknown command from client {}: {}", playerId, command);
+                    sendMessage(NetworkProtocol.ERROR_MSG + ";Unknown command");
+                }
             }
         } catch (Exception e) {
-            logger.error("Error parsing client message from {} ('{}'): {}", playerId, message, e.getMessage(), e);
+            logger.error("Error parsing message from client {} ('{}'): {}",
+                    playerId, sanitizeLogMessage(message), e.getMessage(), e);
+            closeConnection("Message parsing error");
         }
+    }
+
+    private String sanitizeLogMessage(String message) {
+        // Prevent log injection by limiting length in logs
+        return message.length() > 50 ? message.substring(0, 47) + "..." : message;
+    }
+
+    private void handleConnectMessage(String[] parts) {
+        if (parts.length < 2) {
+            logger.warn("Malformed CONNECT message from client {}", playerId);
+            sendMessage(NetworkProtocol.ERROR_MSG + ";Invalid connection request");
+            closeConnection("Malformed CONNECT message");
+            return;
+        }
+
+        if (playerId != -1) {
+            logger.warn("Client {} sent duplicate CONNECT message", playerId);
+            return;
+        }
+
+        String name = parts[1];
+        // Security check: Name validation
+        if (!isValidPlayerName(name)) {
+            logger.warn("Invalid player name received: '{}'", name);
+            sendMessage(NetworkProtocol.ERROR_MSG + ";Invalid player name");
+            closeConnection("Invalid player name");
+            return;
+        }
+
+        logger.info("Registration request from client: {}", name);
+        server.registerPlayer(this, name);
+    }
+
+    private boolean isValidPlayerName(String name) {
+        return name != null && !name.isEmpty() && !name.contains(";") &&
+                name.length() <= 16 && name.matches("^[\\w\\-\\s]+$");
+    }
+
+    private void handleInputMessage(String[] parts) {
+        if (parts.length < 5) {
+            logger.warn("Malformed INPUT message from client {}: missing parts", playerId);
+            return;
+        }
+
+        try {
+            boolean w = Boolean.parseBoolean(parts[1]);
+            boolean s = Boolean.parseBoolean(parts[2]);
+            boolean a = Boolean.parseBoolean(parts[3]);
+            boolean d = Boolean.parseBoolean(parts[4]);
+            server.handlePlayerMovementInput(playerId, w, s, a, d);
+        } catch (Exception e) {
+            logger.error("Error parsing INPUT parameters from client {}", playerId, e);
+        }
+    }
+
+    private void handleShootCommand() {
+        server.handlePlayerShootMainWeaponInput(playerId);
     }
 
     // Non-blocking: Adds message to the queue for the sender thread
@@ -338,14 +372,17 @@ public class ClientHandler implements Runnable {
     // Stops the sender thread gracefully
     private void stopSenderThread() {
         logger.debug("Stopping sender thread for player {}...", playerId);
+
         if (senderThread != null && senderThread.isAlive()) {
             // Add poison pill to ensure sender loop exits even if interrupted exception is missed
-            sendQueue.clear(); // Clear pending messages first? Optional.
-            sendQueue.offer(POISON_PILL); // Use offer, don't block if queue is full (shouldn't be)
-            senderThread.interrupt(); // Interrupt potentially blocked poll() or write()
+            sendQueue.clear();
+            sendQueue.offer(POISON_PILL);
+            senderThread.interrupt();
+
             try {
                 // Wait briefly for the sender thread to die
                 senderThread.join(500); // Wait max 500ms
+
                 if (senderThread.isAlive()) {
                     logger.warn("Sender thread for player {} did not terminate gracefully after interrupt and join.", playerId);
                 } else {
@@ -361,53 +398,82 @@ public class ClientHandler implements Runnable {
         senderThread = null;
     }
 
-
-    // Close connection - needs to coordinate with reader and sender
     public synchronized void closeConnection(String reason) {
         if (shuttingDown) {
-            logger.trace("Handler for player {} already shutting down (Reason: {})", playerId, reason); // Use Trace
+            logger.trace("Handler for player {} already shutting down (Reason: {})", playerId, reason);
             return;
         }
+
         shuttingDown = true;
         running = false;
         logger.info("Closing connection for player {} ({}) because: {}", playerId, playerName, reason);
 
-        stopSenderThread(); // Stop sender
+        // Step 1: Stop sender thread
+        stopSenderThread();
 
-        // Close socket (reader thread will get SocketException)
-        Socket socketToClose = this.socket; // Get ref before nullifying
-        this.socket = null; // Nullify early
-        if (socketToClose != null) {
-            try {
-                if (!socketToClose.isClosed()) { // Check if already closed
-                    logger.debug("Closing handler socket for player {}...", playerId);
-                    socketToClose.close();
-                    logger.debug("Handler socket closed for player {}.", playerId);
-                } else {
-                    logger.debug("Handler socket for player {} was already closed.", playerId);
-                }
-            } catch (IOException e) { logger.error("Error closing handler socket for player {}", playerId, e); }
-        }
+        // Step 2: Close socket (triggers SocketException in reader thread)
+        closeSocketSafely();
 
-        // Clean up streams (best effort)
-        try { if (out != null) out.close(); } catch (Exception e) {} finally { out = null; }
-        try { if (in != null) in.close(); } catch (Exception e) {} finally { in = null; }
+        // Step 3: Close streams in correct order
+        closeStreamsSafely();
 
-        // Notify server - must be synchronized on GameServer if it modifies shared state directly
-        if (playerId != -1) {
-            server.removePlayer(playerId); // GameServer.removePlayer is synchronized
-        }
+        // Step 4: Notify server of player removal
+        notifyServerOfRemoval();
 
         logger.info("Finished closing connection procedures for player {}.", playerId);
     }
 
+    private void closeSocketSafely() {
+        Socket socketToClose = this.socket;
+        this.socket = null; // Prevent other threads from accessing
+
+        if (socketToClose != null && !socketToClose.isClosed()) {
+            try {
+                logger.debug("Closing handler socket for player {}...", playerId);
+                socketToClose.close();
+                logger.debug("Handler socket closed for player {}.", playerId);
+            } catch (IOException e) {
+                logger.error("Error closing handler socket for player {}: {}", playerId, e.getMessage(), e);
+            }
+        } else {
+            logger.debug("Handler socket for player {} was already null or closed.", playerId);
+        }
+    }
+
+    private void closeStreamsSafely() {
+        // Close input stream first (reading from closed socket is OK, writing is not)
+        if (in != null) {
+            try {
+                in.close();
+                logger.trace("Input stream closed for player {}", playerId);
+            } catch (IOException e) {
+                logger.debug("Error closing input stream for player {}: {}", playerId, e.getMessage());
+            } finally {
+                in = null;
+            }
+        }
+
+        // Then close output stream
+        if (out != null) {
+            out.close(); // PrintWriter doesn't throw IOException
+            out = null;
+            logger.trace("Output stream closed for player {}", playerId);
+        }
+    }
+
+    private void notifyServerOfRemoval() {
+        if (playerId != -1) {
+            try {
+                server.removePlayer(playerId);
+            } catch (Exception e) {
+                logger.error("Error notifying server of player {} removal: {}",
+                        playerId, e.getMessage(), e);
+            }
+        }
+    }
 
     public int getPlayerId() {
         return playerId;
-    }
-
-    public String getPlayerName() {
-        return playerName;
     }
 
     public Socket getSocket() {

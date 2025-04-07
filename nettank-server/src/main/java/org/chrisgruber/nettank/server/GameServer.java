@@ -234,13 +234,11 @@ public class GameServer {
 
         int playerId = serverContext.nextPlayerId.getAndIncrement();
 
-        Vector3f assignedColor = availableColors.removeFirst();
-
-        handler.setPlayerInfo(playerId, playerName, assignedColor);
+        handler.setPlayerInfo(playerId, playerName);
 
         Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
         Vector2f velocity = new Vector2f(0, 0);
-
+        Vector3f assignedColor = availableColors.removeFirst();
         float rotation = 0.0f;  // default rotation. this is assigned to the tank now but randomized again by the game mode handlers below.
 
         TankData newTankData = new TankData(playerId, spawnPos, velocity, rotation, assignedColor, playerName);
@@ -629,7 +627,7 @@ public class GameServer {
         if (!hasCooledDown) {
             var cooldownTimeRemainingInMilliseconds = TANK_SHOOT_COOLDOWN_MS - (currentTime - tankData.getLastShotTime());
             var timeSinceLastShotInMilliseconds = currentTime - tankData.getLastShotTime();
-            logger.warn("PlayerId: {} attempted to shoot but the weapon is still cooling down. Time since last shot: {}ms. Cooldown time remaining: {}ms", playerId, timeSinceLastShotInMilliseconds, cooldownTimeRemainingInMilliseconds);
+            logger.debug("PlayerId: {} attempted to shoot but the weapon is still cooling down. Time since last shot: {}ms. Cooldown time remaining: {}ms", playerId, timeSinceLastShotInMilliseconds, cooldownTimeRemainingInMilliseconds);
             return;
         }
 
