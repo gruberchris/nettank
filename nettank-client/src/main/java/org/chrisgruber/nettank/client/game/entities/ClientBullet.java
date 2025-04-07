@@ -4,9 +4,11 @@ import org.chrisgruber.nettank.common.entities.BulletData; // Use common data
 import org.chrisgruber.nettank.common.entities.Entity;
 import org.joml.Vector2f;
 
+import java.util.UUID;
+
 public class ClientBullet extends Entity {
 
-    private final BulletData bulletData; // Holds initial state + client spawn time
+    private final BulletData bulletData;
 
     public ClientBullet(BulletData data) {
         super(data.getPlayerId(), data.getPosition(), BulletData.SIZE, BulletData.SIZE, data.getVelocity(), data.getRotation());
@@ -49,7 +51,8 @@ public class ClientBullet extends Entity {
 
     // Getters for rendering/logic
     public long getSpawnTime() { return bulletData.getSpawnTime(); }
-    public int getOwnerId() { return bulletData.getPlayerId(); }
+    public boolean isDestroyed() { return bulletData.isDestroyed(); }
+    public UUID getId() { return bulletData.getId(); }
 
     public BulletData getBulletData() {
         return bulletData;

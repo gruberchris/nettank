@@ -10,6 +10,7 @@ import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.util.UUID;
 
 public class GameClient implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(GameClient.class);
@@ -206,27 +207,30 @@ public class GameClient implements Runnable {
                     }
                     break;
                 case NetworkProtocol.SHOOT:
-                    // SHO;<ownerId>;<x>;<y>;<dirX>;<dirY> (6 parts now)
-                    if (parts.length >= 6) {
-                        int ownerId = Integer.parseInt(parts[1]);
-                        float x = Float.parseFloat(parts[2]);
-                        float y = Float.parseFloat(parts[3]);
-                        float dirX = Float.parseFloat(parts[4]);
-                        float dirY = Float.parseFloat(parts[5]);
-                        networkCallbackHandler.spawnBullet(ownerId, x, y, dirX, dirY);
+                    // SHO;<bulletId>;<ownerId>;<x>;<y>;<dirX>;<dirY> (6 parts now)
+                    if (parts.length >= 7) {
+                        UUID bulletId = UUID.fromString(parts[1]);
+                        int ownerId = Integer.parseInt(parts[2]);
+                        float x = Float.parseFloat(parts[3]);
+                        float y = Float.parseFloat(parts[4]);
+                        float dirX = Float.parseFloat(parts[5]);
+                        float dirY = Float.parseFloat(parts[6]);
+                        networkCallbackHandler.spawnBullet(bulletId, ownerId, x, y, dirX, dirY);
                     } else {
-                        logger.error("Malformed SHOOT message: Expected 6 parts, got {}", parts.length);
+                        logger.error("Malformed SHOOT message: Expected 7 parts, got {}", parts.length);
                     }
                     break;
                 case NetworkProtocol.HIT:
-                    // HIT;<targetId>;<shooterId> (3 parts)
-                    if (parts.length >= 3) {
+                    // HIT;<targetId>;<shooterId>;<bulletId>;<damage> (5 parts)
+                    if (parts.length >= 5) {
                         int t = Integer.parseInt(parts[1]);
                         int s = Integer.parseInt(parts[2]);
-                        networkCallbackHandler.handlePlayerHit(t, s);
+                        UUID uuid = UUID.fromString(parts[3]);
+                        int damage = Integer.parseInt(parts[4]);
+                        networkCallbackHandler.handlePlayerHit(t, s, uuid, damage);
                     }
                     else {
-                        logger.error("Malformed HIT message: Expected 3 parts, got {}", parts.length);
+                        logger.error("Malformed HIT message: Expected 5 parts, got {}", parts.length);
                     }
                     break;
                 case NetworkProtocol.DESTROYED:

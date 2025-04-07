@@ -22,6 +22,7 @@ import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class GameServer {
@@ -465,6 +466,7 @@ public class GameServer {
         // Collision Check
         for (BulletData bulletData : serverContext.bullets) {
             if (bulletsToRemove.contains(bulletData)) continue; // Skip if already marked for removal
+
             for (TankData tankData : serverContext.tanks.values()) {
                 if (bulletData.getPosition().distanceSquared(tankData.getPosition()) < Math.pow(TankData.COLLISION_RADIUS + BulletData.SIZE / 2.0f, 2)) {
                     handleHit(tankData, bulletData);
@@ -473,6 +475,7 @@ public class GameServer {
                 }
             }
         }
+
         serverContext.bullets.removeAll(bulletsToRemove);
 
         logger.trace("Bullets collisions processed. Bullets removed: {} Current state: {}, Time: {}", bulletsToRemove.size(), serverContext.currentGameState, currentTime);
@@ -522,7 +525,7 @@ public class GameServer {
         if (target.isDestroyed()) {
             target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
             int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.HIT, target.getPlayerId(), bulletData.getPlayerId()), -1);
+            broadcast(String.format("%s;%d;%d;%s;%d", NetworkProtocol.HIT, target.getPlayerId(), bulletData.getPlayerId(), bulletData.getId(), weaponDamage), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), bulletData.getPlayerId()), -1);
             sendSpectatorStartMessage(target.getPlayerId(), target);
@@ -645,15 +648,16 @@ public class GameServer {
 
         // TODO: where is bullet rotation set and should it be here?
         float rotation = 0.0f;
+        UUID bulletId = UUID.randomUUID();
 
         // Create BulletData object
-        BulletData bullet = new BulletData(playerId, position, velocity, rotation, currentTime);
+        BulletData bullet = new BulletData(bulletId, playerId, position, velocity, rotation, currentTime, false);
         serverContext.bullets.add(bullet);
 
         logger.debug("PlayerId: {} shot a bullet at position ({}, {}) with direction ({}, {})", playerId, startX, startY, dirX, dirY);
 
         // Broadcast with calculated dirX, dirY
-        broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.SHOOT, playerId, startX, startY, dirX, dirY), -1);
+        broadcast(String.format("%s;%s;%d;%f;%f;%f;%f", NetworkProtocol.SHOOT, bulletId, playerId, startX, startY, dirX, dirY), -1);
     }
 
     // Processes game state transitions based on game state conditions
