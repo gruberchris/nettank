@@ -249,7 +249,7 @@ public class ClientHandler implements Runnable {
 
         if (message.length() > maxMessageLength) {
             logger.warn("Received message size too long from client {}: {}", playerId, message);
-            closeConnection("Threat detected. IP logged. Missile launched. __!__");
+            closeConnection("");
             return;
         }
 
@@ -261,6 +261,7 @@ public class ClientHandler implements Runnable {
 
             if (playerId == -1 && !command.equals(NetworkProtocol.CONNECT)) {
                 logger.warn("Received message before registration: {}", message);
+                closeConnection("");
                 return;
             }
 
