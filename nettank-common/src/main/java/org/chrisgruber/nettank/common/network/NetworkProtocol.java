@@ -17,7 +17,7 @@ public class NetworkProtocol {
     public static final String SHOOT = "SHO";        // SHO;<bulletId>;<ownerId>;<x>;<y>;<dirX>;<dirY>
     public static final String HIT = "HIT";          // HIT;<targetId>;<shooterId>;<bulletId>;<damage>
     public static final String DESTROYED = "DES";    // DES;<targetId>;<shooterId>
-    public static final String RESPAWN = "RSP";      // RSP;<id>;<x>;<y>
+    public static final String RESPAWN = "RSP";      // RSP;<id>;<x>;<y>;<rotation>
     public static final String PLAYER_LIVES = "LIV"; // LIV;<id>;<lives>
     public static final String GAME_STATE = "GST";   // GST;<stateName>;<timeData>
     public static final String ANNOUNCE = "ANN";     // ANN;<messageText>

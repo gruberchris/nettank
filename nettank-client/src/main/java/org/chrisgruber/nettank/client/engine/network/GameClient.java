@@ -288,19 +288,17 @@ public class GameClient implements Runnable {
                     }
                     break;
                 case NetworkProtocol.RESPAWN:
-                    // RSP;<id>;<x>;<y> (4 parts)
-                    if (parts.length >= 4) {
+                    // RSP;<id>;<x>;<y>;<rotation> (5 parts)
+                    if (parts.length >= 5) {
                         int id = Integer.parseInt(parts[1]);
                         float x = Float.parseFloat(parts[2]);
                         float y = Float.parseFloat(parts[3]);
-                        // setForSpawn likely implies full health and update position/rotation (rot=0?)
-                        // We can reuse updateTankState for position, and updatePlayerLives separately
-                        // Server sends PLAYER_LIVES after RSP anyway in resetPlayersForNewRound
+                        float rotation = Float.parseFloat(parts[4]);
                         logger.debug("Received RESPAWN for player {}", id);
-                        networkCallbackHandler.updateTankState(id, x, y, 0); // Reset rotation to 0 on respawn?
+                        networkCallbackHandler.updateTankState(id, x, y, rotation);
                         // Server will send PLAYER_LIVES shortly after
                     } else {
-                        logger.error("Malformed RESPAWN message: Expected 4 parts, got {}", parts.length);
+                        logger.error("Malformed RESPAWN message: Expected 5 parts, got {}", parts.length);
                     }
                     break;
                 case NetworkProtocol.SPECTATE_START:

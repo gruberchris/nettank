@@ -240,8 +240,8 @@ public class GameServer {
 
         Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
         Vector2f velocity = new Vector2f(0, 0);
-        // TODO: random init rotation?
-        float rotation = 0.0f;
+
+        float rotation = 0.0f;  // default rotation. this is assigned to the tank now but randomized again by the game mode handlers below.
 
         TankData newTankData = new TankData(playerId, spawnPos, velocity, rotation, assignedColor, playerName);
         serverContext.clients.put(playerId, handler);
@@ -489,7 +489,7 @@ public class GameServer {
                     serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
 
                     Vector2f spawnPos = tankData.getPosition();
-                    broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y), -1);
+                    broadcast(String.format("%s;%d;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y, tankData.getRotation()), -1);
 
                     int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId());
                     broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), respawnsRemaining), -1);
@@ -767,7 +767,6 @@ public class GameServer {
     }
 
     // Resets player state for a new round
-    // TODO: this logic can get moved to the game mode implementation
     private void resetPlayersForNewRound() {
         logger.info("Resetting players for new round.");
 
@@ -776,11 +775,8 @@ public class GameServer {
         int totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
 
         for(TankData tankData : serverContext.tanks.values()) {
-            Vector2f spawnPos = serverContext.gameMapData.getRandomSpawnPoint();
-            tankData.setPosition(spawnPos.x, spawnPos.y);
-            tankData.setInputState(false, false, false, false);
-            tankData.setLastShotTime(0);
-            broadcast(String.format("%s;%d;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y), -1);
+            serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
+            broadcast(String.format("%s;%d;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed), -1);
         }
     }
