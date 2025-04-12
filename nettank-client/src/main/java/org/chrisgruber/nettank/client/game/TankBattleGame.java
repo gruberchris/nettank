@@ -10,6 +10,9 @@ import org.chrisgruber.nettank.client.engine.network.NetworkCallbackHandler;
 import org.chrisgruber.nettank.client.engine.ui.KillFeedMessage;
 import org.chrisgruber.nettank.client.engine.ui.StatusMessageKind;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
+import org.chrisgruber.nettank.client.game.effects.ExplosionEffect;
+import org.chrisgruber.nettank.client.game.effects.FlameEffect;
+import org.chrisgruber.nettank.client.game.effects.SmokeEffect;
 import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
 import org.chrisgruber.nettank.client.game.world.ClientGameMap;
@@ -24,10 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.swing.*; // For JOptionPane on error/disconnect
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -103,6 +103,33 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean mapInitialized = false;
     private volatile boolean mapInfoReceivedForProcessing = false;
 
+    // Tank explosion effect
+    private final List<Texture> explosionFrameTextures = new ArrayList<>();
+    private final List<ExplosionEffect> activeExplosions = new CopyOnWriteArrayList<>();
+    private static final int EXPLOSION_TOTAL_FRAMES = 8; // 8 animation frames
+    private static final long EXPLOSION_DURATION_MS = 600; // Adjust duration as needed (e.g., 600ms for 8 frames)
+    private static final float EXPLOSION_RENDER_SIZE = 80.0f; // How big to draw it
+    private static final String EXPLOSION_FILENAME_PREFIX = "textures/explosion/Explosion_"; // Base name
+    private static final String EXPLOSION_FILENAME_SUFFIX = ".png"; // File extension
+
+    // Flame effect
+    private final List<Texture> flameFrameTextures = new ArrayList<>();
+    private final List<FlameEffect> activeFlames = new CopyOnWriteArrayList<>();
+    private static final int FLAME_TOTAL_FRAMES = 8;
+    private static final long FLAME_DURATION_MS = 1000; // Flames last longer? (1 second)
+    private static final float FLAME_RENDER_SIZE = 55.0f; // Flames slightly smaller?
+    private static final String FLAME_FILENAME_PREFIX = "textures/flame/Flame_"; // Adjust path/prefix
+    private static final String FLAME_FILENAME_SUFFIX = ".png";
+
+    // Smoke effect
+    private final List<Texture> smokeFrameTextures = new ArrayList<>();
+    private final Map<Integer, SmokeEffect> activeSmokeEffects = new ConcurrentHashMap<>();
+    private static final int SMOKE_TOTAL_FRAMES = 3;
+    private static final long SMOKE_FRAME_DURATION_MS = 150; // Adjust speed (e.g., 150ms per frame)
+    private static final float SMOKE_RENDER_SIZE = 45.0f;   // Slightly smaller than explosion? 35.0f
+    private static final String SMOKE_FILENAME_PREFIX = "textures/smoke/Smoke_"; // Base name
+    private static final String SMOKE_FILENAME_SUFFIX = ".png"; // File extension
+
     /**
      * Constructor for the Tank Battle Game.
      */
@@ -138,6 +165,84 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             tankTexture = new Texture("textures/tank.png");
             uiManager.loadFontTexture("textures/font.png");
             logger.debug("Textures loaded.");
+
+            // --- Load Individual Explosion Frames ---
+            logger.debug("Loading explosion frame textures...");
+            boolean explosionLoadSuccess = true;
+            for (int i = 0; i < EXPLOSION_TOTAL_FRAMES; i++) {
+                String filename = EXPLOSION_FILENAME_PREFIX + i + EXPLOSION_FILENAME_SUFFIX;
+                try {
+                    logger.trace("Loading explosion frame: {}", filename);
+                    Texture frameTexture = new Texture(filename);
+                    explosionFrameTextures.add(frameTexture);
+                } catch (IOException e) {
+                    logger.error("Failed to load explosion frame texture: {}", filename, e);
+                    explosionLoadSuccess = false;
+                    // Option 1: Stop loading further frames
+                    // break;
+                    // Option 2: Continue, but log that the animation will be incomplete
+                    // (Need to handle potential errors during rendering/effect creation later if continuing)
+                    // For simplicity, let's break on first failure
+                    break;
+                }
+            }
+            if (explosionLoadSuccess && explosionFrameTextures.size() == EXPLOSION_TOTAL_FRAMES) {
+                logger.debug("Successfully loaded {} explosion frame textures.", EXPLOSION_TOTAL_FRAMES);
+            } else {
+                logger.error("Failed to load all explosion frames. Animation may be incomplete or broken.");
+                // You might want to throw an exception or handle this more gracefully
+                // For now, it will proceed with however many frames loaded successfully before failure.
+                // Clear the list if loading failed partway to prevent using incomplete data?
+                // if (!explosionLoadSuccess) explosionFrameTextures.clear(); // Example cleanup
+            }
+            // ---------------------------------------
+
+            // --- Load Flame Frames ---
+            logger.debug("Loading flame frame textures...");
+            boolean flameLoadSuccess = true;
+            for (int i = 0; i < FLAME_TOTAL_FRAMES; i++) {
+                String filename = FLAME_FILENAME_PREFIX + i + FLAME_FILENAME_SUFFIX;
+                try {
+                    logger.trace("Loading flame frame: {}", filename);
+                    Texture frameTexture = new Texture(filename);
+                    flameFrameTextures.add(frameTexture);
+                } catch (IOException e) {
+                    logger.error("Failed to load flame frame texture: {}", filename, e);
+                    flameLoadSuccess = false;
+                    break; // Stop loading if one fails
+                }
+            }
+            if (flameLoadSuccess && flameFrameTextures.size() == FLAME_TOTAL_FRAMES) {
+                logger.debug("Successfully loaded {} flame frame textures.", FLAME_TOTAL_FRAMES);
+            } else {
+                logger.error("Failed to load all flame frames. Flame effect may be broken.");
+                // Consider clearing flameFrameTextures if loading failed?
+            }
+            // ---------------------------
+
+            // --- Load Smoke Frame Textures ---
+            logger.debug("Loading smoke frame textures...");
+            boolean smokeLoadSuccess = true;
+            for (int i = 0; i < SMOKE_TOTAL_FRAMES; i++) {
+                String filename = SMOKE_FILENAME_PREFIX + i + SMOKE_FILENAME_SUFFIX;
+                try {
+                    logger.trace("Loading smoke frame: {}", filename);
+                    Texture frameTexture = new Texture(filename);
+                    smokeFrameTextures.add(frameTexture);
+                } catch (IOException e) {
+                    logger.error("Failed to load smoke frame texture: {}", filename, e);
+                    smokeLoadSuccess = false;
+                    break; // Stop loading on failure
+                }
+            }
+            if (smokeLoadSuccess && smokeFrameTextures.size() == SMOKE_TOTAL_FRAMES) {
+                logger.debug("Successfully loaded {} smoke frame textures.", SMOKE_TOTAL_FRAMES);
+            } else {
+                logger.error("Failed to load all smoke frames. Smoke effect disabled.");
+                smokeFrameTextures.clear(); // Ensure list is empty if loading failed
+            }
+            // ----------------------------------
+
 
             // Setup projection matrix
             shader.bind();
@@ -183,6 +288,62 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     @Override
     public void updateGame(float deltaTime) {
+        // --- Update Active Explosions & Trigger Flames ---
+        activeExplosions.removeIf(explosion -> {
+            boolean explosionFinished = explosion.update(); // Update explosion animation
+            if (explosionFinished) {
+                logger.trace("Explosion finished at ({},{}), triggering flame.", explosion.getPosition().x, explosion.getPosition().y);
+                // *** TRIGGER FLAME EFFECT HERE ***
+                if (!flameFrameTextures.isEmpty()) { // Check if flame textures are loaded
+                    try {
+                        FlameEffect flame = new FlameEffect(
+                                explosion.getPosition(), // Start flame at explosion's location
+                                FLAME_DURATION_MS,
+                                flameFrameTextures,      // Pass the list of flame textures
+                                FLAME_RENDER_SIZE
+                        );
+                        activeFlames.add(flame); // Add to the list of active flames
+                        logger.trace("Added new flame effect.");
+                    } catch (Exception e) {
+                        logger.error("Failed to create FlameEffect instance", e);
+                    }
+                } else {
+                    logger.warn("Cannot create flame effect, flame textures not loaded or list is empty.");
+                }
+                // ********************************
+            }
+            return explosionFinished; // Return true to remove the explosion itself
+        });
+        // ----------------------------------------------
+
+        // --- Update Active Flames ---
+        activeFlames.removeIf(flame -> {
+            boolean flameFinished = flame.update(); // Update flame animation
+            if (flameFinished) {
+                logger.trace("Flame effect finished at ({},{}).", flame.getPosition().x, flame.getPosition().y);
+            }
+            return flameFinished; // removeIf removes finished flames
+        });
+        // --------------------------------
+
+        // --- Update Active Smoke Effects ---
+        List<Integer> playersToRemoveSmoke = new ArrayList<>();
+        for (Map.Entry<Integer, SmokeEffect> entry : activeSmokeEffects.entrySet()) {
+            SmokeEffect smoke = entry.getValue();
+            if (smoke.isActive()) {
+                smoke.update(); // Update animation frame
+            } else {
+                // If smoke was stopped (by respawn/disconnect), mark its player ID for removal
+                playersToRemoveSmoke.add(entry.getKey());
+            }
+        }
+        // Remove stopped smoke effects from the map *after* iterating
+        for (Integer playerId : playersToRemoveSmoke) {
+            activeSmokeEffects.remove(playerId);
+            logger.trace("Removed stopped smoke effect for player {}.", playerId);
+        }
+        // ----------------------------------
+
         if (mapInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
             mapInfoReceivedForProcessing = false; // Reset the signal flag
@@ -345,6 +506,82 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                         shader);
             }
         }
+
+        // --- Render Explosions ---
+        if (!activeExplosions.isEmpty()) {
+            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+
+            for (ExplosionEffect explosion : activeExplosions) {
+                if (explosion.isFinished()) continue;
+
+                // Get the specific texture for the current frame
+                Texture currentFrameTexture = explosion.getCurrentFrameTexture();
+                if (currentFrameTexture == null) {
+                    logger.warn("Explosion effect returned null texture for frame, skipping render.");
+                    continue; // Skip if texture is missing
+                }
+
+                // *** Bind the texture for THIS frame ***
+                currentFrameTexture.bind();
+
+                // Get position and size
+                Vector2f pos = explosion.getPosition();
+                float size = explosion.getRenderSize();
+
+                // Use the original drawQuad method, as we render the whole texture
+                renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
+
+                // Unbind texture? Not strictly necessary if the next loop iteration or
+                // subsequent rendering binds another texture, but can be good practice.
+                // currentFrameTexture.unbind(); // Optional
+            }
+        }
+        // -------------------------
+
+        // --- NEW: Render Flames ---
+        if (!activeFlames.isEmpty()) {
+            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint if needed
+            for (FlameEffect flame : activeFlames) {
+                if (flame.isFinished()) continue; // Skip finished ones
+
+                Texture currentFrameTexture = flame.getCurrentFrameTexture();
+                if (currentFrameTexture == null) {
+                    logger.warn("Flame effect returned null texture for frame, skipping render.");
+                    continue;
+                }
+
+                // Bind the specific flame texture for this frame
+                currentFrameTexture.bind();
+
+                Vector2f pos = flame.getPosition();
+                float size = flame.getRenderSize();
+
+                // Render the quad using the bound flame texture
+                renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
+            }
+        }
+        // -------------------------
+
+        // --- Render Smoke Effects ---
+        if (!activeSmokeEffects.isEmpty()) {
+            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+
+            for (SmokeEffect smoke : activeSmokeEffects.values()) {
+                if (!smoke.isActive()) continue; // Skip rendering if stopped
+
+                Texture currentFrameTexture = smoke.getCurrentFrameTexture();
+                if (currentFrameTexture != null) {
+                    currentFrameTexture.bind(); // Bind the texture for THIS frame
+
+                    Vector2f pos = smoke.getPosition();
+                    float size = smoke.getRenderSize();
+
+                    // Use the standard drawQuad for the whole frame texture
+                    renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
+                }
+            }
+        }
+        // --------------------------
 
         renderUI();
     }
@@ -542,6 +779,47 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Cleanup OpenGL resources
 
+        // --- Cleanup Explosion Frame Textures ---
+        logger.debug("Deleting explosion frame textures...");
+        for (Texture frameTexture : explosionFrameTextures) {
+            try {
+                if (frameTexture != null) frameTexture.delete();
+            } catch (Exception e) {
+                logger.error("Error deleting explosion frame texture", e);
+            }
+        }
+        explosionFrameTextures.clear(); // Clear the list
+        // ---------------------------------------
+
+        // --- Cleanup Flame Frame Textures ---
+        logger.debug("Deleting flame frame textures...");
+        for (Texture frameTexture : flameFrameTextures) {
+            try {
+                if (frameTexture != null) frameTexture.delete();
+            } catch (Exception e) {
+                logger.error("Error deleting flame frame texture", e);
+            }
+        }
+        flameFrameTextures.clear(); // Clear the list
+        // ---------------------------------------
+
+        // --- Cleanup Smoke Frame Textures ---
+        logger.debug("Deleting smoke frame textures...");
+        for (Texture frameTexture : smokeFrameTextures) {
+            try {
+                if (frameTexture != null) frameTexture.delete();
+            } catch (Exception e) {
+                logger.error("Error deleting smoke frame texture", e);
+            }
+        }
+        smokeFrameTextures.clear();
+        // ---------------------------------------
+
+        // Clear explosion list
+        activeExplosions.clear();
+        activeFlames.clear();
+        activeSmokeEffects.clear();
+
         logger.debug("Deleting game textures, shaders, renderer, UI...");
 
         try { if (tankTexture != null) tankTexture.delete(); } catch (Exception e) { logger.error("Error deleting tankTexture", e); }
@@ -615,6 +893,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     // Called when PLAYER_LEFT is received
     public void removeTank(int id) {
+        SmokeEffect smoke = activeSmokeEffects.remove(id);
+
+        if (smoke != null) {
+            smoke.stop(); // Mark as inactive (though it's removed anyway)
+            logger.info("Stopped and removed smoke effect for leaving player {}.", id);
+        }
+
         ClientTank removed = tanks.remove(id);
 
         if (removed != null) {
@@ -628,7 +913,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     // Called when PLAYER_UPDATE is received
-    public void updateTankState(int id, float x, float y, float rotation) {
+    public void updateTankState(int id, float x, float y, float rotation, boolean isRespawn) {
         ClientTank tank = tanks.get(id);
 
         if (tank == null) {
@@ -640,6 +925,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // no change in state
             logger.trace("No state change for tank ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
             return;
+        }
+
+        if (isRespawn) {
+            // Stop and remove the smoke effect for this player
+            SmokeEffect smoke = activeSmokeEffects.get(tank.getPlayerId());
+            if (smoke != null) {
+                smoke.stop(); // Mark as inactive
+                // Removal happens during the update loop's cleanup phase
+            } else {
+                logger.warn("No active smoke effect found for respawning player {}.", tank.getPlayerId());
+            }
         }
 
         var tankData = tank.getTankData();
@@ -710,6 +1006,57 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         ClientTank shooterTank = tanks.get(shooterId);
         ClientTank targetTank = tanks.get(targetId);
+
+        // --- Spawn Explosion ---
+        // Check if target exists AND if explosion textures were loaded successfully
+        if (targetTank != null && !explosionFrameTextures.isEmpty()) {
+            logger.info("Spawning explosion at target {}'s location: ({}, {})", targetId, targetTank.getX(), targetTank.getY());
+            try {
+                ExplosionEffect explosion = new ExplosionEffect(
+                        targetTank.getPosition(),
+                        EXPLOSION_DURATION_MS,
+                        explosionFrameTextures, // Pass the whole list
+                        EXPLOSION_RENDER_SIZE
+                );
+                activeExplosions.add(explosion);
+            } catch (Exception e) {
+                // Catch potential errors from ExplosionEffect constructor (e.g., empty list if loading failed)
+                logger.error("Failed to create ExplosionEffect instance", e);
+            }
+        } else {
+            if (targetTank == null) logger.warn("Cannot spawn explosion, target tank {} not found.", targetId);
+            if (explosionFrameTextures.isEmpty()) logger.warn("Cannot spawn explosion, frame textures not loaded or list is empty.");
+        }
+        // ---------------------
+
+        // --- Spawn Smoke Effect ---
+        // Check if target exists AND if smoke textures were loaded
+        if (targetTank != null && !smokeFrameTextures.isEmpty()) {
+            // Remove existing smoke for this player first, just in case (shouldn't happen often)
+            SmokeEffect existingSmoke = activeSmokeEffects.remove(targetId);
+            if (existingSmoke != null) {
+                logger.warn("Removed existing smoke effect for player {} before creating new one.", targetId);
+                // Note: Existing effect object is now orphaned and will be garbage collected.
+            }
+
+            logger.info("Spawning smoke effect for player {} at ({}, {})", targetId, targetTank.getX(), targetTank.getY());
+            try {
+                SmokeEffect smoke = new SmokeEffect(
+                        targetTank.getPosition(),
+                        targetId, // Store the player ID with the effect
+                        smokeFrameTextures,
+                        SMOKE_FRAME_DURATION_MS,
+                        SMOKE_RENDER_SIZE
+                );
+                activeSmokeEffects.put(targetId, smoke); // Put in map using player ID as key
+            } catch (Exception e) {
+                logger.error("Failed to create SmokeEffect instance for player {}", targetId, e);
+            }
+        } else {
+            if (targetTank == null) logger.warn("Cannot spawn smoke, target tank {} not found.", targetId);
+            if (smokeFrameTextures.isEmpty()) logger.warn("Cannot spawn smoke, frame textures not loaded.");
+        }
+        // ------------------------
 
         String shooterName = (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
         String targetName = (targetTank != null) ? targetTank.getName() : ("Player " + targetId);

@@ -191,7 +191,7 @@ public class GameClient implements Runnable {
                         float x = Float.parseFloat(parts[2]);
                         float y = Float.parseFloat(parts[3]);
                         float rot = Float.parseFloat(parts[4]);
-                        networkCallbackHandler.updateTankState(id, x, y, rot);
+                        networkCallbackHandler.updateTankState(id, x, y, rot, false);
                     } else {
                         logger.error("Malformed PLAYER_UPDATE message: Expected 5 parts, got {}", parts.length);
                     }
@@ -295,7 +295,7 @@ public class GameClient implements Runnable {
                         float y = Float.parseFloat(parts[3]);
                         float rotation = Float.parseFloat(parts[4]);
                         logger.debug("Received RESPAWN for player {}", id);
-                        networkCallbackHandler.updateTankState(id, x, y, rotation);
+                        networkCallbackHandler.updateTankState(id, x, y, rotation, true);
                         // Server will send PLAYER_LIVES shortly after
                     } else {
                         logger.error("Malformed RESPAWN message: Expected 5 parts, got {}", parts.length);
