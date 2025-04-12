@@ -39,8 +39,10 @@ public class GameServer {
     public static final long TANK_SHOOT_COOLDOWN_MS = 2000;
 
     // Game World Map
-    public static final int MAP_WIDTH = 50;
-    public static final int MAP_HEIGHT = 50;
+    private final int mapWidth;
+    private final int mapHeight;
+    private static final int DEFAULT_MAP_WIDTH = 50;
+    private static final int DEFAULT_MAP_HEIGHT = 50;
 
     // Configure and set network protocol rates
     private static final int DEFAULT_NETWORK_HZ = 30; // Default updates per second
@@ -51,8 +53,10 @@ public class GameServer {
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
     private final ServerContext serverContext = new ServerContext();
 
-    public GameServer(int port, int networkHz) throws IOException {
+    public GameServer(int port, int networkHz, int mapWidth, int mapHeight) {
         this.port = port;
+        this.mapWidth = mapWidth;
+        this.mapHeight = mapHeight;
 
         // Set network update rate
         this.networkUpdateIntervalMillis = 1000L / networkHz;
@@ -61,7 +65,7 @@ public class GameServer {
 
         // Initialize server context
         this.serverContext.gameMode = new FreeForAll();
-        this.serverContext.gameMapData = new GameMapData(MAP_WIDTH, MAP_HEIGHT, GameMapData.DEFAULT_TILE_SIZE);
+        this.serverContext.gameMapData = new GameMapData(mapWidth, mapHeight, GameMapData.DEFAULT_TILE_SIZE);
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
@@ -73,8 +77,9 @@ public class GameServer {
 
     public static void main(String[] args) {
         int port = 5555; // Default port
-
         int networkHz = DEFAULT_NETWORK_HZ; // Default network rate
+        int mapWidth = DEFAULT_MAP_WIDTH; // Default map width
+        int mapHeight = DEFAULT_MAP_HEIGHT; // Default map height
 
         if (args.length >= 1) {
             try { port = Integer.parseInt(args[0]); }
@@ -86,9 +91,31 @@ public class GameServer {
             catch (NumberFormatException e) { System.err.println("Invalid network Hz: " + args[1] + ". Using default " + networkHz); }
         }
 
+        // Parse map width
+        if (args.length >= 3) {
+            try {
+                mapWidth = Integer.parseInt(args[2]);
+                logger.info("Using map width from arguments: {}", mapWidth);
+            }
+            catch (NumberFormatException e) {
+                System.err.println("Invalid map width: " + args[2] + ". Using default " + mapWidth);
+            }
+        }
+
+        // Parse map height
+        if (args.length >= 4) {
+            try {
+                mapHeight = Integer.parseInt(args[3]);
+                logger.info("Using map height from arguments: {}", mapHeight);
+            }
+            catch (NumberFormatException e) {
+                System.err.println("Invalid map height: " + args[3] + ". Using default " + mapHeight);
+            }
+        }
+
         try {
             logger.info("Attempting to start server on port {}...", port);
-            GameServer server = new GameServer(port, networkHz);
+            GameServer server = new GameServer(port, networkHz, mapWidth, mapHeight);
             logger.info("Server object created.");
             server.start(); // Blocks until server stops
             logger.info("GameServer.main() finished after server.start() returned.");

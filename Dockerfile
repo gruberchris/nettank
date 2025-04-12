@@ -44,5 +44,11 @@ USER appuser
 # Set default JVM options
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
 
+# Default server configuration
+ENV SERVER_PORT=5555
+ENV NETWORK_HZ=30
+ENV MAP_WIDTH=50
+ENV MAP_HEIGHT=50
+
 # Run the application using JSON format for ENTRYPOINT
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/nettank-server.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/nettank-server.jar ${SERVER_PORT:-5555} ${NETWORK_HZ:-30} ${MAP_WIDTH:-50} ${MAP_HEIGHT:-50}"]
