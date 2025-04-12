@@ -10,6 +10,7 @@ import org.chrisgruber.nettank.client.engine.network.NetworkCallbackHandler;
 import org.chrisgruber.nettank.client.engine.ui.KillFeedMessage;
 import org.chrisgruber.nettank.client.engine.ui.StatusMessageKind;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
+import org.chrisgruber.nettank.client.game.effects.ExplosionEffect;
 import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
 import org.chrisgruber.nettank.client.game.world.ClientGameMap;
@@ -24,10 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.swing.*; // For JOptionPane on error/disconnect
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -65,6 +63,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private ClientGameMap gameMap;
     private final Map<Integer, ClientTank> tanks = new ConcurrentHashMap<>();
     private final List<ClientBullet> bullets = new CopyOnWriteArrayList<>();
+    private final List<Texture> explosionFrameTextures = new ArrayList<>();
+    private final List<ExplosionEffect> activeExplosions = new CopyOnWriteArrayList<>();
 
     // Player specific
     private int localPlayerId = -1;
@@ -103,6 +103,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean mapInitialized = false;
     private volatile boolean mapInfoReceivedForProcessing = false;
 
+    // Tank explosion effect
+    private static final int EXPLOSION_TOTAL_FRAMES = 8; // 8 animation frames
+    private static final long EXPLOSION_DURATION_MS = 600; // Adjust duration as needed (e.g., 600ms for 8 frames)
+    private static final float EXPLOSION_RENDER_SIZE = 80.0f; // How big to draw it
+    private static final String EXPLOSION_FILENAME_PREFIX = "textures/explosion/Explosion_"; // Base name
+    private static final String EXPLOSION_FILENAME_SUFFIX = ".png"; // File extension
+
     /**
      * Constructor for the Tank Battle Game.
      */
@@ -138,6 +145,37 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             tankTexture = new Texture("textures/tank.png");
             uiManager.loadFontTexture("textures/font.png");
             logger.debug("Textures loaded.");
+
+            // --- Load Individual Explosion Frames ---
+            logger.debug("Loading explosion frame textures...");
+            boolean explosionLoadSuccess = true;
+            for (int i = 0; i < EXPLOSION_TOTAL_FRAMES; i++) {
+                String filename = EXPLOSION_FILENAME_PREFIX + i + EXPLOSION_FILENAME_SUFFIX;
+                try {
+                    logger.trace("Loading explosion frame: {}", filename);
+                    Texture frameTexture = new Texture(filename);
+                    explosionFrameTextures.add(frameTexture);
+                } catch (IOException e) {
+                    logger.error("Failed to load explosion frame texture: {}", filename, e);
+                    explosionLoadSuccess = false;
+                    // Option 1: Stop loading further frames
+                    // break;
+                    // Option 2: Continue, but log that the animation will be incomplete
+                    // (Need to handle potential errors during rendering/effect creation later if continuing)
+                    // For simplicity, let's break on first failure
+                    break;
+                }
+            }
+            if (explosionLoadSuccess && explosionFrameTextures.size() == EXPLOSION_TOTAL_FRAMES) {
+                logger.debug("Successfully loaded {} explosion frame textures.", EXPLOSION_TOTAL_FRAMES);
+            } else {
+                logger.error("Failed to load all explosion frames. Animation may be incomplete or broken.");
+                // You might want to throw an exception or handle this more gracefully
+                // For now, it will proceed with however many frames loaded successfully before failure.
+                // Clear the list if loading failed partway to prevent using incomplete data?
+                // if (!explosionLoadSuccess) explosionFrameTextures.clear(); // Example cleanup
+            }
+            // ---------------------------------------
 
             // Setup projection matrix
             shader.bind();
@@ -183,6 +221,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     @Override
     public void updateGame(float deltaTime) {
+        // --- Update Active Explosions (Logic remains the same) ---
+        activeExplosions.removeIf(explosion -> {
+            boolean finished = explosion.update(); // Call update() inside the lambda
+            // Optional logging can go here
+            return finished; // Return true to remove the finished explosion
+        });
+        // ------------------------------
+
         if (mapInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
             mapInfoReceivedForProcessing = false; // Reset the signal flag
@@ -345,6 +391,37 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                         shader);
             }
         }
+
+        // --- Render Explosions ---
+        if (!activeExplosions.isEmpty()) {
+            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+
+            for (ExplosionEffect explosion : activeExplosions) {
+                if (explosion.isFinished()) continue;
+
+                // Get the specific texture for the current frame
+                Texture currentFrameTexture = explosion.getCurrentFrameTexture();
+                if (currentFrameTexture == null) {
+                    logger.warn("Explosion effect returned null texture for frame, skipping render.");
+                    continue; // Skip if texture is missing
+                }
+
+                // *** Bind the texture for THIS frame ***
+                currentFrameTexture.bind();
+
+                // Get position and size
+                Vector2f pos = explosion.getPosition();
+                float size = explosion.getRenderSize();
+
+                // Use the original drawQuad method, as we render the whole texture
+                renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
+
+                // Unbind texture? Not strictly necessary if the next loop iteration or
+                // subsequent rendering binds another texture, but can be good practice.
+                // currentFrameTexture.unbind(); // Optional
+            }
+        }
+        // -------------------------
 
         renderUI();
     }
@@ -542,6 +619,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Cleanup OpenGL resources
 
+        // --- Cleanup Explosion Frame Textures ---
+        logger.debug("Deleting explosion frame textures...");
+        for (Texture frameTexture : explosionFrameTextures) {
+            try {
+                if (frameTexture != null) frameTexture.delete();
+            } catch (Exception e) {
+                logger.error("Error deleting explosion frame texture", e);
+            }
+        }
+        explosionFrameTextures.clear(); // Clear the list
+        // ---------------------------------------
+
+        // Clear explosion list
+        activeExplosions.clear();
+
         logger.debug("Deleting game textures, shaders, renderer, UI...");
 
         try { if (tankTexture != null) tankTexture.delete(); } catch (Exception e) { logger.error("Error deleting tankTexture", e); }
@@ -710,6 +802,28 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         ClientTank shooterTank = tanks.get(shooterId);
         ClientTank targetTank = tanks.get(targetId);
+
+        // --- Spawn Explosion ---
+        // Check if target exists AND if explosion textures were loaded successfully
+        if (targetTank != null && !explosionFrameTextures.isEmpty()) {
+            logger.info("Spawning explosion at target {}'s location: ({}, {})", targetId, targetTank.getX(), targetTank.getY());
+            try {
+                ExplosionEffect explosion = new ExplosionEffect(
+                        targetTank.getPosition(),
+                        EXPLOSION_DURATION_MS,
+                        explosionFrameTextures, // Pass the whole list
+                        EXPLOSION_RENDER_SIZE
+                );
+                activeExplosions.add(explosion);
+            } catch (Exception e) {
+                // Catch potential errors from ExplosionEffect constructor (e.g., empty list if loading failed)
+                logger.error("Failed to create ExplosionEffect instance", e);
+            }
+        } else {
+            if (targetTank == null) logger.warn("Cannot spawn explosion, target tank {} not found.", targetId);
+            if (explosionFrameTextures.isEmpty()) logger.warn("Cannot spawn explosion, frame textures not loaded or list is empty.");
+        }
+        // ---------------------
 
         String shooterName = (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
         String targetName = (targetTank != null) ? targetTank.getName() : ("Player " + targetId);
