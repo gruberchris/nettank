@@ -11,6 +11,7 @@ import org.chrisgruber.nettank.client.engine.ui.KillFeedMessage;
 import org.chrisgruber.nettank.client.engine.ui.StatusMessageKind;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
 import org.chrisgruber.nettank.client.game.effects.ExplosionEffect;
+import org.chrisgruber.nettank.client.game.effects.FlameEffect;
 import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
 import org.chrisgruber.nettank.client.game.world.ClientGameMap;
@@ -63,8 +64,6 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private ClientGameMap gameMap;
     private final Map<Integer, ClientTank> tanks = new ConcurrentHashMap<>();
     private final List<ClientBullet> bullets = new CopyOnWriteArrayList<>();
-    private final List<Texture> explosionFrameTextures = new ArrayList<>();
-    private final List<ExplosionEffect> activeExplosions = new CopyOnWriteArrayList<>();
 
     // Player specific
     private int localPlayerId = -1;
@@ -104,11 +103,22 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private volatile boolean mapInfoReceivedForProcessing = false;
 
     // Tank explosion effect
+    private final List<Texture> explosionFrameTextures = new ArrayList<>();
+    private final List<ExplosionEffect> activeExplosions = new CopyOnWriteArrayList<>();
     private static final int EXPLOSION_TOTAL_FRAMES = 8; // 8 animation frames
     private static final long EXPLOSION_DURATION_MS = 600; // Adjust duration as needed (e.g., 600ms for 8 frames)
     private static final float EXPLOSION_RENDER_SIZE = 80.0f; // How big to draw it
     private static final String EXPLOSION_FILENAME_PREFIX = "textures/explosion/Explosion_"; // Base name
     private static final String EXPLOSION_FILENAME_SUFFIX = ".png"; // File extension
+
+    // Flame effect
+    private final List<Texture> flameFrameTextures = new ArrayList<>();
+    private final List<FlameEffect> activeFlames = new CopyOnWriteArrayList<>();
+    private static final int FLAME_TOTAL_FRAMES = 8;
+    private static final long FLAME_DURATION_MS = 1000; // Flames last longer? (1 second)
+    private static final float FLAME_RENDER_SIZE = 55.0f; // Flames slightly smaller?
+    private static final String FLAME_FILENAME_PREFIX = "textures/flame/Flame_"; // Adjust path/prefix
+    private static final String FLAME_FILENAME_SUFFIX = ".png";
 
     /**
      * Constructor for the Tank Battle Game.
@@ -177,6 +187,29 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
             // ---------------------------------------
 
+            // --- Load Flame Frames ---
+            logger.debug("Loading flame frame textures...");
+            boolean flameLoadSuccess = true;
+            for (int i = 0; i < FLAME_TOTAL_FRAMES; i++) {
+                String filename = FLAME_FILENAME_PREFIX + i + FLAME_FILENAME_SUFFIX;
+                try {
+                    logger.trace("Loading flame frame: {}", filename);
+                    Texture frameTexture = new Texture(filename);
+                    flameFrameTextures.add(frameTexture);
+                } catch (IOException e) {
+                    logger.error("Failed to load flame frame texture: {}", filename, e);
+                    flameLoadSuccess = false;
+                    break; // Stop loading if one fails
+                }
+            }
+            if (flameLoadSuccess && flameFrameTextures.size() == FLAME_TOTAL_FRAMES) {
+                logger.debug("Successfully loaded {} flame frame textures.", FLAME_TOTAL_FRAMES);
+            } else {
+                logger.error("Failed to load all flame frames. Flame effect may be broken.");
+                // Consider clearing flameFrameTextures if loading failed?
+            }
+            // ---------------------------
+
             // Setup projection matrix
             shader.bind();
             shader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
@@ -221,13 +254,43 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
     @Override
     public void updateGame(float deltaTime) {
-        // --- Update Active Explosions (Logic remains the same) ---
+        // --- Update Active Explosions & Trigger Flames ---
         activeExplosions.removeIf(explosion -> {
-            boolean finished = explosion.update(); // Call update() inside the lambda
-            // Optional logging can go here
-            return finished; // Return true to remove the finished explosion
+            boolean explosionFinished = explosion.update(); // Update explosion animation
+            if (explosionFinished) {
+                logger.trace("Explosion finished at ({},{}), triggering flame.", explosion.getPosition().x, explosion.getPosition().y);
+                // *** TRIGGER FLAME EFFECT HERE ***
+                if (!flameFrameTextures.isEmpty()) { // Check if flame textures are loaded
+                    try {
+                        FlameEffect flame = new FlameEffect(
+                                explosion.getPosition(), // Start flame at explosion's location
+                                FLAME_DURATION_MS,
+                                flameFrameTextures,      // Pass the list of flame textures
+                                FLAME_RENDER_SIZE
+                        );
+                        activeFlames.add(flame); // Add to the list of active flames
+                        logger.trace("Added new flame effect.");
+                    } catch (Exception e) {
+                        logger.error("Failed to create FlameEffect instance", e);
+                    }
+                } else {
+                    logger.warn("Cannot create flame effect, flame textures not loaded or list is empty.");
+                }
+                // ********************************
+            }
+            return explosionFinished; // Return true to remove the explosion itself
         });
-        // ------------------------------
+        // ----------------------------------------------
+
+        // --- NEW: Update Active Flames ---
+        activeFlames.removeIf(flame -> {
+            boolean flameFinished = flame.update(); // Update flame animation
+            if (flameFinished) {
+                logger.trace("Flame effect finished at ({},{}).", flame.getPosition().x, flame.getPosition().y);
+            }
+            return flameFinished; // removeIf removes finished flames
+        });
+        // --------------------------------
 
         if (mapInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
@@ -419,6 +482,30 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 // Unbind texture? Not strictly necessary if the next loop iteration or
                 // subsequent rendering binds another texture, but can be good practice.
                 // currentFrameTexture.unbind(); // Optional
+            }
+        }
+        // -------------------------
+
+        // --- NEW: Render Flames ---
+        if (!activeFlames.isEmpty()) {
+            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint if needed
+            for (FlameEffect flame : activeFlames) {
+                if (flame.isFinished()) continue; // Skip finished ones
+
+                Texture currentFrameTexture = flame.getCurrentFrameTexture();
+                if (currentFrameTexture == null) {
+                    logger.warn("Flame effect returned null texture for frame, skipping render.");
+                    continue;
+                }
+
+                // Bind the specific flame texture for this frame
+                currentFrameTexture.bind();
+
+                Vector2f pos = flame.getPosition();
+                float size = flame.getRenderSize();
+
+                // Render the quad using the bound flame texture
+                renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
             }
         }
         // -------------------------
@@ -631,8 +718,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         explosionFrameTextures.clear(); // Clear the list
         // ---------------------------------------
 
+        // --- Cleanup Flame Frame Textures ---
+        logger.debug("Deleting flame frame textures...");
+        for (Texture frameTexture : flameFrameTextures) {
+            try {
+                if (frameTexture != null) frameTexture.delete();
+            } catch (Exception e) {
+                logger.error("Error deleting flame frame texture", e);
+            }
+        }
+        flameFrameTextures.clear(); // Clear the list
+        // ---------------------------------------
+
         // Clear explosion list
         activeExplosions.clear();
+        activeFlames.clear();
 
         logger.debug("Deleting game textures, shaders, renderer, UI...");
 
