@@ -117,7 +117,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private final List<FlameEffect> activeFlames = new CopyOnWriteArrayList<>();
     private static final int FLAME_TOTAL_FRAMES = 8;
     private static final long FLAME_DURATION_MS = 1000; // Flames last longer? (1 second)
-    private static final float FLAME_RENDER_SIZE = 55.0f; // Flames slightly smaller?
+    private static final float FLAME_RENDER_SIZE = 65.0f; // Flames slightly smaller?
     private static final String FLAME_FILENAME_PREFIX = "textures/flame/Flame_"; // Adjust path/prefix
     private static final String FLAME_FILENAME_SUFFIX = ".png";
 
@@ -126,7 +126,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private final Map<Integer, SmokeEffect> activeSmokeEffects = new ConcurrentHashMap<>();
     private static final int SMOKE_TOTAL_FRAMES = 3;
     private static final long SMOKE_FRAME_DURATION_MS = 150; // Adjust speed (e.g., 150ms per frame)
-    private static final float SMOKE_RENDER_SIZE = 45.0f;   // Slightly smaller than explosion? 35.0f
+    private static final float SMOKE_RENDER_SIZE = 55.0f;   // Slightly smaller than explosion? 35.0f
     private static final String SMOKE_FILENAME_PREFIX = "textures/smoke/Smoke_"; // Base name
     private static final String SMOKE_FILENAME_SUFFIX = ".png"; // File extension
 
