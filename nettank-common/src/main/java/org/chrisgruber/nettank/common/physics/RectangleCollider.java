@@ -12,7 +12,7 @@ public class RectangleCollider implements Collider {
         this.position = new Vector2f(position);
         this.width = width;
         this.height = height;
-        this.rotation = rotation;
+        this.rotation = (float) Math.toRadians(rotation);
     }
 
     @Override
@@ -20,29 +20,35 @@ public class RectangleCollider implements Collider {
         if (other instanceof CircleCollider) {
             return collidesWithCircle((CircleCollider) other);
         } else if (other instanceof RectangleCollider) {
-            // For simplicity, we could implement a basic AABB collision
-            // or add oriented rectangle collision for more precision
+            // TODO: this is a Axis-Aligned Bounding Box (AABB) check, not a rotated rectangle check
+            // Update later with a Separating Axis Theorem (SAT) or similar
+            // This implementation will report false positives for rotated rectangles
             return collidesWithRectangle((RectangleCollider) other);
+        } else if (other instanceof CapsuleCollider) {
+            // Delegate to Capsule's check if it exists, otherwise unsupported
+            return other.collidesWith(this);
         }
         return false;
     }
 
     public boolean collidesWithCircle(CircleCollider circle) {
-        // Transform circle center to rectangle's local space
-        float cosA = (float)Math.cos(-rotation);
-        float sinA = (float)Math.sin(-rotation);
+        // Transform the circle center to rectangle's local space
+        float cosA = (float)Math.cos(rotation);
+        float sinA = (float)Math.sin(rotation);
 
         Vector2f circlePos = circle.getPosition();
         float dx = circlePos.x - position.x;
         float dy = circlePos.y - position.y;
 
         // Rotate point to align with rectangle axes
-        float localX = dx * cosA - dy * sinA;
-        float localY = dx * sinA + dy * cosA;
+        float localX = dx * cosA + dy * sinA;
+        float localY = -dx * sinA + dy * cosA;
 
         // Find the closest point on rectangle to circle center
-        float closestX = Math.max(-width/2, Math.min(width/2, localX));
-        float closestY = Math.max(-height/2, Math.min(height/2, localY));
+        float halfWidth = width / 2;
+        float halfHeight = height / 2;
+        float closestX = Math.max(-halfWidth, Math.min(halfWidth, localX));
+        float closestY = Math.max(-halfHeight, Math.min(halfHeight, localY));
 
         // Calculate distance from the closest point to circle center
         float distanceX = localX - closestX;
