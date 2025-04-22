@@ -34,7 +34,7 @@ public class GameMapData {
 
         // Get half the entity's size (assuming width and height are the same for tanks)
         // Or use the collision radius directly if that's more appropriate
-        float radius = entity.getCollisionRadius(); // Uses getSize() / 2.0f
+        float radius = entity.getBoundingRadius();
 
         // Calculate the allowed boundaries for the CENTER of the entity
         float minAllowedX = radius;
@@ -47,11 +47,11 @@ public class GameMapData {
         float currentX = tankPosition.x();
         float currentY = tankPosition.y();
 
-        // Create a corrected position starting with current position
+        // Create a corrected position starting with the current position
         float correctedX = currentX;
         float correctedY = currentY;
 
-        // Check X boundaries against allowed center range
+        // Check X boundaries against the allowed center range
         if (currentX < minAllowedX) {
             correctedX = minAllowedX; // Clamp center to the minimum allowed position
             wasOutOfBounds = true;
@@ -60,7 +60,7 @@ public class GameMapData {
             wasOutOfBounds = true;
         }
 
-        // Check Y boundaries against allowed center range
+        // Check Y boundaries against the allowed center range
         if (currentY < minAllowedY) {
             correctedY = minAllowedY;
             wasOutOfBounds = true;
@@ -69,13 +69,13 @@ public class GameMapData {
             wasOutOfBounds = true;
         }
 
-        // If player was out of bounds, log it and set to corrected position
+        // If a player was out of bounds, log it and set to corrected position
         if (wasOutOfBounds) {
             // Log the original position that triggered the correction
             logger.debug("PlayerId: {} was out of bounds at x: {}, y: {}. Resetting to valid position at x: {}, y: {}",
                     entity.getPlayerId(), currentX, currentY, correctedX, correctedY);
 
-            entity.setPosition(correctedX, correctedY);
+            entity.setPosition(new Vector2f(correctedX, correctedY));
         }
     }
 
@@ -83,7 +83,7 @@ public class GameMapData {
         float mapWidth = widthTiles * tileSize;
         float mapHeight = heightTiles * tileSize;
 
-        float radius = entity.getCollisionRadius();
+        float radius = entity.getBoundingRadius();
 
         return entity.getX() - radius < 0 ||
                 entity.getX() + radius > mapWidth ||
@@ -95,7 +95,7 @@ public class GameMapData {
         float worldWidth = widthTiles * tileSize;
         float worldHeight = heightTiles * tileSize;
         float margin = tileSize * 2;
-        // Ensure margin is not too large for map size
+        // Ensure the margin is not too large for map size
         float effectiveWidth = Math.max(0, worldWidth - 2 * margin);
         float effectiveHeight = Math.max(0, worldHeight - 2 * margin);
 

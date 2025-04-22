@@ -369,7 +369,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Update camera position to follow local tank (if it exists)
         if (localTank != null) {
-            camera.setPosition(localTank.getX(), localTank.getY());
+            camera.setPosition(localTank.getPosition().x(), localTank.getPosition().y());
         } else if (isSpectating && mapInitialized && gameMap != null) {
             camera.setPosition(gameMap.getWorldWidth() / 2.0f, gameMap.getWorldHeight() / 2.0f);
         } else if (!mapInitialized) {
@@ -860,12 +860,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b) {
         ClientTank tank = tanks.get(id);
 
+        TankData data = new TankData();
+        data.updateFromServer(id, name, x, y, rotation, r, g, b);
+
         if (tank == null) {
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
-
-            TankData data = new TankData();
-
-            data.updateFromServer(id, name, x, y, rotation, r, g, b);
 
             tank = new ClientTank(data); // Create client wrapper
 
@@ -882,8 +881,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         } else {
             logger.trace("Updating existing ClientTank for player ID: {}", id);
 
-            tank.getTankData().updateFromServer(id, name, x, y, rotation, r, g, b);
-            tank.updatePositionFromData();
+            tank.updateFromServerEntity(data);
 
             if (id == localPlayerId) {
                 localTank = tank;
@@ -921,7 +919,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             return;
         }
 
-        if (tank.getX() == x && tank.getY() == y && tank.getRotation() == rotation) {
+        if (tank.getPosition().x() == x && tank.getPosition().y() == y && tank.getRotation() == rotation) {
             // no change in state
             logger.trace("No state change for tank ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
             return;
@@ -938,12 +936,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        var tankData = tank.getTankData();
+        logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());
 
-        logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tankData.getX(), tankData.getY(), tankData.getRotation());
-
-        tankData.setPosition(x, y);
-        tankData.setRotation(rotation);
+        tank.HandlerPlayerUpdateMessage(new Vector2f(x, y), rotation);
 
         logger.trace("Updated tank state for player ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
     }
@@ -1010,7 +1005,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // --- Spawn Explosion ---
         // Check if target exists AND if explosion textures were loaded successfully
         if (targetTank != null && !explosionFrameTextures.isEmpty()) {
-            logger.info("Spawning explosion at target {}'s location: ({}, {})", targetId, targetTank.getX(), targetTank.getY());
+            logger.info("Spawning explosion at target {}'s location: ({}, {})", targetId, targetTank.getPosition().x(), targetTank.getPosition().y());
             try {
                 ExplosionEffect explosion = new ExplosionEffect(
                         targetTank.getPosition(),
@@ -1039,7 +1034,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 // Note: Existing effect object is now orphaned and will be garbage collected.
             }
 
-            logger.info("Spawning smoke effect for player {} at ({}, {})", targetId, targetTank.getX(), targetTank.getY());
+            logger.info("Spawning smoke effect for player {} at ({}, {})", targetId, targetTank.getPosition().x(), targetTank.getPosition().y());
             try {
                 SmokeEffect smoke = new SmokeEffect(
                         targetTank.getPosition(),

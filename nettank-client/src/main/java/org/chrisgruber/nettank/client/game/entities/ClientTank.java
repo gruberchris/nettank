@@ -5,42 +5,27 @@ import org.chrisgruber.nettank.common.entities.TankData; // Use common data
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 
-// Client-side representation of a Tank
-public class ClientTank extends Entity {
-
-    private final TankData tankData; // Holds the synchronized state from the server
+public class ClientTank extends ClientEntity {
+    protected String name;
+    protected Vector3f color;
+    protected int hitPoints;
 
     public ClientTank(TankData data) {
-        // Initialize Entity position/size based on TankData
-        super(data.getPlayerId(), data.getPosition(), TankData.SIZE, TankData.SIZE, data.getVelocity(), data.getRotation());
-        this.tankData = data;
-        updatePositionFromData();
+        super(data.getPosition(), data.getVelocity(), data.getRotation(), TankData.SIZE, TankData.SIZE, data.getPlayerId(), data.isDestroyed());
+        this.name = data.getPlayerName();
+        this.color = data.getColor();
+        this.hitPoints = data.getHitPoints();
     }
 
-    // Call this after tankData is updated by network messages
-    public void updatePositionFromData() {
-        this.setPosition(tankData.getX(), tankData.getY());
-        this.setWidth(TankData.SIZE);
-        this.setHeight(TankData.SIZE);
-    }
+    public String getName() { return this.name; }
+    public Vector3f getColor() { return this.color; }
+    public int getHitPoints() { return this.hitPoints; }
 
-    public String getName() { return tankData.getPlayerName(); }
-    public Vector3f getColor() { return tankData.getColor(); } // Returns mutable ref
-    public int getHitPoints() { return tankData.getHitPoints(); }
-    public boolean isDestroyed() { return tankData.isDestroyed(); }
-
-    @Override
-    public Vector2f getPosition() {
-        // Ensure the Entity's position reflects the latest data
-        // This might be redundant if position reference is shared OR if updatePositionFromData() is called reliably
-        updatePositionFromData();
-        return super.getPosition();
-    }
-
-    @Override
-    public float getRotation() {
-        // Return the rotation directly from the authoritative TankData object
-        return this.tankData.getRotation();
+    // TODO: re-evaluate if this is really necessary or if there is a better way to update state on PLAYER_UPDATE
+    public void HandlerPlayerUpdateMessage(Vector2f position, float rotation)
+    {
+        this.position.set(position);
+        this.rotation = rotation;
     }
 
     @Override
@@ -54,8 +39,18 @@ public class ClientTank extends Entity {
         return TankData.SIZE;
     }
 
-    // Provides direct access to the underlying data if needed elsewhere
-    public TankData getTankData() {
-        return tankData;
+    @Override
+    public void updateFromServerEntity(Entity entity) {
+        if (entity instanceof TankData updatedTankData) {
+            this.position = updatedTankData.getPosition();
+            this.velocity = updatedTankData.getVelocity();
+            this.rotation = updatedTankData.getRotation();
+            this.hitPoints = updatedTankData.getHitPoints();
+            this.color = updatedTankData.getColor();
+            this.isDestroyed = updatedTankData.isDestroyed();
+            this.name = updatedTankData.getPlayerName();
+            this.width = updatedTankData.getWidth();
+            this.height = updatedTankData.getHeight();
+        }
     }
 }
