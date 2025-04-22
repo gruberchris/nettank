@@ -6,28 +6,29 @@ import org.joml.Vector2f;
 
 import java.util.UUID;
 
-public class ClientBullet extends Entity {
-
-    private final BulletData bulletData;
+public class ClientBullet extends ClientEntity {
+    protected UUID id;
+    protected long spawnTime;
 
     public ClientBullet(BulletData data) {
-        super(data.getPlayerId(), data.getPosition(), BulletData.SIZE, BulletData.SIZE, data.getVelocity(), data.getRotation());
-        this.bulletData = data;
-        updatePositionFromData();
+        super(data.getPosition(), data.getVelocity(), data.getRotation(), BulletData.SIZE, BulletData.SIZE, data.getPlayerId(), data.isDestroyed());
+        this.id = data.getId();
+        this.spawnTime = data.getSpawnTime();
     }
 
-    // Call this if BulletData state needs to re-sync with Entity state
-    public void updatePositionFromData() {
-        this.setPosition(bulletData.getX(), bulletData.getY());
-        this.setWidth(BulletData.SIZE);
-        this.setHeight(BulletData.SIZE);
+    public UUID getId() {
+        return id;
     }
 
-    // Client-side prediction update
+    public long getSpawnTime() {
+        return spawnTime;
+    }
+
+    @Override
     public void update(float deltaTime) {
         // Calculate change in position based on velocity
-        float deltaX = bulletData.getXVelocity() * deltaTime;
-        float deltaY = bulletData.getYVelocity() * deltaTime;
+        float deltaX = this.getVelocity().x() * deltaTime;
+        float deltaY = this.getVelocity().y() * deltaTime;
 
         // Get the Entity's current position Vector2f
         Vector2f currentPos = this.getPosition(); // Assumes this gets the internal Entity position
@@ -36,12 +37,7 @@ public class ClientBullet extends Entity {
         float newX = currentPos.x + deltaX;
         float newY = currentPos.y + deltaY;
 
-        // Set the Entity's position to the new calculated position
-        this.setPosition(newX, newY);
-
-        // Keep the BulletData position synced with the Entity's position
-        // (Assuming this is desired for consistency if BulletData is accessed elsewhere)
-        bulletData.setPosition(newX, newY);
+        this.position.set(new Vector2f(newX, newY));
     }
 
     @Override
@@ -49,12 +45,16 @@ public class ClientBullet extends Entity {
         return BulletData.SIZE;
     }
 
-    // Getters for rendering/logic
-    public long getSpawnTime() { return bulletData.getSpawnTime(); }
-    public boolean isDestroyed() { return bulletData.isDestroyed(); }
-    public UUID getId() { return bulletData.getId(); }
-
-    public BulletData getBulletData() {
-        return bulletData;
+    @Override
+    public void updateFromServerEntity(Entity entity) {
+        if (entity instanceof BulletData updatedBulletData) {
+            this.position = updatedBulletData.getPosition();
+            this.velocity = updatedBulletData.getVelocity();
+            this.rotation = updatedBulletData.getRotation();
+            this.spawnTime = updatedBulletData.getSpawnTime();
+            this.isDestroyed = updatedBulletData.isDestroyed();
+            this.width = updatedBulletData.getWidth();
+            this.height = updatedBulletData.getHeight();
+        }
     }
 }

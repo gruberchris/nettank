@@ -1,14 +1,13 @@
 package org.chrisgruber.nettank.common.entities;
 
+import org.chrisgruber.nettank.common.physics.CapsuleCollider;
 import org.joml.Vector2f;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.UUID;
 
 public class BulletData extends Entity {
-    private static final Logger logger = LoggerFactory.getLogger(BulletData.class);
     public static final float SIZE = 15.0f; // Size of the bullet in pixels
+    public static final float COLLISION_RADIUS = SIZE * 0.5f;
     public static final float SPEED = 450.0f; // Pixels per second
     public static final long LIFETIME_MS = 2000; // Max travel time in ms
 
@@ -17,20 +16,10 @@ public class BulletData extends Entity {
     protected UUID id;
 
     public BulletData(UUID id, int playerId, Vector2f position, Vector2f velocity, float rotation, long spawnTime, boolean isDestroyed) {
-        super(playerId, position, SIZE, SIZE, velocity, rotation);
+        super(playerId, position, SIZE, SIZE, velocity, rotation, new CapsuleCollider(position, SIZE, COLLISION_RADIUS, rotation));
         this.spawnTime = spawnTime;
         this.isDestroyed = isDestroyed;
         this.id = id;
-    }
-
-    @Override
-    public void update(float deltaTime) {
-        // TODO:
-    }
-
-    @Override
-    public float getSize() {
-        return SIZE;
     }
 
     public long getSpawnTime() { return spawnTime; }
@@ -44,4 +33,9 @@ public class BulletData extends Entity {
     public UUID getId() { return id; }
 
     public void setId(UUID id) { this.id = id; }
+
+    @Override
+    public float getSize() {
+        return SIZE;
+    }
 }

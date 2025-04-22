@@ -480,6 +480,7 @@ public class GameServer {
         List<BulletData> bulletsToRemove = new ArrayList<>();
         for (BulletData bulletData : serverContext.bullets) {
             bulletData.getPosition().add(bulletData.getXVelocity() * deltaTime, bulletData.getYVelocity() * deltaTime);
+            bulletData.getCollider().setPosition(bulletData.getPosition());
             boolean expired = (currentTime - bulletData.getSpawnTime()) >= BULLET_LIFETIME_MS;
             if (expired || serverContext.gameMapData.isOutOfBounds(bulletData)) {
                 bulletsToRemove.add(bulletData);
@@ -493,8 +494,9 @@ public class GameServer {
             if (bulletsToRemove.contains(bulletData)) continue; // Skip if already marked for removal
 
             for (TankData tankData : serverContext.tanks.values()) {
-                if (bulletData.getPosition().distanceSquared(tankData.getPosition()) < Math.pow(TankData.COLLISION_RADIUS + BulletData.SIZE / 2.0f, 2)) {
+                if (bulletData.getCollider().collidesWith(tankData.getCollider())) {
                     handleHit(tankData, bulletData);
+                    bulletData.setDestroyed(true);
                     bulletsToRemove.add(bulletData);
                     break;
                 }
@@ -671,8 +673,7 @@ public class GameServer {
         Vector2f position = new Vector2f(startX, startY);
         Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BULLET_SPEED);
 
-        // TODO: where is bullet rotation set and should it be here?
-        float rotation = 0.0f;
+        float rotation = tankData.getRotation();
         UUID bulletId = UUID.randomUUID();
 
         // Create BulletData object

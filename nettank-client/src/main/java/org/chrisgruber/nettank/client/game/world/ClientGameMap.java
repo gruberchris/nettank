@@ -4,7 +4,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Camera;
 import org.chrisgruber.nettank.client.engine.graphics.Renderer;
 import org.chrisgruber.nettank.client.engine.graphics.Shader;
 import org.chrisgruber.nettank.client.engine.graphics.Texture;
-import org.chrisgruber.nettank.common.entities.Entity;
+import org.chrisgruber.nettank.client.game.entities.ClientEntity;
 import org.chrisgruber.nettank.common.world.GameMapData;
 import org.joml.Vector2f;
 import org.slf4j.Logger;
@@ -88,13 +88,23 @@ public class ClientGameMap {
         shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
     }
 
-    public boolean isOutOfBounds(Entity entity) {
-        return mapData.isOutOfBounds(entity);
+   public boolean isOutOfBounds(ClientEntity clientEntity) {
+        // TODO: this logic is duplicated from GameMapData.isOutOfBounds()
+
+        float mapWidth = mapData.getWidthTiles() * mapData.getTileSize();
+        float mapHeight = mapData.getHeightTiles() * mapData.getTileSize();
+
+        float radius = clientEntity.getSize() / 2.0f;
+
+        return clientEntity.getPosition().x() - radius < 0 ||
+                clientEntity.getPosition().x()  + radius > mapWidth ||
+                clientEntity.getPosition().y() - radius < 0 ||
+                clientEntity.getPosition().y() + radius > mapHeight;
     }
 
-    public void checkAndCorrectBoundaries(Entity entity) {
-        mapData.checkAndCorrectBoundaries(entity);
-    }
+    public int getWidthTiles() { return mapData.widthTiles; }
+    public int getHeightTiles() { return mapData.heightTiles;
+   }
 
     public float getWorldWidth() { return mapData.getWorldWidth(); }
     public float getWorldHeight() { return mapData.getWorldHeight(); }
