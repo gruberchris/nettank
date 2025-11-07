@@ -740,19 +740,20 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     public void handleGameInput(float deltaTime) {
         if (inputHandler == null) return;
 
-        if (inputHandler.isKeyDown(GLFW_KEY_ESCAPE)) {
-            logger.info("Escape key pressed. Closing game window.");
+        if (inputHandler.isExitPressed()) {
+            logger.info("Exit key pressed. Closing game window.");
             if(windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
             return;
         }
 
         // Handle Game Controls only if playing
         if (localTank != null && !isSpectating && currentGameState == GameState.PLAYING) {
-            boolean keyW = inputHandler.isKeyDown(GLFW_KEY_W);
-            boolean keyS = inputHandler.isKeyDown(GLFW_KEY_S);
-            boolean keyA = inputHandler.isKeyDown(GLFW_KEY_A);
-            boolean keyD = inputHandler.isKeyDown(GLFW_KEY_D);
-            boolean keySpace = inputHandler.isKeyPressed(GLFW_KEY_SPACE);
+            // Use new unified input methods (supports both keyboard and gamepad)
+            boolean keyW = inputHandler.isForwardPressed();
+            boolean keyS = inputHandler.isBackwardPressed();
+            boolean keyA = inputHandler.isRotateLeftPressed();
+            boolean keyD = inputHandler.isRotateRightPressed();
+            boolean keySpace = inputHandler.isShootPressed();
 
             // Check if movement input state has changed
             if (keyW != prevKeyW || keyS != prevKeyS || keyA != prevKeyA || keyD != prevKeyD) {

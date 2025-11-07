@@ -1,8 +1,41 @@
 # Nettank
 
-A multiplayer top down 2D tank battle game where players control tanks and try to destroy each other.
+A multiplayer top-down 2D tank battle game where players control tanks and try to destroy each other.
 
 ![img_1.png](img_1.png)
+
+## Controls
+
+### Keyboard (Default)
+
+- **W** - Move forward
+- **S** - Move backward
+- **A** - Rotate left
+- **D** - Rotate right
+- **Space** - Fire weapon
+- **Escape** - Exit game
+
+### Gamepad (Default)
+
+NetTank supports any standard gamepad including:
+- Xbox controllers (Xbox One, Xbox Series X/S, Xbox 360)
+- PlayStation controllers (DualShock 4, DualSense)
+- Nintendo Switch Pro Controller
+- Generic USB gamepads
+
+**Default Gamepad Mapping:**
+- **Right Trigger (RT/R2)** - Move forward
+- **Left Trigger (LT/L2)** - Move backward
+- **Right Stick (horizontal)** - Rotate left/right
+- **A button (Xbox) / X button (PlayStation)** - Fire weapon
+
+### Customizing Controls
+
+All keyboard keys and gamepad buttons are fully customizable! See [INPUT_CUSTOMIZATION.md](INPUT_CUSTOMIZATION.md) for:
+- How to rebind keys and buttons
+- Adjusting gamepad sensitivity and deadzones
+- Example configurations (Arrow keys, ESDF layout, etc.)
+- Troubleshooting tips
 
 ## Launching The Game Client
 

@@ -1,0 +1,19 @@
+{
+  "keyboard": {
+    "forward": "W",
+    "backward": "S",
+    "rotateLeft": "A",
+    "rotateRight": "D",
+    "shoot": "SPACE",
+    "exit": "ESCAPE"
+  },
+  "gamepad": {
+    "forward": "RIGHT_TRIGGER",
+    "backward": "LEFT_TRIGGER",
+    "rotateAxis": "RIGHT_STICK_X",
+    "shoot": "BUTTON_A",
+    "stickDeadzone": 0.2,
+    "triggerThreshold": 0.1,
+    "rotationSensitivity": 1.0
+  }
+}
