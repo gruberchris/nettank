@@ -158,140 +158,132 @@ public class GameClient implements Runnable {
 
             switch (command) {
                 case NetworkProtocol.ASSIGN_ID -> {
-                    if (parts.length >= 5) {
-                        networkCallbackHandler.setLocalPlayerId(Integer.parseInt(parts[1]));
-                    } else {
-                        logger.error("Malformed ASSIGN_ID message: Expected 5 parts, got {}", parts.length);
+                    try {
+                        var msg = NetworkMessage.PlayerId.parse(parts);
+                        networkCallbackHandler.setLocalPlayerId(msg.id());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed ASSIGN_ID message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.NEW_PLAYER -> {
-                    if (parts.length >= 9) {
+                    try {
+                        var msg = NetworkMessage.NewPlayer.parse(parts);
                         networkCallbackHandler.addOrUpdateTank(
-                            Integer.parseInt(parts[1]),
-                            Float.parseFloat(parts[2]),
-                            Float.parseFloat(parts[3]),
-                            Float.parseFloat(parts[4]),
-                            parts[5],
-                            Float.parseFloat(parts[6]),
-                            Float.parseFloat(parts[7]),
-                            Float.parseFloat(parts[8])
+                            msg.id(), msg.x(), msg.y(), msg.rotation(),
+                            msg.name(), msg.colorR(), msg.colorG(), msg.colorB()
                         );
-                    } else {
-                        logger.error("Malformed NEW_PLAYER message: Expected 9 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed NEW_PLAYER message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.PLAYER_UPDATE -> {
-                    if (parts.length >= 5) {
+                    try {
+                        var msg = NetworkMessage.PlayerUpdate.parse(parts);
                         networkCallbackHandler.updateTankState(
-                            Integer.parseInt(parts[1]),
-                            Float.parseFloat(parts[2]),
-                            Float.parseFloat(parts[3]),
-                            Float.parseFloat(parts[4]),
-                            false
+                            msg.id(), msg.x(), msg.y(), msg.rotation(), false
                         );
-                    } else {
-                        logger.error("Malformed PLAYER_UPDATE message: Expected 5 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed PLAYER_UPDATE message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.PLAYER_LEFT -> {
-                    if (parts.length >= 2) {
-                        networkCallbackHandler.removeTank(Integer.parseInt(parts[1]));
-                    } else {
-                        logger.error("Malformed PLAYER_LEFT message: Expected 2 parts, got {}", parts.length);
+                    try {
+                        var msg = NetworkMessage.PlayerLeft.parse(parts);
+                        networkCallbackHandler.removeTank(msg.id());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed PLAYER_LEFT message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.SHOOT -> {
-                    if (parts.length >= 7) {
+                    try {
+                        var msg = NetworkMessage.Shoot.parse(parts);
                         networkCallbackHandler.spawnBullet(
-                            UUID.fromString(parts[1]),
-                            Integer.parseInt(parts[2]),
-                            Float.parseFloat(parts[3]),
-                            Float.parseFloat(parts[4]),
-                            Float.parseFloat(parts[5]),
-                            Float.parseFloat(parts[6])
+                            msg.bulletId(), msg.ownerId(),
+                            msg.x(), msg.y(), msg.dirX(), msg.dirY()
                         );
-                    } else {
-                        logger.error("Malformed SHOOT message: Expected 7 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed SHOOT message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.HIT -> {
-                    if (parts.length >= 5) {
+                    try {
+                        var msg = NetworkMessage.Hit.parse(parts);
                         networkCallbackHandler.handlePlayerHit(
-                            Integer.parseInt(parts[1]),
-                            Integer.parseInt(parts[2]),
-                            UUID.fromString(parts[3]),
-                            Integer.parseInt(parts[4])
+                            msg.targetId(), msg.shooterId(),
+                            msg.bulletId(), msg.damage()
                         );
-                    } else {
-                        logger.error("Malformed HIT message: Expected 5 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed HIT message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.DESTROYED -> {
-                    if (parts.length >= 3) {
+                    try {
+                        var msg = NetworkMessage.Destroyed.parse(parts);
                         networkCallbackHandler.handlePlayerDestroyed(
-                            Integer.parseInt(parts[1]),
-                            Integer.parseInt(parts[2])
+                            msg.targetId(), msg.shooterId()
                         );
-                    } else {
-                        logger.error("Malformed DESTROYED message: Expected 3 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed DESTROYED message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.PLAYER_LIVES -> {
-                    if (parts.length >= 3) {
-                        networkCallbackHandler.updatePlayerLives(
-                            Integer.parseInt(parts[1]),
-                            Integer.parseInt(parts[2])
-                        );
-                    } else {
-                        logger.error("Malformed PLAYER_LIVES message: Expected 3 parts, got {}", parts.length);
+                    try {
+                        var msg = NetworkMessage.PlayerLives.parse(parts);
+                        networkCallbackHandler.updatePlayerLives(msg.playerId(), msg.lives());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed PLAYER_LIVES message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.GAME_STATE -> {
-                    if (parts.length >= 3) {
+                    try {
+                        var msg = NetworkMessage.GameStateMessage.parse(parts);
                         try {
                             networkCallbackHandler.setGameState(
-                                GameState.valueOf(parts[1]),
-                                Long.parseLong(parts[2])
+                                GameState.valueOf(msg.stateName()),
+                                msg.timeData()
                             );
                         } catch (IllegalArgumentException e) {
-                            logger.error("Received invalid game state: {}", parts[1], e);
+                            logger.error("Received invalid game state: {}", msg.stateName(), e);
                         }
-                    } else {
-                        logger.error("Malformed GAME_STATE message: Expected 3 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed GAME_STATE message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.ANNOUNCE -> {
-                    if (parts.length >= 2) {
-                        networkCallbackHandler.addAnnouncement(parts[1]);
-                    } else {
-                        logger.error("Malformed ANNOUNCE message: Expected 2+ parts, got {}", parts.length);
+                    try {
+                        var msg = NetworkMessage.Announcement.parse(parts);
+                        networkCallbackHandler.addAnnouncement(msg.message());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed ANNOUNCE message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.ROUND_OVER -> {
-                    if (parts.length >= 4) {
-                        logger.trace("Received ROUND_OVER message (parsed by announcement)");
-                    } else {
-                        logger.error("Malformed ROUND_OVER message: Expected 4 parts, got {}", parts.length);
+                    try {
+                        var msg = NetworkMessage.RoundOver.parse(parts);
+                        logger.trace("Received ROUND_OVER: winner={}, time={}ms", 
+                                   msg.winnerName(), msg.finalTimeMillis());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed ROUND_OVER message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.RESPAWN -> {
-                    if (parts.length >= 5) {
-                        logger.debug("Received RESPAWN for player {}", parts[1]);
+                    try {
+                        var msg = NetworkMessage.Respawn.parse(parts);
+                        logger.debug("Received RESPAWN for player {}", msg.id());
                         networkCallbackHandler.updateTankState(
-                            Integer.parseInt(parts[1]),
-                            Float.parseFloat(parts[2]),
-                            Float.parseFloat(parts[3]),
-                            Float.parseFloat(parts[4]),
-                            true
+                            msg.id(), msg.x(), msg.y(), msg.rotation(), true
                         );
-                    } else {
-                        logger.error("Malformed RESPAWN message: Expected 5 parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed RESPAWN message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.SPECTATE_START -> {
-                    if (parts.length >= 2) {
-                        spectateEndTimeMillis = Long.parseLong(parts[1]);
+                    try {
+                        var msg = NetworkMessage.SpectatorMode.parse(parts);
+                        spectateEndTimeMillis = msg.durationMs();
                         setSpectatorMode(true);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed SPECTATE_START message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.SPECTATE_END -> setSpectatorMode(false);
@@ -300,34 +292,33 @@ public class GameClient implements Runnable {
                     spectateEndTimeMillis = -1;
                 }
                 case NetworkProtocol.MAP_INFO -> {
-                    if (parts.length == 4) {
+                    try {
+                        var msg = NetworkMessage.MapInfo.parse(parts);
+                        // Note: MapInfo record doesn't store tileSize, using parts[3] directly
                         networkCallbackHandler.storeMapInfo(
-                            Integer.parseInt(parts[1]),
-                            Integer.parseInt(parts[2]),
-                            Float.parseFloat(parts[3])
+                            msg.width(), msg.height(),
+                            parts.length >= 4 ? Float.parseFloat(parts[3]) : 1.0f
                         );
-                    } else {
-                        logger.error("Received malformed MAP_INFO: Expected 4 parts got {} message was: {}", parts.length, message);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed MAP_INFO message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.ERROR_MSG -> {
-                    if (parts.length >= 2) {
-                        logger.error("Received error message from server: {}", parts[1]);
-                        networkCallbackHandler.connectionFailed(parts[1]);
+                    try {
+                        var msg = NetworkMessage.ErrorMessage.parse(parts);
+                        logger.error("Received error message from server: {}", msg.errorText());
+                        networkCallbackHandler.connectionFailed(msg.errorText());
                         stop();
-                    } else {
-                        logger.error("Malformed ERROR_MSG message: Expected 2+ parts, got {}", parts.length);
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed ERROR_MSG message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.SHOOT_COOLDOWN -> {
-                    if (parts.length >= 2) {
-                        try {
-                            networkCallbackHandler.updateShootCooldown(Long.parseLong(parts[1]));
-                        } catch (NumberFormatException e) {
-                            logger.error("Invalid cooldown value in SHOOT_COOLDOWN message: '{}'. Full message: {}", parts[1], message, e);
-                        }
-                    } else {
-                        logger.error("Malformed SHOOT_COOLDOWN message: Expected 2 parts, got {}", parts.length);
+                    try {
+                        var msg = NetworkMessage.ShootCooldown.parse(parts);
+                        networkCallbackHandler.updateShootCooldown(msg.cooldownMs());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed SHOOT_COOLDOWN message: {}", e.getMessage());
                     }
                 }
                 default -> logger.warn("Unknown message command from server: {}", command);

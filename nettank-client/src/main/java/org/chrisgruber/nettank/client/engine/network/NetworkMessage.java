@@ -102,14 +102,15 @@ public sealed interface NetworkMessage {
         }
     }
     
-    record GameState(
-        String state
+    record GameStateMessage(
+        String stateName,
+        long timeData
     ) implements NetworkMessage {
-        public static GameState parse(String[] parts) {
-            if (parts.length < 2) {
-                throw new IllegalArgumentException("Invalid GameState message: insufficient parts");
+        public static GameStateMessage parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid GameStateMessage message: insufficient parts");
             }
-            return new GameState(parts[1]);
+            return new GameStateMessage(parts[1], Long.parseLong(parts[2]));
         }
     }
     
@@ -184,6 +185,167 @@ public sealed interface NetworkMessage {
                 throw new IllegalArgumentException("Invalid PlayerId message: insufficient parts");
             }
             return new PlayerId(Integer.parseInt(parts[1]));
+        }
+    }
+    
+    record NewPlayer(
+        int id,
+        float x,
+        float y,
+        float rotation,
+        String name,
+        float colorR,
+        float colorG,
+        float colorB
+    ) implements NetworkMessage {
+        public static NewPlayer parse(String[] parts) {
+            if (parts.length < 9) {
+                throw new IllegalArgumentException("Invalid NewPlayer message: insufficient parts");
+            }
+            return new NewPlayer(
+                Integer.parseInt(parts[1]),
+                Float.parseFloat(parts[2]),
+                Float.parseFloat(parts[3]),
+                Float.parseFloat(parts[4]),
+                parts[5],
+                Float.parseFloat(parts[6]),
+                Float.parseFloat(parts[7]),
+                Float.parseFloat(parts[8])
+            );
+        }
+    }
+    
+    record PlayerUpdate(
+        int id,
+        float x,
+        float y,
+        float rotation
+    ) implements NetworkMessage {
+        public static PlayerUpdate parse(String[] parts) {
+            if (parts.length < 5) {
+                throw new IllegalArgumentException("Invalid PlayerUpdate message: insufficient parts");
+            }
+            return new PlayerUpdate(
+                Integer.parseInt(parts[1]),
+                Float.parseFloat(parts[2]),
+                Float.parseFloat(parts[3]),
+                Float.parseFloat(parts[4])
+            );
+        }
+    }
+    
+    record PlayerLeft(
+        int id
+    ) implements NetworkMessage {
+        public static PlayerLeft parse(String[] parts) {
+            if (parts.length < 2) {
+                throw new IllegalArgumentException("Invalid PlayerLeft message: insufficient parts");
+            }
+            return new PlayerLeft(Integer.parseInt(parts[1]));
+        }
+    }
+    
+    record Shoot(
+        java.util.UUID bulletId,
+        int ownerId,
+        float x,
+        float y,
+        float dirX,
+        float dirY
+    ) implements NetworkMessage {
+        public static Shoot parse(String[] parts) {
+            if (parts.length < 7) {
+                throw new IllegalArgumentException("Invalid Shoot message: insufficient parts");
+            }
+            return new Shoot(
+                java.util.UUID.fromString(parts[1]),
+                Integer.parseInt(parts[2]),
+                Float.parseFloat(parts[3]),
+                Float.parseFloat(parts[4]),
+                Float.parseFloat(parts[5]),
+                Float.parseFloat(parts[6])
+            );
+        }
+    }
+    
+    record Hit(
+        int targetId,
+        int shooterId,
+        java.util.UUID bulletId,
+        int damage
+    ) implements NetworkMessage {
+        public static Hit parse(String[] parts) {
+            if (parts.length < 5) {
+                throw new IllegalArgumentException("Invalid Hit message: insufficient parts");
+            }
+            return new Hit(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]),
+                java.util.UUID.fromString(parts[3]),
+                Integer.parseInt(parts[4])
+            );
+        }
+    }
+    
+    record Destroyed(
+        int targetId,
+        int shooterId
+    ) implements NetworkMessage {
+        public static Destroyed parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid Destroyed message: insufficient parts");
+            }
+            return new Destroyed(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2])
+            );
+        }
+    }
+    
+    record Respawn(
+        int id,
+        float x,
+        float y,
+        float rotation
+    ) implements NetworkMessage {
+        public static Respawn parse(String[] parts) {
+            if (parts.length < 5) {
+                throw new IllegalArgumentException("Invalid Respawn message: insufficient parts");
+            }
+            return new Respawn(
+                Integer.parseInt(parts[1]),
+                Float.parseFloat(parts[2]),
+                Float.parseFloat(parts[3]),
+                Float.parseFloat(parts[4])
+            );
+        }
+    }
+    
+    record RoundOver(
+        int winnerId,
+        String winnerName,
+        long finalTimeMillis
+    ) implements NetworkMessage {
+        public static RoundOver parse(String[] parts) {
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("Invalid RoundOver message: insufficient parts");
+            }
+            return new RoundOver(
+                Integer.parseInt(parts[1]),
+                parts[2],
+                Long.parseLong(parts[3])
+            );
+        }
+    }
+    
+    record ErrorMessage(
+        String errorText
+    ) implements NetworkMessage {
+        public static ErrorMessage parse(String[] parts) {
+            if (parts.length < 2) {
+                throw new IllegalArgumentException("Invalid ErrorMessage message: insufficient parts");
+            }
+            return new ErrorMessage(parts[1]);
         }
     }
 }
