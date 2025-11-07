@@ -1,6 +1,7 @@
 package org.chrisgruber.nettank.client.main;
 
 import ch.qos.logback.classic.LoggerContext;
+import org.chrisgruber.nettank.client.config.GameConfig;
 import org.chrisgruber.nettank.client.game.TankBattleGame; // Import the game implementation
 import org.chrisgruber.nettank.client.util.NativeLibraryLoader;
 import org.slf4j.Logger;
@@ -16,19 +17,25 @@ public class ClientMain {
     // Default connection settings
     private static final String DEFAULT_HOST = "127.0.0.1"; // Connect to localhost by default
     private static final int DEFAULT_PORT = 5555;
-    private static final String DEFAULT_NAME = "Player" + random.nextInt(1000);
 
     // Window settings
     private static final String WINDOW_TITLE = "Nettank Client";
-    private static final int WINDOW_WIDTH = 1280;
-    private static final int WINDOW_HEIGHT = 720;
 
 
     public static void main(String[] args) {
+        // Load game configuration
+        GameConfig config = GameConfig.load();
+        
         String hostIp = DEFAULT_HOST;
         int port = DEFAULT_PORT;
-        String playerName = DEFAULT_NAME;
+        
+        // Use player name from config, but if it's the default "Player", generate a random name
+        String playerName = config.playerName;
+        if ("Player".equals(playerName)) {
+            playerName = "Player" + random.nextInt(1000);
+        }
 
+        // Command line arguments override config
         if (args.length >= 1) { hostIp = args[0]; }
         if (args.length >= 2) {
             try { port = Integer.parseInt(args[1]); }
@@ -36,17 +43,23 @@ public class ClientMain {
                 logger.error("Invalid port number: {}, using default port : {}", args[1], port, e);
             }
         }
-        if (args.length >= 3) { playerName = args[2]; }
+        if (args.length >= 3) { 
+            playerName = args[2]; // Command line overrides config
+        }
 
         NativeLibraryLoader.loadNativeLibraries();
 
         logger.info("Starting Nettank Client for {} connecting to {}:{}", playerName, hostIp, port);
+        logger.info("Window resolution: {}x{}, Fullscreen: {}, VSync: {}", 
+                   config.display.width, config.display.height, 
+                   config.display.fullscreen, config.display.vsync);
 
-        // Create and run the game instance
+        // Create and run the game instance with config settings
         TankBattleGame game = null; // Declare outside try
 
         try {
-            game = new TankBattleGame(hostIp, port, playerName, WINDOW_TITLE, WINDOW_WIDTH, WINDOW_HEIGHT);
+            game = new TankBattleGame(hostIp, port, playerName, WINDOW_TITLE, 
+                                     config.display.width, config.display.height);
             game.run(); // Blocks until the game loop finishes and cleanup runs
         } catch (Exception e) {
             logger.error("!!! Unhandled Critical Error in ClientMain !!!", e);
