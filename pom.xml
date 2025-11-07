@@ -26,9 +26,9 @@
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <lwjgl.version>3.3.6</lwjgl.version>
-        <joml.version>1.10.5</joml.version>
+        <joml.version>1.10.8</joml.version>
         <slf4j.version>2.1.0-alpha1</slf4j.version>
-        <logback.version>1.5.18</logback.version>
+        <logback.version>1.5.20</logback.version>
         <!-- Determine OS type for LWJGL natives -->
         <lwjgl.natives>natives-macos-arm64</lwjgl.natives>
     </properties>
