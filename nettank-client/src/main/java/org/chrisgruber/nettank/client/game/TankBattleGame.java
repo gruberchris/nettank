@@ -395,6 +395,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         this.mapInfoReceivedForProcessing = true; // Signal the main thread
     }
 
+    @Override
+    public void updateShootCooldown(long cooldownRemainingMs) {
+        if (localTank != null) {
+            localTank.setCooldown(cooldownRemainingMs);
+            logger.debug("Updated shoot cooldown for local tank: {}ms remaining", cooldownRemainingMs);
+        } else {
+            logger.warn("Received shoot cooldown update ({}ms remaining) but localTank is null. This may indicate an unexpected state or timing issue.", cooldownRemainingMs);
+        }
+    }
+
     private void initializeMapAndTextures() {
         if (mapInitialized) return; // Should not happen if logic is correct, but safe check
 
@@ -646,6 +656,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (localTank != null && !isSpectating) {
             var playersCountStr = "PLAYERS: " + tanks.size();
             uiManager.drawText(playersCountStr, statusTextX, playersCountY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
+        }
+
+        // Render weapon cooldown indicator (center bottom of screen)
+        if (localTank != null && !isSpectating) {
+            long cooldownRemaining = localTank.getCooldownRemaining();
+            if (cooldownRemaining > 0) {
+                float cooldownSeconds = cooldownRemaining / 1000.0f;
+                String cooldownText = String.format("RELOADING: %.1fs", cooldownSeconds);
+                float textWidth = uiManager.getTextWidth(cooldownText, UI_TEXT_SCALE_STATUS);
+                float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
+                float y = windowHeight - 40; // Near bottom of screen
+                uiManager.drawText(cooldownText, x, y, UI_TEXT_SCALE_STATUS, Colors.BLUE);
+            }
         }
 
         // Render Kill Feed Messages
