@@ -396,10 +396,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
-    public void updateCooldown(long cooldownRemainingMs) {
+    public void updateShootCooldown(long cooldownRemainingMs) {
         if (localTank != null) {
             localTank.setCooldown(cooldownRemainingMs);
-            logger.debug("Updated cooldown for local tank: {}ms remaining", cooldownRemainingMs);
+            logger.debug("Updated shoot cooldown for local tank: {}ms remaining", cooldownRemainingMs);
         }
     }
 

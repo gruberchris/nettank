@@ -336,13 +336,13 @@ public class GameClient implements Runnable {
                         logger.error("Malformed ERROR_MSG message: Expected 2+ parts, got {}", parts.length);
                     }
                     break;
-                case NetworkProtocol.COOLDOWN:
-                    // CDN;<cooldownRemainingMs> (2 parts)
+                case NetworkProtocol.SHOOT_COOLDOWN:
+                    // SHT_CDN;<cooldownRemainingMs> (2 parts)
                     if (parts.length >= 2) {
                         long cooldownMs = Long.parseLong(parts[1]);
-                        networkCallbackHandler.updateCooldown(cooldownMs);
+                        networkCallbackHandler.updateShootCooldown(cooldownMs);
                     } else {
-                        logger.error("Malformed COOLDOWN message: Expected 2 parts, got {}", parts.length);
+                        logger.error("Malformed SHOOT_COOLDOWN message: Expected 2 parts, got {}", parts.length);
                     }
                     break;
                 default:

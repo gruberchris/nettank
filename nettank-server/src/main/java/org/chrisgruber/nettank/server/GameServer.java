@@ -661,7 +661,7 @@ public class GameServer {
             // Send cooldown remaining time to the player
             ClientHandler handler = serverContext.clients.get(playerId);
             if (handler != null) {
-                handler.sendMessage(String.format("%s;%d", NetworkProtocol.COOLDOWN, cooldownTimeRemainingInMilliseconds));
+                handler.sendMessage(String.format("%s;%d", NetworkProtocol.SHOOT_COOLDOWN, cooldownTimeRemainingInMilliseconds));
             }
             return;
         }
