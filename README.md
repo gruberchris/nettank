@@ -53,7 +53,7 @@ See [GAME_CONFIG.md](GAME_CONFIG.md) for complete configuration documentation, i
 
 ## Launching The Game Client
 
-Note: Java 25 Runtime is required to run the game client or the server.
+Note: Java 21 Runtime is required to run the game client or the server.
 
 The game client is a universal jar file that can be run on any platform with Java installed. To run the game client, use the following command:
 
