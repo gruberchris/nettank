@@ -37,6 +37,20 @@ All keyboard keys and gamepad buttons are fully customizable! See [INPUT_CUSTOMI
 - Example configurations (Arrow keys, ESDF layout, etc.)
 - Troubleshooting tips
 
+## Game Configuration
+
+Players can customize additional game settings by editing `~/.nettank/game-config.json`:
+
+- **Player Name** - Set your display name (max 20 characters)
+- **Display Resolution** - Default: 1920x1080 (1080p)
+- **Fullscreen Mode** - Toggle fullscreen/windowed mode
+- **VSync** - Enable/disable vertical sync
+
+See [GAME_CONFIG.md](GAME_CONFIG.md) for complete configuration documentation, including:
+- All supported resolutions (800x600 up to 4K)
+- Configuration examples
+- Troubleshooting tips
+
 ## Launching The Game Client
 
 Note: Java 25 Runtime is required to run the game client or the server.
