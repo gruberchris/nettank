@@ -28,4 +28,5 @@ public class NetworkProtocol {
     public static final String SPECTATE_END = "SPEC_END";           // SPECTATE_END;<playerId>
     public static final String SPECTATE_PERMANENT = "SPEC_PERM";    // SPECTATE_PERM;<playerId>
     public static final String MAP_INFO = "MAP";     // MAP;<widthTiles>;<heightTiles>;<tileSize>
+    public static final String COOLDOWN = "CDN";     // CDN;<cooldownRemainingMs>
 }

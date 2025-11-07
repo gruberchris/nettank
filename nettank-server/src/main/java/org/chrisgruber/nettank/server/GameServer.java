@@ -315,7 +315,7 @@ public class GameServer {
 
         logger.info("Sent existing player's tanks to new player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
-        // Inform others about new player & lives
+        // Inform others about new player and lives
         String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
                 NetworkProtocol.NEW_PLAYER, newTankData.getPlayerId(), newTankData.getX(), newTankData.getY(), newTankData.getRotation(),
                 newTankData.getPlayerName(), newTankData.getColor().x(), newTankData.getColor().y(), newTankData.getColor().z());
@@ -384,7 +384,7 @@ public class GameServer {
 
             try {
                 if (!serverContext.running) break;
-                // sleep for 1ms to yield CPU time
+                // sleep for 1 ms to yield CPU time
                 Thread.sleep(1);
             } catch (InterruptedException e) {
                 logger.info("Game loop interrupted (likely server shutdown).");
@@ -657,6 +657,12 @@ public class GameServer {
             var cooldownTimeRemainingInMilliseconds = TANK_SHOOT_COOLDOWN_MS - (currentTime - tankData.getLastShotTime());
             var timeSinceLastShotInMilliseconds = currentTime - tankData.getLastShotTime();
             logger.debug("PlayerId: {} attempted to shoot but the weapon is still cooling down. Time since last shot: {}ms. Cooldown time remaining: {}ms", playerId, timeSinceLastShotInMilliseconds, cooldownTimeRemainingInMilliseconds);
+            
+            // Send cooldown remaining time to the player
+            ClientHandler handler = serverContext.clients.get(playerId);
+            if (handler != null) {
+                handler.sendMessage(String.format("%s;%d", NetworkProtocol.COOLDOWN, cooldownTimeRemainingInMilliseconds));
+            }
             return;
         }
 
