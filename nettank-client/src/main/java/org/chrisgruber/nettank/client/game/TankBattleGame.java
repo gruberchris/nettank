@@ -370,6 +370,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Update camera position to follow local tank (if it exists)
         if (localTank != null) {
             camera.setPosition(localTank.getPosition().x(), localTank.getPosition().y());
+            if (mapInitialized && gameMap != null) {
+                camera.clampToWorldBounds(gameMap.getWorldWidth(), gameMap.getWorldHeight());
+            }
         } else if (isSpectating && mapInitialized && gameMap != null) {
             camera.setPosition(gameMap.getWorldWidth() / 2.0f, gameMap.getWorldHeight() / 2.0f);
         } else if (!mapInitialized) {
@@ -448,9 +451,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Render Map
         if (mapInitialized && gameMap != null) {
             float range = isSpectating ? Float.MAX_VALUE : VIEW_RANGE;
+            Vector2f fogCenter = (localTank != null) ? localTank.getPosition() : null;
             // Ensure map textures are loaded before rendering
             if (grassTexture != null && dirtTexture != null) {
-                gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range);
+                gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range, fogCenter);
             } else {
                 logger.warn("Attempted to render map, but map textures are not loaded.");
             }

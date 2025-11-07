@@ -47,7 +47,7 @@ public class ClientMain {
 
         try {
             game = new TankBattleGame(hostIp, port, playerName, WINDOW_TITLE, WINDOW_WIDTH, WINDOW_HEIGHT);
-            game.run(); // Blocks until game loop finishes and cleanup runs
+            game.run(); // Blocks until the game loop finishes and cleanup runs
         } catch (Exception e) {
             logger.error("!!! Unhandled Critical Error in ClientMain !!!", e);
 

@@ -41,7 +41,7 @@ public class ClientGameMap {
     }
 
     public void render(Renderer renderer, Shader shader, Texture grassTexture, Texture dirtTexture,
-                       Camera camera, float viewRange) {
+                       Camera camera, float viewRange, Vector2f fogCenter) {
 
         shader.bind();
 
@@ -53,7 +53,6 @@ public class ClientGameMap {
         float viewRight = camera.getViewRight();
         float viewBottom = camera.getViewBottom();
         float viewTop = camera.getViewTop();
-        Vector2f playerPos = camera.getPosition();
 
         int startX = Math.max(0, (int) Math.floor(viewLeft / tileSize) - 1);
         int endX = Math.min(mapData.widthTiles, (int) Math.ceil(viewRight / tileSize) + 1);
@@ -68,8 +67,8 @@ public class ClientGameMap {
                 float tileCenterY = (y + 0.5f) * tileSize;
                 float tint = 1.0f;
 
-                if (!isSpectating && playerPos != null) {
-                    float distSq = playerPos.distanceSquared(tileCenterX, tileCenterY);
+                if (!isSpectating && fogCenter != null) {
+                    float distSq = fogCenter.distanceSquared(tileCenterX, tileCenterY);
                     if (distSq > renderRangeSq) { tint = FOG_DARKNESS; }
                 }
 
