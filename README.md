@@ -2,7 +2,7 @@
 
 A multiplayer top down 2D tank battle game where players control tanks and try to destroy each other.
 
-![img.png](img.png)
+![img_1.png](img_1.png)
 
 ## Launching The Game Client
 

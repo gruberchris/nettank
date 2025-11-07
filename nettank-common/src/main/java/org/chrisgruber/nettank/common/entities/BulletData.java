@@ -8,7 +8,7 @@ import java.util.UUID;
 public class BulletData extends Entity {
     public static final float SIZE = 15.0f; // Size of the bullet in pixels
     public static final float COLLISION_RADIUS = SIZE * 0.5f;
-    public static final float SPEED = 450.0f; // Pixels per second
+    public static final float SPEED = 600.0f; // Pixels per second
     public static final long LIFETIME_MS = 2000; // Max travel time in ms
 
     protected long spawnTime;
