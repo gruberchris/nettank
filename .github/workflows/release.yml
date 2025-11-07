@@ -108,9 +108,40 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
+      - name: Check if version already exists in GitHub Packages
+        id: check_version
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "Checking if version $VERSION already exists in GitHub Packages..."
+          
+          # Check if package version exists
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://maven.pkg.github.com/gruberchris/nettank/org/chrisgruber/nettank/nettank/${VERSION}/nettank-${VERSION}.pom")
+          
+          if [ "$HTTP_CODE" == "200" ]; then
+            echo "⚠️  WARNING: Version $VERSION already exists in GitHub Packages!"
+            echo "Maven packages are immutable and cannot be overwritten."
+            echo "Skipping Maven deployment step."
+            echo "The GitHub Release and Docker image will still be created."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Version $VERSION does not exist. Proceeding with Maven deployment."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Skip Maven Deployment (Version Already Exists)
+        if: steps.check_version.outputs.exists == 'true'
+        run: |
+          echo "::warning::Version ${{ steps.get_version.outputs.version }} already exists in GitHub Packages. Skipping Maven deployment."
+          echo "::notice::The GitHub Release and Docker image will still be created/updated."
+          echo "::notice::To publish a new Maven artifact, use a different version number."
+
       - name: Build, Package and Publish All Modules to GitHub Packages
         # Deploy will compile, test (unless skipped), package, and deploy artifacts
         # The client JAR produced now contains all natives
+        if: steps.check_version.outputs.exists != 'true'
         run: mvn -B deploy -DskipTests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
