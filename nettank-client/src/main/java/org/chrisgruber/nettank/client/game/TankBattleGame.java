@@ -400,6 +400,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (localTank != null) {
             localTank.setCooldown(cooldownRemainingMs);
             logger.debug("Updated shoot cooldown for local tank: {}ms remaining", cooldownRemainingMs);
+        } else {
+            logger.warn("Received shoot cooldown update ({}ms remaining) but localTank is null. This may indicate an unexpected state or timing issue.", cooldownRemainingMs);
         }
     }
 
