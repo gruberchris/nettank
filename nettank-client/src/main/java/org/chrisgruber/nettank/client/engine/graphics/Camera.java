@@ -98,4 +98,25 @@ public class Camera {
     public float getViewTop() {
         return position.y + (screenHeight / 2.0f) * zoom;
     }
+
+    public void clampToWorldBounds(float worldWidth, float worldHeight) {
+        float halfViewWidth = (screenWidth / 2.0f) * zoom;
+        float halfViewHeight = (screenHeight / 2.0f) * zoom;
+
+        // Clamp X position
+        if (halfViewWidth >= worldWidth / 2.0f) {
+            // View is wider than world - center on world
+            position.x = worldWidth / 2.0f;
+        } else {
+            position.x = Math.max(halfViewWidth, Math.min(position.x, worldWidth - halfViewWidth));
+        }
+
+        // Clamp Y position
+        if (halfViewHeight >= worldHeight / 2.0f) {
+            // View is taller than world - center on world
+            position.y = worldHeight / 2.0f;
+        } else {
+            position.y = Math.max(halfViewHeight, Math.min(position.y, worldHeight - halfViewHeight));
+        }
+    }
 }
