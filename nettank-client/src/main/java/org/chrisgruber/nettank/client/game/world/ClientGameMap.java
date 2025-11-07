@@ -21,7 +21,7 @@ public class ClientGameMap {
     private final TileType[][] tiles; // Client-specific tile grid for rendering
 
     private static final float FOG_DARKNESS = 0.15f;
-    private static final float FOG_FADE_DISTANCE = 2.0f; // Tiles for smooth transition
+    private static final float FOG_FADE_DISTANCE = 3.5f; // Tiles for smooth transition (increased for smoother blur). Try 4.0-5.0 for even softer
     private static final Random random = new Random();
 
     public ClientGameMap(int width, int height) {
@@ -39,6 +39,12 @@ public class ClientGameMap {
                 tiles[x][y] = random.nextFloat() > 0.3f ? TileType.GRASS : TileType.DIRT;
             }
         }
+    }
+    
+    // Smoothstep function for smoother interpolation (eases in and out)
+    private float smoothstep(float t) {
+        t = Math.max(0.0f, Math.min(1.0f, t)); // Clamp to [0, 1]
+        return t * t * (3.0f - 2.0f * t);
     }
 
     public void render(Renderer renderer, Shader shader, Texture grassTexture, Texture dirtTexture,
@@ -69,16 +75,33 @@ public class ClientGameMap {
                 float tint = 1.0f;
 
                 if (!isSpectating && fogCenter != null) {
-                    float dist = fogCenter.distance(tileCenterX, tileCenterY);
-                    float fadeStart = viewRange - (FOG_FADE_DISTANCE * tileSize);
+                    // Sample multiple points around tile center for smooth blur effect
+                    float tintSum = 0.0f;
+                    int sampleCount = 0;
                     
-                    if (dist > viewRange) {
-                        tint = FOG_DARKNESS;
-                    } else if (dist > fadeStart) {
-                        // Smooth gradient transition
-                        float fadeProgress = (dist - fadeStart) / (FOG_FADE_DISTANCE * tileSize);
-                        tint = 1.0f - (fadeProgress * (1.0f - FOG_DARKNESS));
+                    // 3x3 sampling grid for blur effect
+                    for (float dy = -0.33f; dy <= 0.33f; dy += 0.33f) {
+                        for (float dx = -0.33f; dx <= 0.33f; dx += 0.33f) {
+                            float sampleX = tileCenterX + (dx * tileSize);
+                            float sampleY = tileCenterY + (dy * tileSize);
+                            float dist = fogCenter.distance(sampleX, sampleY);
+                            float fadeStart = viewRange - (FOG_FADE_DISTANCE * tileSize);
+                            
+                            float sampleTint = 1.0f;
+                            if (dist > viewRange) {
+                                sampleTint = FOG_DARKNESS;
+                            } else if (dist > fadeStart) {
+                                float fadeProgress = (dist - fadeStart) / (FOG_FADE_DISTANCE * tileSize);
+                                fadeProgress = smoothstep(fadeProgress); // Apply smoothstep for even softer transition
+                                sampleTint = 1.0f - (fadeProgress * (1.0f - FOG_DARKNESS));
+                            }
+                            
+                            tintSum += sampleTint;
+                            sampleCount++;
+                        }
                     }
+                    
+                    tint = tintSum / sampleCount; // Average the samples for blur effect
                 }
 
                 if (tint > FOG_DARKNESS - 0.01f) {
