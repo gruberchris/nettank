@@ -39,7 +39,7 @@ All keyboard keys and gamepad buttons are fully customizable! See [INPUT_CUSTOMI
 
 ## Launching The Game Client
 
-Note: Java 21 Runtime is required to run the game client or the server.
+Note: Java 25 Runtime is required to run the game client or the server.
 
 The game client is a universal jar file that can be run on any platform with Java installed. To run the game client, use the following command:
 
