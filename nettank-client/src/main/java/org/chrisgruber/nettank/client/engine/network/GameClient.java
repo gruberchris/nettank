@@ -339,8 +339,12 @@ public class GameClient implements Runnable {
                 case NetworkProtocol.SHOOT_COOLDOWN:
                     // SHT_CDN;<cooldownRemainingMs> (2 parts)
                     if (parts.length >= 2) {
-                        long cooldownMs = Long.parseLong(parts[1]);
-                        networkCallbackHandler.updateShootCooldown(cooldownMs);
+                        try {
+                            long cooldownMs = Long.parseLong(parts[1]);
+                            networkCallbackHandler.updateShootCooldown(cooldownMs);
+                        } catch (NumberFormatException e) {
+                            logger.error("Invalid cooldown value in SHOOT_COOLDOWN message: '{}'. Full message: {}", parts[1], message, e);
+                        }
                     } else {
                         logger.error("Malformed SHOOT_COOLDOWN message: Expected 2 parts, got {}", parts.length);
                     }
