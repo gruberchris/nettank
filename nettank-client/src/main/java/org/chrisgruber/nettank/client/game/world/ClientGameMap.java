@@ -21,6 +21,7 @@ public class ClientGameMap {
     private final TileType[][] tiles; // Client-specific tile grid for rendering
 
     private static final float FOG_DARKNESS = 0.15f;
+    private static final float FOG_FADE_DISTANCE = 2.0f; // Tiles for smooth transition
     private static final Random random = new Random();
 
     public ClientGameMap(int width, int height) {
@@ -68,8 +69,16 @@ public class ClientGameMap {
                 float tint = 1.0f;
 
                 if (!isSpectating && fogCenter != null) {
-                    float distSq = fogCenter.distanceSquared(tileCenterX, tileCenterY);
-                    if (distSq > renderRangeSq) { tint = FOG_DARKNESS; }
+                    float dist = fogCenter.distance(tileCenterX, tileCenterY);
+                    float fadeStart = viewRange - (FOG_FADE_DISTANCE * tileSize);
+                    
+                    if (dist > viewRange) {
+                        tint = FOG_DARKNESS;
+                    } else if (dist > fadeStart) {
+                        // Smooth gradient transition
+                        float fadeProgress = (dist - fadeStart) / (FOG_FADE_DISTANCE * tileSize);
+                        tint = 1.0f - (fadeProgress * (1.0f - FOG_DARKNESS));
+                    }
                 }
 
                 if (tint > FOG_DARKNESS - 0.01f) {
