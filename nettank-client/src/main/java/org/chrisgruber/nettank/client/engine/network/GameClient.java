@@ -148,218 +148,198 @@ public class GameClient implements Runnable {
     }
 
     private void parseServerMessage(String message) {
-        logger.trace("Parsing server message: {}", message); // Use Trace
+        logger.trace("Parsing server message: {}", message);
 
         try {
             String[] parts = message.split(";");
-
             if (parts.length == 0) return;
 
             String command = parts[0];
 
             switch (command) {
-                case NetworkProtocol.ASSIGN_ID:
-                    // AID;<yourId>;<colorR>;<colorG>;<colorB> (5 parts)
+                case NetworkProtocol.ASSIGN_ID -> {
                     if (parts.length >= 5) {
-                        int id = Integer.parseInt(parts[1]);    // Ignore color parts r,g,b (parts[2],[3],[4]) here - they come with NEW_PLAYER
-                        networkCallbackHandler.setLocalPlayerId(id);
+                        networkCallbackHandler.setLocalPlayerId(Integer.parseInt(parts[1]));
                     } else {
                         logger.error("Malformed ASSIGN_ID message: Expected 5 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.NEW_PLAYER:
-                    // NEW;<id>;<x>;<y>;<rot>;<name>;<r>;<g>;<b> (9 parts)
-                    // Lives info comes separately via PLAYER_LIVES
+                }
+                case NetworkProtocol.NEW_PLAYER -> {
                     if (parts.length >= 9) {
-                        int id = Integer.parseInt(parts[1]);
-                        float x = Float.parseFloat(parts[2]);
-                        float y = Float.parseFloat(parts[3]);
-                        float rot = Float.parseFloat(parts[4]);
-                        String name = parts[5];
-                        float r = Float.parseFloat(parts[6]);
-                        float g = Float.parseFloat(parts[7]);
-                        float b = Float.parseFloat(parts[8]);
-                        networkCallbackHandler.addOrUpdateTank(id, x, y, rot, name, r, g, b);
+                        networkCallbackHandler.addOrUpdateTank(
+                            Integer.parseInt(parts[1]),
+                            Float.parseFloat(parts[2]),
+                            Float.parseFloat(parts[3]),
+                            Float.parseFloat(parts[4]),
+                            parts[5],
+                            Float.parseFloat(parts[6]),
+                            Float.parseFloat(parts[7]),
+                            Float.parseFloat(parts[8])
+                        );
                     } else {
                         logger.error("Malformed NEW_PLAYER message: Expected 9 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.PLAYER_UPDATE:
-                    // UPD;<id>;<x>;<y>;<rot> (5 parts)
+                }
+                case NetworkProtocol.PLAYER_UPDATE -> {
                     if (parts.length >= 5) {
-                        int id = Integer.parseInt(parts[1]);
-                        float x = Float.parseFloat(parts[2]);
-                        float y = Float.parseFloat(parts[3]);
-                        float rot = Float.parseFloat(parts[4]);
-                        networkCallbackHandler.updateTankState(id, x, y, rot, false);
+                        networkCallbackHandler.updateTankState(
+                            Integer.parseInt(parts[1]),
+                            Float.parseFloat(parts[2]),
+                            Float.parseFloat(parts[3]),
+                            Float.parseFloat(parts[4]),
+                            false
+                        );
                     } else {
                         logger.error("Malformed PLAYER_UPDATE message: Expected 5 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.PLAYER_LEFT:
-                    // LEF;<id> (2 parts)
+                }
+                case NetworkProtocol.PLAYER_LEFT -> {
                     if (parts.length >= 2) {
-                        int id = Integer.parseInt(parts[1]);
-                        networkCallbackHandler.removeTank(id);
-                    }
-                    else {
+                        networkCallbackHandler.removeTank(Integer.parseInt(parts[1]));
+                    } else {
                         logger.error("Malformed PLAYER_LEFT message: Expected 2 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.SHOOT:
-                    // SHO;<bulletId>;<ownerId>;<x>;<y>;<dirX>;<dirY> (6 parts now)
+                }
+                case NetworkProtocol.SHOOT -> {
                     if (parts.length >= 7) {
-                        UUID bulletId = UUID.fromString(parts[1]);
-                        int ownerId = Integer.parseInt(parts[2]);
-                        float x = Float.parseFloat(parts[3]);
-                        float y = Float.parseFloat(parts[4]);
-                        float dirX = Float.parseFloat(parts[5]);
-                        float dirY = Float.parseFloat(parts[6]);
-                        networkCallbackHandler.spawnBullet(bulletId, ownerId, x, y, dirX, dirY);
+                        networkCallbackHandler.spawnBullet(
+                            UUID.fromString(parts[1]),
+                            Integer.parseInt(parts[2]),
+                            Float.parseFloat(parts[3]),
+                            Float.parseFloat(parts[4]),
+                            Float.parseFloat(parts[5]),
+                            Float.parseFloat(parts[6])
+                        );
                     } else {
                         logger.error("Malformed SHOOT message: Expected 7 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.HIT:
-                    // HIT;<targetId>;<shooterId>;<bulletId>;<damage> (5 parts)
+                }
+                case NetworkProtocol.HIT -> {
                     if (parts.length >= 5) {
-                        int t = Integer.parseInt(parts[1]);
-                        int s = Integer.parseInt(parts[2]);
-                        UUID uuid = UUID.fromString(parts[3]);
-                        int damage = Integer.parseInt(parts[4]);
-                        networkCallbackHandler.handlePlayerHit(t, s, uuid, damage);
-                    }
-                    else {
+                        networkCallbackHandler.handlePlayerHit(
+                            Integer.parseInt(parts[1]),
+                            Integer.parseInt(parts[2]),
+                            UUID.fromString(parts[3]),
+                            Integer.parseInt(parts[4])
+                        );
+                    } else {
                         logger.error("Malformed HIT message: Expected 5 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.DESTROYED:
-                    // DES;<targetId>;<shooterId> (3 parts)
+                }
+                case NetworkProtocol.DESTROYED -> {
                     if (parts.length >= 3) {
-                        int t = Integer.parseInt(parts[1]);
-                        int s = Integer.parseInt(parts[2]);
-                        networkCallbackHandler.handlePlayerDestroyed(t, s);
-                    }
-                    else {
+                        networkCallbackHandler.handlePlayerDestroyed(
+                            Integer.parseInt(parts[1]),
+                            Integer.parseInt(parts[2])
+                        );
+                    } else {
                         logger.error("Malformed DESTROYED message: Expected 3 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.PLAYER_LIVES:
-                    // LIV;<id>;<lives> (3 parts)
+                }
+                case NetworkProtocol.PLAYER_LIVES -> {
                     if (parts.length >= 3) {
-                        int id = Integer.parseInt(parts[1]);
-                        int l = Integer.parseInt(parts[2]);
-                        networkCallbackHandler.updatePlayerLives(id, l);
-                    }
-                    else {
+                        networkCallbackHandler.updatePlayerLives(
+                            Integer.parseInt(parts[1]),
+                            Integer.parseInt(parts[2])
+                        );
+                    } else {
                         logger.error("Malformed PLAYER_LIVES message: Expected 3 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.GAME_STATE:
-                    // GST;<stateName>;<timeData> (3 parts)
+                }
+                case NetworkProtocol.GAME_STATE -> {
                     if (parts.length >= 3) {
                         try {
-                            GameState s = GameState.valueOf(parts[1]);
-                            long t = Long.parseLong(parts[2]);
-                            networkCallbackHandler.setGameState(s, t);
-                        }
-                        catch (IllegalArgumentException e) {
+                            networkCallbackHandler.setGameState(
+                                GameState.valueOf(parts[1]),
+                                Long.parseLong(parts[2])
+                            );
+                        } catch (IllegalArgumentException e) {
                             logger.error("Received invalid game state: {}", parts[1], e);
                         }
-                    } else { logger.error("Malformed GAME_STATE message: Expected 3 parts, got {}", parts.length); }
-                    break;
-                case NetworkProtocol.ANNOUNCE:
-                    // ANN;<messageText> (2+ parts)
+                    } else {
+                        logger.error("Malformed GAME_STATE message: Expected 3 parts, got {}", parts.length);
+                    }
+                }
+                case NetworkProtocol.ANNOUNCE -> {
                     if (parts.length >= 2) {
                         networkCallbackHandler.addAnnouncement(parts[1]);
-                    }
-                    else {
+                    } else {
                         logger.error("Malformed ANNOUNCE message: Expected 2+ parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.ROUND_OVER:
-                    // ROV;<winnerId>;<winnerName>;<finalTimeMillis> (4 parts)
-                    // Client doesn't need to parse this directly, info is in announcement now
+                }
+                case NetworkProtocol.ROUND_OVER -> {
                     if (parts.length >= 4) {
                         logger.trace("Received ROUND_OVER message (parsed by announcement)");
-                    }
-                    else {
+                    } else {
                         logger.error("Malformed ROUND_OVER message: Expected 4 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.RESPAWN:
-                    // RSP;<id>;<x>;<y>;<rotation> (5 parts)
+                }
+                case NetworkProtocol.RESPAWN -> {
                     if (parts.length >= 5) {
-                        int id = Integer.parseInt(parts[1]);
-                        float x = Float.parseFloat(parts[2]);
-                        float y = Float.parseFloat(parts[3]);
-                        float rotation = Float.parseFloat(parts[4]);
-                        logger.debug("Received RESPAWN for player {}", id);
-                        networkCallbackHandler.updateTankState(id, x, y, rotation, true);
-                        // Server will send PLAYER_LIVES shortly after
+                        logger.debug("Received RESPAWN for player {}", parts[1]);
+                        networkCallbackHandler.updateTankState(
+                            Integer.parseInt(parts[1]),
+                            Float.parseFloat(parts[2]),
+                            Float.parseFloat(parts[3]),
+                            Float.parseFloat(parts[4]),
+                            true
+                        );
                     } else {
                         logger.error("Malformed RESPAWN message: Expected 5 parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.SPECTATE_START:
+                }
+                case NetworkProtocol.SPECTATE_START -> {
                     if (parts.length >= 2) {
                         spectateEndTimeMillis = Long.parseLong(parts[1]);
                         setSpectatorMode(true);
-                        // TODO: Maybe set camera to follow the player that killed you?
                     }
-                    break;
-                case NetworkProtocol.SPECTATE_END:
-                    setSpectatorMode(false);
-                    break;
-                case NetworkProtocol.SPECTATE_PERMANENT:
+                }
+                case NetworkProtocol.SPECTATE_END -> setSpectatorMode(false);
+                case NetworkProtocol.SPECTATE_PERMANENT -> {
                     setSpectatorMode(true);
-                    spectateEndTimeMillis = -1; // Permanent spectating
-                    break;
-                case NetworkProtocol.MAP_INFO:
+                    spectateEndTimeMillis = -1;
+                }
+                case NetworkProtocol.MAP_INFO -> {
                     if (parts.length == 4) {
-                        int widthTiles = Integer.parseInt(parts[1]);
-                        int heightTiles = Integer.parseInt(parts[2]);
-                        float tileSize = Float.parseFloat(parts[3]);
-                        networkCallbackHandler.storeMapInfo(widthTiles, heightTiles, tileSize);
+                        networkCallbackHandler.storeMapInfo(
+                            Integer.parseInt(parts[1]),
+                            Integer.parseInt(parts[2]),
+                            Float.parseFloat(parts[3])
+                        );
                     } else {
                         logger.error("Received malformed MAP_INFO: Expected 4 parts got {} message was: {}", parts.length, message);
                     }
-                    break;
-                case NetworkProtocol.ERROR_MSG:
-                    // ERR;<errorMessage> (2+ parts)
-                    if(parts.length >= 2) {
-                        String errorMsg = parts[1];
-                        logger.error("Received error message from server: {}", errorMsg);
-                        networkCallbackHandler.connectionFailed(errorMsg); // Notify game logic
-                        stop(); // Stop this client
+                }
+                case NetworkProtocol.ERROR_MSG -> {
+                    if (parts.length >= 2) {
+                        logger.error("Received error message from server: {}", parts[1]);
+                        networkCallbackHandler.connectionFailed(parts[1]);
+                        stop();
                     } else {
                         logger.error("Malformed ERROR_MSG message: Expected 2+ parts, got {}", parts.length);
                     }
-                    break;
-                case NetworkProtocol.SHOOT_COOLDOWN:
-                    // SHT_CDN;<cooldownRemainingMs> (2 parts)
+                }
+                case NetworkProtocol.SHOOT_COOLDOWN -> {
                     if (parts.length >= 2) {
                         try {
-                            long cooldownMs = Long.parseLong(parts[1]);
-                            networkCallbackHandler.updateShootCooldown(cooldownMs);
+                            networkCallbackHandler.updateShootCooldown(Long.parseLong(parts[1]));
                         } catch (NumberFormatException e) {
                             logger.error("Invalid cooldown value in SHOOT_COOLDOWN message: '{}'. Full message: {}", parts[1], message, e);
                         }
                     } else {
                         logger.error("Malformed SHOOT_COOLDOWN message: Expected 2 parts, got {}", parts.length);
                     }
-                    break;
-                default:
-                    logger.warn("Unknown message command from server: {}", command); // Changed from error to warn
+                }
+                default -> logger.warn("Unknown message command from server: {}", command);
             }
         } catch (NumberFormatException e) {
             logger.error("Failed to parse number in message: {}", message, e);
-        } catch (ArrayIndexOutOfBoundsException e) { // Catch specific parsing errors
+        } catch (ArrayIndexOutOfBoundsException e) {
             logger.error("Malformed message received (ArrayIndexOutOfBounds): {}", message, e);
         } catch (Exception e) {
             logger.error("Error parsing server message {}", message, e);
         } finally {
-            logger.trace("Finished parsing server message."); // Use Trace
+            logger.trace("Finished parsing server message.");
         }
     }
 
