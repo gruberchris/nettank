@@ -259,9 +259,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             logger.error("Failed to initialize game resources", e);
 
             // Use SwingUtilities for UI thread safety with JOptionPane
-            SwingUtilities.invokeLater(() -> {
-                JOptionPane.showMessageDialog(null, "Failed to load game resources:\n" + e.getMessage(), "Initialization Error", JOptionPane.ERROR_MESSAGE);
-            });
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, "Failed to load game resources:\n" + e.getMessage(), "Initialization Error", JOptionPane.ERROR_MESSAGE));
 
             // Signal engine to close if init fails critically
             if (windowHandle != NULL) {
@@ -273,9 +271,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         } catch (Exception e) {
             logger.error("Unexpected error during game initialization", e);
 
-            SwingUtilities.invokeLater(() -> {
-                JOptionPane.showMessageDialog(null, "Unexpected error initializing game:\n" + e.getMessage(), "Initialization Error", JOptionPane.ERROR_MESSAGE);
-            });
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, "Unexpected error initializing game:\n" + e.getMessage(), "Initialization Error", JOptionPane.ERROR_MESSAGE));
 
             if (windowHandle != NULL) {
                 glfwSetWindowShouldClose(windowHandle, true);
@@ -1189,9 +1185,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         lastAnnouncementTime = System.currentTimeMillis();
 
         // Show message and signal window close
-        SwingUtilities.invokeLater(() -> {
-            JOptionPane.showMessageDialog(null, "Connection failed: " + reason + "\nExiting.", "Connection Error", JOptionPane.ERROR_MESSAGE);
-        });
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, "Connection failed: " + reason + "\nExiting.", "Connection Error", JOptionPane.ERROR_MESSAGE));
 
         if (windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
     }
@@ -1205,9 +1199,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         announcements.add("DISCONNECTED");
         lastAnnouncementTime = System.currentTimeMillis();
 
-        SwingUtilities.invokeLater(() -> {
-            JOptionPane.showMessageDialog(null, "Disconnected from server.\nExiting.", "Disconnected", JOptionPane.INFORMATION_MESSAGE);
-        });
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, "Disconnected from server.\nExiting.", "Disconnected", JOptionPane.INFORMATION_MESSAGE));
 
         if (windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
     }
