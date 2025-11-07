@@ -740,8 +740,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     public void handleGameInput(float deltaTime) {
         if (inputHandler == null) return;
 
-        if (inputHandler.isKeyDown(GLFW_KEY_ESCAPE)) {
-            logger.info("Escape key pressed. Closing game window.");
+        if (inputHandler.isExitPressed()) {
+            logger.info("Exit key pressed. Closing game window.");
             if(windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
             return;
         }

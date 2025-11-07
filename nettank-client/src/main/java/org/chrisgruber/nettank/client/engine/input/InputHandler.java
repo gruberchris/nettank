@@ -19,17 +19,33 @@ public class InputHandler {
     private final Map<Integer, Boolean> keysDown = new HashMap<>();
     private final Set<Integer> keysPressed = new HashSet<>(); // Keys pressed this frame
     
+    // Configuration
+    private InputConfig config;
+    private int keyForward;
+    private int keyBackward;
+    private int keyRotateLeft;
+    private int keyRotateRight;
+    private int keyShoot;
+    private int keyExit;
+    
     // Gamepad support
     private int gamepadId = -1; // GLFW joystick ID (-1 means no gamepad)
     private boolean gamepadConnected = false;
     private boolean previousShootButton = false; // Track button state for press detection
     
-    // Gamepad configuration
-    private static final float TRIGGER_THRESHOLD = 0.1f; // Deadzone for triggers
-    private static final float STICK_DEADZONE = 0.2f; // Deadzone for analog sticks
-    private static final float ROTATION_SENSITIVITY = 1.0f; // Multiplier for rotation speed
+    // Gamepad configuration (loaded from config)
+    private int gamepadForwardAxis;
+    private int gamepadBackwardAxis;
+    private int gamepadRotateAxis;
+    private int gamepadShootButton;
+    private float stickDeadzone;
+    private float triggerThreshold;
+    private float rotationSensitivity;
 
     public InputHandler(long window) {
+        // Load configuration
+        loadConfiguration();
+        
         // Setup key callback
         glfwSetKeyCallback(window, (win, key, scancode, action, mods) -> {
             keyCallback(key, action);
@@ -37,6 +53,33 @@ public class InputHandler {
         
         // Detect connected gamepad
         detectGamepad();
+    }
+    
+    private void loadConfiguration() {
+        config = InputConfig.load();
+        
+        // Map keyboard keys
+        keyForward = InputConfig.stringToKeyCode(config.keyboard.forward);
+        keyBackward = InputConfig.stringToKeyCode(config.keyboard.backward);
+        keyRotateLeft = InputConfig.stringToKeyCode(config.keyboard.rotateLeft);
+        keyRotateRight = InputConfig.stringToKeyCode(config.keyboard.rotateRight);
+        keyShoot = InputConfig.stringToKeyCode(config.keyboard.shoot);
+        keyExit = InputConfig.stringToKeyCode(config.keyboard.exit);
+        
+        // Map gamepad controls
+        gamepadForwardAxis = InputConfig.stringToGamepadAxis(config.gamepad.forward);
+        gamepadBackwardAxis = InputConfig.stringToGamepadAxis(config.gamepad.backward);
+        gamepadRotateAxis = InputConfig.stringToGamepadAxis(config.gamepad.rotateAxis);
+        gamepadShootButton = InputConfig.stringToGamepadButton(config.gamepad.shoot);
+        
+        // Load gamepad sensitivity settings
+        stickDeadzone = config.gamepad.stickDeadzone;
+        triggerThreshold = config.gamepad.triggerThreshold;
+        rotationSensitivity = config.gamepad.rotationSensitivity;
+        
+        logger.info("Input configuration loaded - Forward: {}, Backward: {}, RotateLeft: {}, RotateRight: {}, Shoot: {}",
+                config.keyboard.forward, config.keyboard.backward, config.keyboard.rotateLeft, 
+                config.keyboard.rotateRight, config.keyboard.shoot);
     }
 
     public void keyCallback(int key, int action) {
@@ -94,72 +137,72 @@ public class InputHandler {
     }
     
     /**
-     * Returns true if forward input is active (W key or Right Trigger)
+     * Returns true if forward input is active (configured key or trigger)
      */
     public boolean isForwardPressed() {
         // Keyboard input
-        if (isKeyDown(GLFW_KEY_W)) {
+        if (isKeyDown(keyForward)) {
             return true;
         }
         
-        // Gamepad input - Right Trigger
+        // Gamepad input - configured trigger
         if (gamepadConnected) {
-            float rightTrigger = getGamepadAxis(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER);
-            return rightTrigger > TRIGGER_THRESHOLD;
+            float trigger = getGamepadAxis(gamepadForwardAxis);
+            return trigger > triggerThreshold;
         }
         
         return false;
     }
     
     /**
-     * Returns true if backward input is active (S key or Left Trigger)
+     * Returns true if backward input is active (configured key or trigger)
      */
     public boolean isBackwardPressed() {
         // Keyboard input
-        if (isKeyDown(GLFW_KEY_S)) {
+        if (isKeyDown(keyBackward)) {
             return true;
         }
         
-        // Gamepad input - Left Trigger
+        // Gamepad input - configured trigger
         if (gamepadConnected) {
-            float leftTrigger = getGamepadAxis(GLFW_GAMEPAD_AXIS_LEFT_TRIGGER);
-            return leftTrigger > TRIGGER_THRESHOLD;
+            float trigger = getGamepadAxis(gamepadBackwardAxis);
+            return trigger > triggerThreshold;
         }
         
         return false;
     }
     
     /**
-     * Returns true if rotate left input is active (A key or Right Stick left)
+     * Returns true if rotate left input is active (configured key or stick)
      */
     public boolean isRotateLeftPressed() {
         // Keyboard input
-        if (isKeyDown(GLFW_KEY_A)) {
+        if (isKeyDown(keyRotateLeft)) {
             return true;
         }
         
-        // Gamepad input - Right Stick horizontal (negative = left)
+        // Gamepad input - configured stick (negative = left)
         if (gamepadConnected) {
-            float rightStickX = getGamepadAxis(GLFW_GAMEPAD_AXIS_RIGHT_X);
-            return rightStickX < -STICK_DEADZONE;
+            float stickValue = getGamepadAxis(gamepadRotateAxis);
+            return stickValue < -stickDeadzone;
         }
         
         return false;
     }
     
     /**
-     * Returns true if rotate right input is active (D key or Right Stick right)
+     * Returns true if rotate right input is active (configured key or stick)
      */
     public boolean isRotateRightPressed() {
         // Keyboard input
-        if (isKeyDown(GLFW_KEY_D)) {
+        if (isKeyDown(keyRotateRight)) {
             return true;
         }
         
-        // Gamepad input - Right Stick horizontal (positive = right)
+        // Gamepad input - configured stick (positive = right)
         if (gamepadConnected) {
-            float rightStickX = getGamepadAxis(GLFW_GAMEPAD_AXIS_RIGHT_X);
-            return rightStickX > STICK_DEADZONE;
+            float stickValue = getGamepadAxis(gamepadRotateAxis);
+            return stickValue > stickDeadzone;
         }
         
         return false;
@@ -170,41 +213,41 @@ public class InputHandler {
      * Returns 0 if using keyboard, or analog stick value if using gamepad
      */
     public float getRotationInput() {
-        // If a keyboard is being used, return digital values
-        if (isKeyDown(GLFW_KEY_A) || isKeyDown(GLFW_KEY_D)) {
-            if (isKeyDown(GLFW_KEY_A)) return -1.0f;
-            if (isKeyDown(GLFW_KEY_D)) return 1.0f;
+        // If keyboard is being used, return digital values
+        if (isKeyDown(keyRotateLeft) || isKeyDown(keyRotateRight)) {
+            if (isKeyDown(keyRotateLeft)) return -1.0f;
+            if (isKeyDown(keyRotateRight)) return 1.0f;
             return 0.0f;
         }
         
         // Gamepad analog input
         if (gamepadConnected) {
-            float rightStickX = getGamepadAxis(GLFW_GAMEPAD_AXIS_RIGHT_X);
+            float stickValue = getGamepadAxis(gamepadRotateAxis);
             
             // Apply deadzone
-            if (Math.abs(rightStickX) < STICK_DEADZONE) {
+            if (Math.abs(stickValue) < stickDeadzone) {
                 return 0.0f;
             }
             
             // Apply sensitivity and return analog value
-            return rightStickX * ROTATION_SENSITIVITY;
+            return stickValue * rotationSensitivity;
         }
         
         return 0.0f;
     }
     
     /**
-     * Returns true if shoot input is pressed (Space key or A/X button)
+     * Returns true if shoot input is pressed (configured key or button)
      */
     public boolean isShootPressed() {
         // Keyboard input
-        if (isKeyPressed(GLFW_KEY_SPACE)) {
+        if (isKeyPressed(keyShoot)) {
             return true;
         }
         
-        // Gamepad input - A button (Xbox) / X button (PlayStation)
+        // Gamepad input - configured button
         if (gamepadConnected) {
-            boolean currentShootButton = getGamepadButton(GLFW_GAMEPAD_BUTTON_A);
+            boolean currentShootButton = getGamepadButton(gamepadShootButton);
             
             // Detect button press (transition from not pressed to pressed)
             boolean pressed = currentShootButton && !previousShootButton;
@@ -214,6 +257,13 @@ public class InputHandler {
         }
         
         return false;
+    }
+    
+    /**
+     * Returns true if exit key is pressed
+     */
+    public boolean isExitPressed() {
+        return isKeyDown(keyExit);
     }
     
     /**

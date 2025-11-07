@@ -19,6 +19,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Gson for JSON configuration -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
@@ -225,6 +232,7 @@
                     <include>**/*.vert</include>
                     <include>**/*.frag</include>
                     <include>**/*.png</include>
+                    <include>**/*.json</include>
                     <include>logback.xml</include>
                 </includes>
             </resource>
