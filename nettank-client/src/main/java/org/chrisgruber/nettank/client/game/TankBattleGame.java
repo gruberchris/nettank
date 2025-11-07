@@ -671,7 +671,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 float textWidth = uiManager.getTextWidth(cooldownText, UI_TEXT_SCALE_STATUS);
                 float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
                 float y = windowHeight - 40; // Near bottom of screen
-                uiManager.drawText(cooldownText, x, y, UI_TEXT_SCALE_STATUS, Colors.BLUE);
+                uiManager.drawText(cooldownText, x, y, UI_TEXT_SCALE_STATUS, Colors.WHITE);
             }
         }
 
