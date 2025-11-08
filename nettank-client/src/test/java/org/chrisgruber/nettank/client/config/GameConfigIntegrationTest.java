@@ -85,11 +85,11 @@ class GameConfigIntegrationTest {
             """;
         Files.writeString(configFile, invalidConfig);
         
-        // Load should clamp to max 4K
+        // Load should clamp to max 4k resolution
         GameConfig config = GameConfig.load();
         assertEquals("TestUser", config.playerName);
-        assertEquals(3840, config.display.width);  // Clamped to 4K
-        assertEquals(2160, config.display.height); // Clamped to 4K
+        assertEquals(3840, config.display.width);  // Clamped to 4k resolution
+        assertEquals(2160, config.display.height); // Clamped to 4k resolution
     }
 
     @Test
@@ -163,7 +163,7 @@ class GameConfigIntegrationTest {
         GameConfig config2 = GameConfig.load();
         assertEquals("TankMaster", config2.playerName);
         
-        // 4. User changes resolution to 4K
+        // 4. User changes resolution to 4k resolution and enables fullscreen
         config2.applyResolutionPreset(GameConfig.ResolutionPreset.UHD_4K);
         config2.display.fullscreen = true;
         config2.save();
