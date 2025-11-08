@@ -29,6 +29,11 @@ public class ClientHandler implements Runnable {
     private static final long REGISTRATION_TIMEOUT_MS = 5000; // 5 seconds
     private final long connectionStartTime;
 
+    // Heartbeat timeout - configurable via system property or default to 30 seconds
+    private static final long DEFAULT_HEARTBEAT_TIMEOUT_MS = 30000; // 30 seconds
+    private final long heartbeatTimeoutMs;
+    private volatile long lastActivityTime;
+
     // --- Send Queue ---
     private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>();
     private Thread senderThread;
@@ -41,6 +46,20 @@ public class ClientHandler implements Runnable {
         this.socket = socket;
         this.server = server;
         this.connectionStartTime = System.currentTimeMillis();
+        this.lastActivityTime = System.currentTimeMillis();
+        
+        // Allow configuring heartbeat timeout via system property
+        long configuredTimeout = DEFAULT_HEARTBEAT_TIMEOUT_MS;
+        String timeoutProperty = System.getProperty("nettank.heartbeat.timeout.ms");
+        if (timeoutProperty != null) {
+            try {
+                configuredTimeout = Long.parseLong(timeoutProperty);
+                logger.info("Using configured heartbeat timeout: {}ms", configuredTimeout);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid heartbeat timeout property, using default: {}ms", DEFAULT_HEARTBEAT_TIMEOUT_MS);
+            }
+        }
+        this.heartbeatTimeoutMs = configuredTimeout;
     }
 
     public void setPlayerInfo(int id, String name) {
@@ -77,10 +96,20 @@ public class ClientHandler implements Runnable {
 
             String clientMessage;
             while (running && !Thread.currentThread().isInterrupted()) {
+                long currentTime = System.currentTimeMillis();
+                
                 // Check registration timeout for unregistered clients
-                if (playerId == -1 && (System.currentTimeMillis() - connectionStartTime > REGISTRATION_TIMEOUT_MS)) {
+                if (playerId == -1 && (currentTime - connectionStartTime > REGISTRATION_TIMEOUT_MS)) {
                     logger.debug("Client failed to register within {}ms, closing connection", REGISTRATION_TIMEOUT_MS);
                     closeConnection("Registration timeout");
+                    break;
+                }
+                
+                // Check heartbeat timeout for registered players
+                if (playerId != -1 && (currentTime - lastActivityTime > heartbeatTimeoutMs)) {
+                    logger.warn("Player {} ({}ms) idle, no heartbeat received for {}ms, disconnecting", 
+                            playerId, currentTime - lastActivityTime, heartbeatTimeoutMs);
+                    closeConnection("Heartbeat timeout");
                     break;
                 }
 
@@ -102,6 +131,10 @@ public class ClientHandler implements Runnable {
                     }
 
                     logger.debug("Client {} received: {}", playerId, clientMessage);
+                    
+                    // Update last activity time on any message received
+                    lastActivityTime = System.currentTimeMillis();
+                    
                     parseClientMessage(clientMessage);
 
                 } catch (SocketException e) {
@@ -328,6 +361,7 @@ public class ClientHandler implements Runnable {
                 case NetworkProtocol.CONNECT -> handleConnectMessage(parts);
                 case NetworkProtocol.INPUT -> handleInputMessage(parts);
                 case NetworkProtocol.SHOOT_CMD -> handleShootCommand();
+                case NetworkProtocol.PING -> handlePingMessage();
                 default -> {
                     logger.warn("Unknown command from client {}: {}", playerId, command);
                     sendMessage(NetworkProtocol.ERROR_MSG + ";Unknown command");
@@ -397,7 +431,14 @@ public class ClientHandler implements Runnable {
         server.handlePlayerShootMainWeaponInput(playerId);
     }
 
-    // Non-blocking: Adds message to the queue for the sender thread
+    private void handlePingMessage() {
+        // Heartbeat received - activity time already updated in the reader loop
+        logger.trace("Heartbeat received from player {}", playerId);
+        // Optionally send PONG response
+        sendMessage(NetworkProtocol.PONG);
+    }
+
+    // Non-blocking: Adds a message to the queue for the sender thread
     public void sendMessage(String message) {
         if (!running || shuttingDown) {
             logger.warn("Attempted to queue message for {} but handler not running or shutting down: {}", playerId, message);
