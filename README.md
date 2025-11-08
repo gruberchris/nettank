@@ -2,7 +2,7 @@
 
 A multiplayer top-down 2D tank battle game where players control tanks and try to destroy each other.
 
-![img_1.png](img_1.png)
+![img_1.png](docs/images/img_1.png)
 
 ## Requirements
 
@@ -37,7 +37,7 @@ NetTank supports any standard gamepad including:
 
 ### Customizing Controls
 
-All keyboard keys and gamepad buttons are fully customizable! See [INPUT_CUSTOMIZATION.md](INPUT_CUSTOMIZATION.md) for:
+All keyboard keys and gamepad buttons are fully customizable! See [INPUT_CUSTOMIZATION.md](docs/INPUT_CUSTOMIZATION.md) for:
 - How to rebind keys and buttons
 - Adjusting gamepad sensitivity and deadzones
 - Example configurations (Arrow keys, ESDF layout, etc.)
@@ -52,7 +52,7 @@ Players can customize additional game settings by editing `~/.nettank/game-confi
 - **Fullscreen Mode** - Toggle fullscreen/windowed mode
 - **VSync** - Enable/disable vertical sync
 
-See [GAME_CONFIG.md](GAME_CONFIG.md) for complete configuration documentation, including:
+See [GAME_CONFIG.md](docs/GAME_CONFIG.md) for complete configuration documentation, including:
 - All supported resolutions (800x600 up to 4K)
 - Configuration examples
 - Troubleshooting tips
