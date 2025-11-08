@@ -27,6 +27,14 @@
             <!-- Version should be defined in parent's dependencyManagement -->
         </dependency>
         <!-- No need to declare slf4j-api again, it's already in parent POM -->
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>6.0.1</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

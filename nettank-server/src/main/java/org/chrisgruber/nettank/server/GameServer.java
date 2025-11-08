@@ -138,10 +138,11 @@ public class GameServer {
 
         logger.info("Server started on {}:{}", serverSocket.getInetAddress().getHostAddress(), port);
 
-        gameLoopThread = new Thread(this::gameLoop);
-        gameLoopThread.setName("GameLoop");
-        gameLoopThread.setDaemon(true); // Game loop shouldn't prevent exit
-        gameLoopThread.start();
+        // Keep game loop as platform thread (CPU-intensive work)
+        gameLoopThread = Thread.ofPlatform()
+            .name("GameLoop")
+            .daemon(true)
+            .start(this::gameLoop);
 
         logger.info("Waiting for client connections...");
 
@@ -237,14 +238,14 @@ public class GameServer {
     // --- Client Thread Management ---
     // This method is called by the start() method to start a new client handler thread for a new player connecting.
     private void startClientThread(ClientHandler handler) {
-        Thread thread = new Thread(handler);
         int tempId = handler.getSocket().getPort();
-        thread.setName("ClientHandler-Main-" + tempId); // Initial name
-        thread.setDaemon(true); // Client handlers shouldn't prevent exit
-        thread.setUncaughtExceptionHandler((t, e) -> logger.error("Uncaught exception in thread {}: {}", t.getName(), e.getMessage(), e));
+        // Use virtual threads for I/O-bound client handling (massive scalability improvement)
+        Thread thread = Thread.ofVirtual()
+            .name("ClientHandler-VT-" + tempId, 0)
+            .uncaughtExceptionHandler((t, e) -> logger.error("Uncaught exception in thread {}: {}", t.getName(), e.getMessage(), e))
+            .start(handler);
         clientHandlerThreads.add(thread);
-        thread.start();
-        logger.info("Started client handler main thread: {}", thread.getName());
+        logger.info("Started client handler virtual thread: {}", thread.getName());
     }
 
     // --- Registration & Removal ---
