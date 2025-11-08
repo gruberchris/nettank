@@ -29,12 +29,30 @@ public class GameClient implements Runnable {
     private long spectateEndTimeMillis = 0;
     private long lastInputSendTime = 0;
     private static final long INPUT_SEND_INTERVAL_MS = 50;
+    
+    // Heartbeat configuration - configurable via system property or default to 10 seconds
+    private static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 10000; // 10 seconds
+    private final long heartbeatIntervalMs;
+    private long lastHeartbeatTime = 0;
 
     public GameClient(String serverIp, int serverPort, String playerName, NetworkCallbackHandler networkCallbackHandler) {
         this.serverIp = serverIp;
         this.serverPort = serverPort;
         this.playerName = playerName;
         this.networkCallbackHandler = networkCallbackHandler;
+        
+        // Allow configuring a heartbeat interval via system property
+        long configuredInterval = DEFAULT_HEARTBEAT_INTERVAL_MS;
+        String intervalProperty = System.getProperty("nettank.heartbeat.interval.ms");
+        if (intervalProperty != null) {
+            try {
+                configuredInterval = Long.parseLong(intervalProperty);
+                logger.info("Using configured heartbeat interval: {}ms", configuredInterval);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid heartbeat interval property, using default: {}ms", DEFAULT_HEARTBEAT_INTERVAL_MS);
+            }
+        }
+        this.heartbeatIntervalMs = configuredInterval;
     }
 
     @Override
@@ -70,6 +88,13 @@ public class GameClient implements Runnable {
                 if (localIn == null) {
                     logger.warn("NetworkClient: Input stream null, breaking.");
                     break;
+                }
+                
+                // Send periodic heartbeat to keep connection alive
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastHeartbeatTime >= heartbeatIntervalMs) {
+                    sendHeartbeat();
+                    lastHeartbeatTime = currentTime;
                 }
 
                 try {
@@ -369,6 +394,12 @@ public class GameClient implements Runnable {
     // Send shoot command
     public void sendShoot() {
         sendMessage(NetworkProtocol.SHOOT_CMD);
+    }
+    
+    // Send heartbeat to keep connection alive
+    private void sendHeartbeat() {
+        logger.trace("Sending heartbeat to server");
+        sendMessage(NetworkProtocol.PING);
     }
 
     public synchronized void stop() {
