@@ -27,7 +27,7 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 # Create a non-root user and group
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
 # Server port
 EXPOSE 5555
