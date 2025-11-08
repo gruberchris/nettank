@@ -1,4 +1,4 @@
-package org.chrisgruber.nettank.server.state; // Example new package
+package org.chrisgruber.nettank.server.state;
 
 import org.chrisgruber.nettank.common.entities.BulletData;
 import org.chrisgruber.nettank.common.entities.TankData;

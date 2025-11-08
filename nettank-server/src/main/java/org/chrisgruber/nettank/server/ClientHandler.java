@@ -25,6 +25,10 @@ public class ClientHandler implements Runnable {
     private int playerId = -1;
     private String playerName = null;
 
+    // Registration timeout
+    private static final long REGISTRATION_TIMEOUT_MS = 5000; // 5 seconds
+    private final long connectionStartTime;
+
     // --- Send Queue ---
     private final BlockingQueue<String> sendQueue = new LinkedBlockingQueue<>();
     private Thread senderThread;
@@ -36,6 +40,7 @@ public class ClientHandler implements Runnable {
     public ClientHandler(Socket socket, GameServer server) {
         this.socket = socket;
         this.server = server;
+        this.connectionStartTime = System.currentTimeMillis();
     }
 
     public void setPlayerInfo(int id, String name) {
@@ -53,7 +58,11 @@ public class ClientHandler implements Runnable {
     // Reader Thread Logic (Original run method renamed)
     private void runReaderLoop() {
         // Name will be set in setPlayerInfo
-        logger.info("Client handler reader loop started.");
+        if (playerId == -1) {
+            logger.debug("Client handler reader loop started.");
+        } else {
+            logger.info("Client handler reader loop started.");
+        }
         running = true; // Mark as running
 
         try {
@@ -68,15 +77,26 @@ public class ClientHandler implements Runnable {
 
             String clientMessage;
             while (running && !Thread.currentThread().isInterrupted()) {
+                // Check registration timeout for unregistered clients
+                if (playerId == -1 && (System.currentTimeMillis() - connectionStartTime > REGISTRATION_TIMEOUT_MS)) {
+                    logger.debug("Client failed to register within {}ms, closing connection", REGISTRATION_TIMEOUT_MS);
+                    closeConnection("Registration timeout");
+                    break;
+                }
+
                 clientMessage = null;
                 try {
                     // Read OUTSIDE lock
                     clientMessage = localIn.readLine();
 
-                    if (!running) break; // Check flag after potential block
+                    if (!running) break; // Check flag after a potential block
 
                     if (clientMessage == null) {
-                        logger.info("Client {} disconnected (end of stream).", playerId);
+                        if (playerId == -1) {
+                            logger.debug("Unregistered client disconnected (end of stream).");
+                        } else {
+                            logger.info("Client {} disconnected (end of stream).", playerId);
+                        }
                         closeConnection("Client disconnected"); // Trigger cleanup
                         break;
                     }
@@ -86,18 +106,30 @@ public class ClientHandler implements Runnable {
 
                 } catch (SocketException e) {
                     if (running && !shuttingDown) {
-                        logger.info("Socket error (read) for client {}: {}", playerId, e.getMessage());
+                        if (playerId == -1) {
+                            logger.debug("Socket error (read) for unregistered client: {}", e.getMessage());
+                        } else {
+                            logger.info("Socket error (read) for client {}: {}", playerId, e.getMessage());
+                        }
                         closeConnection("Socket read error: " + e.getMessage()); // Trigger cleanup
                     } else {
-                        logger.info("SocketException (read) for client {} during shutdown.", playerId);
+                        if (playerId != -1) {
+                            logger.info("SocketException (read) for client {} during shutdown.", playerId);
+                        }
                     }
                     break; // Exit loop
                 } catch (IOException e) {
                     if (running && !shuttingDown) {
-                        logger.error("I/O error (read) for client {}: {}", playerId, e.getMessage());
+                        if (playerId == -1) {
+                            logger.debug("I/O error (read) for unregistered client: {}", e.getMessage());
+                        } else {
+                            logger.error("I/O error (read) for client {}: {}", playerId, e.getMessage());
+                        }
                         closeConnection("IO read error: " + e.getMessage()); // Trigger cleanup
                     } else {
-                        logger.info("IOException (read) for client {} during shutdown.", playerId);
+                        if (playerId != -1) {
+                            logger.info("IOException (read) for client {} during shutdown.", playerId);
+                        }
                     }
                     break; // Exit loop
                 } catch (Exception e) {
@@ -114,9 +146,13 @@ public class ClientHandler implements Runnable {
             logger.error("Critical error starting client reader loop for player {}", playerId, e);
             closeConnection("Reader start error: " + e.getMessage());
         } finally {
-            running = false; // Ensure flag is false
-            logger.info("Client handler reader loop finished for player {}.", playerId);
-            // Ensure sender thread is stopped if reader loop finishes
+            running = false; // Ensure the flag is false
+            if (playerId == -1) {
+                logger.debug("Client handler reader loop finished for unregistered client.");
+            } else {
+                logger.info("Client handler reader loop finished for player {}.", playerId);
+            }
+            // Ensure the sender thread is stopped if the reader loop finishes
             stopSenderThread();
         }
     }
@@ -125,7 +161,11 @@ public class ClientHandler implements Runnable {
     private void runSenderLoop() {
         // Name might be set later by setPlayerInfo
         Thread.currentThread().setName(CLIENT_HANDLER_SENDER + playerId + "-" + (playerName != null ? playerName : "Connecting"));
-        logger.info("Client handler sender loop started for player {}.", playerId);
+        if (playerId == -1) {
+            logger.debug("Client handler sender loop started for unregistered client.");
+        } else {
+            logger.info("Client handler sender loop started for player {}.", playerId);
+        }
 
         PrintWriter localOut;
         Socket localSocket; // Needed for checking output shutdown status
@@ -192,8 +232,12 @@ public class ClientHandler implements Runnable {
             logger.error("Critical error starting or running client sender loop for player {}", playerId, e);
             closeConnection("Sender start/run error: " + e.getMessage());
         } finally {
-            logger.info("Client handler sender loop finished for player {}.", playerId);
-            // If sender stops, the connection is likely dead or closing. Trigger full close.
+            if (playerId == -1) {
+                logger.debug("Client handler sender loop finished for unregistered client.");
+            } else {
+                logger.info("Client handler sender loop finished for player {}.", playerId);
+            }
+            // If the sender stops, the connection is likely dead or closing. Trigger full close.
             if (running) { // Avoid double-closing if closeConnection was already called
                 closeConnection("Sender loop finished unexpectedly");
             }
@@ -204,8 +248,8 @@ public class ClientHandler implements Runnable {
     public void run() {
         String initialThreadName = "ClientHandler-Main-" + (socket != null ? socket.getPort() : "Unknown");
         Thread.currentThread().setName(initialThreadName);
-        logger.info("Client handler main thread started: {}", initialThreadName);
-        running = true; // Set running state here
+        logger.debug("Client handler main thread started: {}", initialThreadName);
+        running = true; // Set the running state here
 
         try {
             synchronized(connectionLock) {
@@ -230,7 +274,11 @@ public class ClientHandler implements Runnable {
             closeConnection("Handler run error");
         } finally {
             // Ensure cleanup happens when run() exits (e.g., reader loop finishes)
-            logger.info("Client handler main thread finished: {}", Thread.currentThread().getName());
+            if (playerId == -1) {
+                logger.debug("Client handler main thread finished: {}", Thread.currentThread().getName());
+            } else {
+                logger.info("Client handler main thread finished: {}", Thread.currentThread().getName());
+            }
             // Close connection if not already shutting down (e.g., reader exited normally)
             if(!shuttingDown) {
                 closeConnection("Handler main thread finished");
@@ -383,7 +431,9 @@ public class ClientHandler implements Runnable {
                 senderThread.join(500); // Wait max 500ms
 
                 if (senderThread.isAlive()) {
-                    logger.warn("Sender thread for player {} did not terminate gracefully after interrupt and join.", playerId);
+                    if (playerId != -1) {
+                        logger.warn("Sender thread for player {} did not terminate gracefully after interrupt and join.", playerId);
+                    }
                 } else {
                     logger.debug("Sender thread for player {} joined successfully.", playerId);
                 }
@@ -405,7 +455,11 @@ public class ClientHandler implements Runnable {
 
         shuttingDown = true;
         running = false;
-        logger.info("Closing connection for player {} ({}) because: {}", playerId, playerName, reason);
+        if (playerId == -1) {
+            logger.debug("Closing connection for unregistered client because: {}", reason);
+        } else {
+            logger.info("Closing connection for player {} ({}) because: {}", playerId, playerName, reason);
+        }
 
         // Step 1: Stop sender thread
         stopSenderThread();
@@ -419,7 +473,11 @@ public class ClientHandler implements Runnable {
         // Step 4: Notify server of player removal
         notifyServerOfRemoval();
 
-        logger.info("Finished closing connection procedures for player {}.", playerId);
+        if (playerId == -1) {
+            logger.debug("Finished closing connection procedures for unregistered client.");
+        } else {
+            logger.info("Finished closing connection procedures for player {}.", playerId);
+        }
     }
 
     private void closeSocketSafely() {
