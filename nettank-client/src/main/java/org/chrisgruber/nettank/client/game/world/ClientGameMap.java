@@ -6,28 +6,32 @@ import org.chrisgruber.nettank.client.engine.graphics.Shader;
 import org.chrisgruber.nettank.client.engine.graphics.Texture;
 import org.chrisgruber.nettank.client.game.entities.ClientEntity;
 import org.chrisgruber.nettank.common.world.GameMapData;
+import org.chrisgruber.nettank.common.world.TerrainTile;
+import org.chrisgruber.nettank.common.world.TerrainType;
+import org.chrisgruber.nettank.common.world.TerrainState;
 import org.joml.Vector2f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 
 public class ClientGameMap {
     private static final Logger logger = LoggerFactory.getLogger(ClientGameMap.class);
 
-    public enum TileType { GRASS, DIRT, WALL }
-
-    private final GameMapData mapData; // Holds common dimensions/utils
-    private final TileType[][] tiles; // Client-specific tile grid for rendering
+    private final GameMapData mapData;
 
     private static final float FOG_DARKNESS = 0.15f;
-    private static final float FOG_FADE_DISTANCE = 3.5f; // Tiles for smooth transition (increased for smoother blur). Try 4.0-5.0 for even softer
+    private static final float FOG_FADE_DISTANCE = 3.5f;
     private static final Random random = new Random();
+
+    private final Map<TerrainType, Texture> terrainTextures = new HashMap<>();
+    private final Map<TerrainState, Texture> stateOverlayTextures = new HashMap<>();
 
     public ClientGameMap(int width, int height) {
         logger.debug("Creating ClientGameMap ({}x{})", width, height);
         this.mapData = new GameMapData(width, height);
-        this.tiles = new TileType[width][height];
         generateSimpleMap();
     }
 
@@ -36,9 +40,28 @@ public class ClientGameMap {
 
         for (int y = 0; y < mapData.getHeightTiles(); y++) {
             for (int x = 0; x < mapData.getWidthTiles(); x++) {
-                tiles[x][y] = random.nextFloat() > 0.3f ? TileType.GRASS : TileType.DIRT;
+                TerrainType type = random.nextFloat() > 0.3f ? TerrainType.GRASS : TerrainType.DIRT;
+                mapData.getTile(x, y).setBaseType(type);
             }
         }
+    }
+
+    public void registerTerrainTexture(TerrainType type, Texture texture) {
+        terrainTextures.put(type, texture);
+    }
+
+    public void registerStateOverlayTexture(TerrainState state, Texture texture) {
+        stateOverlayTextures.put(state, texture);
+    }
+
+    public void onTerrainStateChanged(int x, int y, TerrainState newState) {
+        if (!mapData.isValidTile(x, y)) return;
+
+        TerrainTile tile = mapData.getTile(x, y);
+        tile.setCurrentState(newState);
+        tile.setStateChangeTime(System.currentTimeMillis());
+        
+        logger.debug("Terrain state changed at ({}, {}) to {}", x, y, newState);
     }
     
     // Smoothstep function for smoother interpolation (eases in and out)
@@ -52,8 +75,7 @@ public class ClientGameMap {
 
         shader.bind();
 
-        final float tileSize = GameMapData.DEFAULT_TILE_SIZE; // Use constant from common
-        float renderRangeSq = viewRange * viewRange;
+        final float tileSize = GameMapData.DEFAULT_TILE_SIZE;
         boolean isSpectating = (viewRange == Float.MAX_VALUE);
 
         float viewLeft = camera.getViewLeft();
@@ -75,11 +97,9 @@ public class ClientGameMap {
                 float tint = 1.0f;
 
                 if (!isSpectating && fogCenter != null) {
-                    // Sample multiple points around tile center for smooth blur effect
                     float tintSum = 0.0f;
                     int sampleCount = 0;
                     
-                    // 3x3 sampling grid for blur effect
                     for (float dy = -0.33f; dy <= 0.33f; dy += 0.33f) {
                         for (float dx = -0.33f; dx <= 0.33f; dx += 0.33f) {
                             float sampleX = tileCenterX + (dx * tileSize);
@@ -92,7 +112,7 @@ public class ClientGameMap {
                                 sampleTint = FOG_DARKNESS;
                             } else if (dist > fadeStart) {
                                 float fadeProgress = (dist - fadeStart) / (FOG_FADE_DISTANCE * tileSize);
-                                fadeProgress = smoothstep(fadeProgress); // Apply smoothstep for even softer transition
+                                fadeProgress = smoothstep(fadeProgress);
                                 sampleTint = 1.0f - (fadeProgress * (1.0f - FOG_DARKNESS));
                             }
                             
@@ -101,22 +121,37 @@ public class ClientGameMap {
                         }
                     }
                     
-                    tint = tintSum / sampleCount; // Average the samples for blur effect
+                    tint = tintSum / sampleCount;
                 }
 
                 if (tint > FOG_DARKNESS - 0.01f) {
-                    TileType type = tiles[x][y];
-                    Texture texture = (type == TileType.GRASS) ? grassTexture : dirtTexture;
+                    TerrainTile tile = mapData.getTile(x, y);
+                    TerrainType type = tile.getBaseType();
+                    
+                    Texture texture = terrainTextures.get(type);
+                    if (texture == null) {
+                        texture = (type == TerrainType.GRASS) ? grassTexture : dirtTexture;
+                    }
+                    
                     if (texture == null) continue;
 
                     texture.bind();
                     shader.setUniform3f("u_tintColor", tint, tint, tint);
                     renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                    
+                    if (tile.getCurrentState() == TerrainState.SCORCHED) {
+                        Texture scorchedTexture = stateOverlayTextures.get(TerrainState.SCORCHED);
+                        if (scorchedTexture != null) {
+                            scorchedTexture.bind();
+                            shader.setUniform3f("u_tintColor", tint * 0.7f, tint * 0.7f, tint * 0.7f);
+                            renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                        }
+                    }
                 }
             }
         }
 
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
     }
 
    public boolean isOutOfBounds(ClientEntity clientEntity) {
