@@ -214,11 +214,10 @@ public class ClientHandler implements Runnable {
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             }
 
-            // Start the sender thread (now set as daemon in startClientThread's target Thread)
-            senderThread = new Thread(this::runSenderLoop);
-            senderThread.setName(CLIENT_HANDLER_SENDER + playerId + "-Connecting"); // Temporary name
-            senderThread.setDaemon(true); // Explicitly set daemon here too
-            senderThread.start();
+            // Start the sender thread as virtual thread for I/O-bound sending
+            senderThread = Thread.ofVirtual()
+                .name(CLIENT_HANDLER_SENDER + playerId + "-Connecting")
+                .start(this::runSenderLoop);
 
             // Run the reader loop in the current thread (already set as daemon by GameServer)
             runReaderLoop();
