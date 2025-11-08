@@ -323,21 +323,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // --------------------------------
 
         // --- Update Active Smoke Effects ---
-        List<Integer> playersToRemoveSmoke = new ArrayList<>();
-        for (Map.Entry<Integer, SmokeEffect> entry : activeSmokeEffects.entrySet()) {
+        activeSmokeEffects.entrySet().removeIf(entry -> {
             SmokeEffect smoke = entry.getValue();
             if (smoke.isActive()) {
                 smoke.update(); // Update animation frame
+                return false; // Keep active smoke
             } else {
-                // If smoke was stopped (by respawn/disconnect), mark its player ID for removal
-                playersToRemoveSmoke.add(entry.getKey());
+                // Remove stopped smoke effects
+                logger.trace("Removed stopped smoke effect for player {}.", entry.getKey());
+                return true;
             }
-        }
-        // Remove stopped smoke effects from the map *after* iterating
-        for (Integer playerId : playersToRemoveSmoke) {
-            activeSmokeEffects.remove(playerId);
-            logger.trace("Removed stopped smoke effect for player {}.", playerId);
-        }
+        });
         // ----------------------------------
 
         if (mapInfoReceivedForProcessing && !mapInitialized) {
@@ -346,24 +342,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
 
         // Update local bullet positions for client-side prediction
-        List<ClientBullet> bulletsToRemove = new ArrayList<>();
         long now = System.currentTimeMillis();
 
         killFeedMessages.removeIf(msg -> now >= msg.expiryTimeMillis());
 
+        // Update bullets and remove expired/out-of-bounds in a single pass
         for (ClientBullet bullet : bullets) {
             bullet.update(deltaTime);
-
-            // Check for bullet expiry or out of bounds
-            if ((now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS) ||
-                    (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet))) {
-                bulletsToRemove.add(bullet);
-            }
         }
+        
+        bullets.removeIf(bullet -> 
+            (now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS) ||
+            (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet))
+        );
 
-        bullets.removeAll(bulletsToRemove);
-
-        // Update camera position to follow local tank (if it exists)
+        // Update camera position to follow the local tank (if it exists)
         if (localTank != null) {
             camera.setPosition(localTank.getPosition().x(), localTank.getPosition().y());
             if (mapInitialized && gameMap != null) {
@@ -613,15 +606,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         final float killFeedPaddingX = 10; // Padding from the right edge
         final float killFeedStartY = 10;   // Starting Y position from the top
         final float killFeedLineHeight = 20; // Vertical space between messages (adjust as needed)
-        final float playersCountY = 75; // Y position for Players Count (below Kills + padding)
+        final float playersCountY = 75; // Y position for Player Count (below Kills + padding)
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            uiManager.drawText("HIT POINTS: " + localTank.getHitPoints(), statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.GREEN);
+            uiManager.drawText("HIT POINTS: %d".formatted(localTank.getHitPoints()), 
+                             statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.GREEN);
         } else if (isSpectating) {
             uiManager.drawText("SPECTATING", statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
         } else {
-            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.WHITE);
+            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", 
+                             statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.WHITE);
         }
 
         // Render Timer
@@ -647,15 +642,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Render Player's Kills
         if (localTank != null && !isSpectating) {
-            String killsStr = "KILLS: " + playerKills;
-            // Use statusTextX, the new killsY, a suitable scale, and color
-            uiManager.drawText(killsStr,
-                    statusTextX, killsY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED); // Using secondary scale, white color
+            uiManager.drawText("KILLS: %d".formatted(playerKills),
+                    statusTextX, killsY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED);
         }
 
         if (localTank != null && !isSpectating) {
-            var playersCountStr = "PLAYERS: " + tanks.size();
-            uiManager.drawText(playersCountStr, statusTextX, playersCountY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
+            uiManager.drawText("PLAYERS: %d".formatted(tanks.size()), 
+                             statusTextX, playersCountY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
         }
 
         // Render weapon cooldown indicator (center bottom of screen)
@@ -994,20 +987,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         logger.debug("Player hit: Target={}, Shooter={}, BulletID={}, Damage={}",
                 targetId, shooterId, bulletId, damage);
 
-        // Create a separate list to avoid ConcurrentModificationException
-        List<ClientBullet> bulletsToRemove = new ArrayList<>();
-
-        // Find the bullet to remove
-        for (ClientBullet bullet : bullets) {
+        // Remove bullet directly using removeIf
+        boolean removed = bullets.removeIf(bullet -> {
             if (bullet.getId().equals(bulletId)) {
-                bulletsToRemove.add(bullet);
-                logger.debug("Marked bullet with ID {} for removal", bulletId);
-                break;
+                logger.debug("Removing bullet with ID {}", bulletId);
+                return true;
             }
-        }
-
-        // Remove the bullets outside the iteration
-        bullets.removeAll(bulletsToRemove);
+            return false;
+        });
     }
 
     @Override

@@ -264,8 +264,8 @@ class GameConfigTest {
         GameConfig config = GameConfig.load();
         
         assertEquals("Test", config.playerName);
-        assertEquals(3840, config.display.width);  // Clamped to max 4K
-        assertEquals(2160, config.display.height); // Clamped to max 4K
+        assertEquals(3840, config.display.width);  // Clamped to max 4k resolution
+        assertEquals(2160, config.display.height); // Clamped to max 4k resolution
     }
 
     @Test
@@ -327,7 +327,7 @@ class GameConfigTest {
         assertFalse(Files.exists(nettankDir));
         
         // Load config should create the directory
-        GameConfig config = GameConfig.load();
+        GameConfig.load();
         
         assertTrue(Files.exists(nettankDir));
         assertTrue(Files.isDirectory(nettankDir));
