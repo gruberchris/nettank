@@ -20,28 +20,62 @@ public class TerrainGenerator {
         this.random = new Random(seed);
     }
 
-    public void generateSimpleTerrain(GameMapData mapData) {
-        logger.info("Generating simple random terrain for {}x{} map",
+    public void generateAllGrassMap(GameMapData mapData) {
+        logger.info("Generating all-grass map for {}x{} map",
                 mapData.getWidthTiles(), mapData.getHeightTiles());
 
         for (int y = 0; y < mapData.getHeightTiles(); y++) {
             for (int x = 0; x < mapData.getWidthTiles(); x++) {
                 TerrainTile tile = mapData.getTile(x, y);
-                float rand = random.nextFloat();
+                tile.setBaseType(TerrainType.GRASS);
+            }
+        }
 
-                if (rand < 0.7f) {
+        logger.info("All-grass terrain generation complete");
+    }
+
+    public void generateAllDesertMap(GameMapData mapData) {
+        logger.info("Generating all-desert map for {}x{} map",
+                mapData.getWidthTiles(), mapData.getHeightTiles());
+
+        for (int y = 0; y < mapData.getHeightTiles(); y++) {
+            for (int x = 0; x < mapData.getWidthTiles(); x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+                tile.setBaseType(TerrainType.SAND);
+            }
+        }
+
+        logger.info("All-desert terrain generation complete");
+    }
+
+    public void generateGrassDirtMudMap(GameMapData mapData) {
+        logger.info("Generating grass/dirt/mud map for {}x{} map",
+                mapData.getWidthTiles(), mapData.getHeightTiles());
+
+        int width = mapData.getWidthTiles();
+        int height = mapData.getHeightTiles();
+
+        // Divide map into thirds horizontally: Grass (left) | Mud (center) | Dirt (right)
+        int thirdWidth = width / 3;
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+
+                if (x < thirdWidth) {
+                    // Left third: Grass
                     tile.setBaseType(TerrainType.GRASS);
-                } else if (rand < 0.85f) {
-                    tile.setBaseType(TerrainType.DIRT);
-                } else if (rand < 0.95f) {
-                    tile.setBaseType(TerrainType.SAND);
+                } else if (x < thirdWidth * 2) {
+                    // Middle third: Mud
+                    tile.setBaseType(TerrainType.MUD);
                 } else {
-                    tile.setBaseType(TerrainType.STONE);
+                    // Right third: Dirt
+                    tile.setBaseType(TerrainType.DIRT);
                 }
             }
         }
 
-        logger.info("Terrain generation complete");
+        logger.info("Grass/Dirt/Mud terrain generation complete - 1/3 each in consecutive sections");
     }
 
     public void generateTerrainWithFeatures(GameMapData mapData) {

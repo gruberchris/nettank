@@ -32,18 +32,56 @@ public class ClientGameMap {
     public ClientGameMap(int width, int height) {
         logger.debug("Creating ClientGameMap ({}x{})", width, height);
         this.mapData = new GameMapData(width, height);
-        generateSimpleMap();
+        
+        // TEMPORARY: Generate same terrain as server until we add network sync
+        // Option 1: All grass
+        // generateAllGrassMap();
+        
+        // Option 2: Grass/Dirt/Mud thirds
+        // generateGrassDirtMudMap();
+        
+        // Option 3: All desert (currently active)
+        generateAllDesertMap();
     }
 
-    private void generateSimpleMap() {
-        logger.debug("Generating simple map pattern...");
-
+    private void generateAllDesertMap() {
+        logger.debug("Generating all-desert map...");
+        
         for (int y = 0; y < mapData.getHeightTiles(); y++) {
             for (int x = 0; x < mapData.getWidthTiles(); x++) {
-                TerrainType type = random.nextFloat() > 0.3f ? TerrainType.GRASS : TerrainType.DIRT;
-                mapData.getTile(x, y).setBaseType(type);
+                TerrainTile tile = mapData.getTile(x, y);
+                tile.setBaseType(TerrainType.SAND);
             }
         }
+        
+        logger.info("Client terrain generated: All desert (100% sand)");
+    }
+
+    private void generateGrassDirtMudMap() {
+        logger.debug("Generating Grass/Dirt/Mud thirds layout...");
+        
+        int width = mapData.getWidthTiles();
+        int height = mapData.getHeightTiles();
+        int thirdWidth = width / 3;
+        
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+                
+                if (x < thirdWidth) {
+                    // Left third: Grass
+                    tile.setBaseType(TerrainType.GRASS);
+                } else if (x < thirdWidth * 2) {
+                    // Middle third: Mud
+                    tile.setBaseType(TerrainType.MUD);
+                } else {
+                    // Right third: Dirt
+                    tile.setBaseType(TerrainType.DIRT);
+                }
+            }
+        }
+        
+        logger.info("Client terrain generated: Grass (left 1/3) | Mud (center 1/3) | Dirt (right 1/3)");
     }
 
     public void registerTerrainTexture(TerrainType type, Texture texture) {

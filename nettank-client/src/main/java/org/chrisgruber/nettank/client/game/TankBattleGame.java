@@ -58,8 +58,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Textures
     private Texture tankTexture;
     private Texture bulletTexture;
-    private Texture grassTexture;
-    private Texture dirtTexture;
+    
+    // Terrain Textures
+    private Texture summerGrassTexture;
+    private Texture mudFieldTexture;
+    private Texture dirtFieldTexture;
+    private Texture forestFloorTexture;
+    private Texture desertSandTexture;
 
     // Game Objects
     private ClientGameMap gameMap;
@@ -406,9 +411,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             this.gameMap = new ClientGameMap(mapWidthTiles, mapHeightTiles);
 
             logger.debug("Main thread loading map textures...");
-            grassTexture = new Texture("textures/grass.png");
-            dirtTexture = new Texture("textures/dirt.png");
+            summerGrassTexture = new Texture("textures/Summer_Grass.png");
+            mudFieldTexture = new Texture("textures/Mud_Field.png");
+            dirtFieldTexture = new Texture("textures/Dirt_Field.png");
+            forestFloorTexture = new Texture("textures/Forest_Floor.png");
+            desertSandTexture = new Texture("textures/Desert.png");
             logger.debug("Map textures loaded by main thread.");
+
+            // Register terrain textures with the new terrain system
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.GRASS, summerGrassTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.DIRT, dirtFieldTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.MUD, mudFieldTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SAND, desertSandTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.STONE, summerGrassTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, forestFloorTexture);
+            logger.debug("Registered terrain textures for all types.");
 
             mapInitialized = true; // Mark map as fully ready
             logger.info("ClientGameMap and textures initialized successfully.");
@@ -442,8 +459,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float range = isSpectating ? Float.MAX_VALUE : VIEW_RANGE;
             Vector2f fogCenter = (localTank != null) ? localTank.getPosition() : null;
             // Ensure map textures are loaded before rendering
-            if (grassTexture != null && dirtTexture != null) {
-                gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range, fogCenter);
+            if (summerGrassTexture != null) {
+                gameMap.render(renderer, shader, summerGrassTexture, summerGrassTexture, camera, range, fogCenter);
             } else {
                 logger.warn("Attempted to render map, but map textures are not loaded.");
             }
@@ -843,8 +860,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (bulletTexture != null) bulletTexture.delete(); } catch (Exception e) { logger.error("Error deleting bulletTexture", e); }
 
         if (mapInitialized) {
-            try { if (grassTexture != null) grassTexture.delete(); } catch (Exception e) { logger.error("Error deleting grassTexture", e); }
-            try { if (dirtTexture != null) dirtTexture.delete(); } catch (Exception e) { logger.error("Error deleting dirtTexture", e); }
+            try { if (summerGrassTexture != null) summerGrassTexture.delete(); } catch (Exception e) { logger.error("Error deleting summerGrassTexture", e); }
+            try { if (mudFieldTexture != null) mudFieldTexture.delete(); } catch (Exception e) { logger.error("Error deleting mudFieldTexture", e); }
+            try { if (dirtFieldTexture != null) dirtFieldTexture.delete(); } catch (Exception e) { logger.error("Error deleting dirtFieldTexture", e); }
+            try { if (forestFloorTexture != null) forestFloorTexture.delete(); } catch (Exception e) { logger.error("Error deleting forestFloorTexture", e); }
+            try { if (desertSandTexture != null) desertSandTexture.delete(); } catch (Exception e) { logger.error("Error deleting desertSandTexture", e); }
         }
 
         // UIManager cleanup deletes its font texture, shader, renderer

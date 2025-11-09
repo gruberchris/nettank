@@ -66,6 +66,22 @@ public class GameServer {
         // Initialize server context
         this.serverContext.gameMode = new FreeForAll();
         this.serverContext.gameMapData = new GameMapData(mapWidth, mapHeight, GameMapData.DEFAULT_TILE_SIZE);
+        
+        // Generate terrain for the map
+        org.chrisgruber.nettank.server.world.TerrainGenerator terrainGenerator = 
+            new org.chrisgruber.nettank.server.world.TerrainGenerator();
+        
+        // Choose map type:
+        // Option 1: All grass (simple, uniform)
+        // terrainGenerator.generateAllGrassMap(serverContext.gameMapData);
+        
+        // Option 2: Grass/Dirt/Mud in thirds (1/3 each, organized layout)
+        // terrainGenerator.generateGrassDirtMudMap(serverContext.gameMapData);
+        
+        // Option 3: All desert
+        terrainGenerator.generateAllDesertMap(serverContext.gameMapData);
+        
+        logger.info("Terrain generation complete");
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
