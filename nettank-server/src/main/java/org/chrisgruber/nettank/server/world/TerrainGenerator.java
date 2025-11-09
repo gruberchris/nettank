@@ -48,11 +48,8 @@ public class TerrainGenerator {
         logger.info("All-desert terrain generation complete");
     }
     
-    public void generateProceduralTerrain(GameMapData mapData, org.chrisgruber.nettank.common.world.BaseTerrainProfile profile) {
-        // TEMPORARY: Using fixed seed so client/server generate identical maps
-        // TODO: Generate random seed and send to clients via network
-        long fixedSeed = 12345L;
-        ProceduralTerrainGenerator procGen = new ProceduralTerrainGenerator(fixedSeed);
+    public void generateProceduralTerrain(GameMapData mapData, org.chrisgruber.nettank.common.world.BaseTerrainProfile profile, long seed) {
+        ProceduralTerrainGenerator procGen = new ProceduralTerrainGenerator(seed);
         procGen.generateProceduralTerrain(mapData, profile);
     }
 

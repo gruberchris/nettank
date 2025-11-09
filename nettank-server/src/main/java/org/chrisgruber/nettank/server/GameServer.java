@@ -78,7 +78,8 @@ public class GameServer {
         
         // Choose the map type:
         terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
-            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND);
+            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND, 
+            serverContext.terrainSeed);
         
         logger.info("Terrain generation complete (seed: {}, profile: {})", 
             serverContext.terrainSeed, serverContext.terrainProfileName);
@@ -881,7 +882,8 @@ public class GameServer {
             new org.chrisgruber.nettank.server.world.TerrainGenerator(serverContext.terrainSeed);
         
         terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
-            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND);
+            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND,
+            serverContext.terrainSeed);
         
         logger.info("Terrain regeneration complete (new seed: {}, profile: {})", 
             serverContext.terrainSeed, serverContext.terrainProfileName);

@@ -18,7 +18,11 @@ public class ProceduralTerrainGenerator {
     
     public ProceduralTerrainGenerator(long seed) {
         this.seed = seed;
-        this.noise = new FastNoiseLite((int) seed);
+        // Convert long seed to int by XOR'ing upper and lower 32 bits
+        int intSeed = (int) seed ^ (int) (seed >> 32);
+        this.noise = new FastNoiseLite(intSeed);
+        
+        logger.debug("Creating ProceduralTerrainGenerator with long seed: {}, int seed: {}", seed, intSeed);
         
         // Configure noise for natural terrain
         noise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
@@ -50,6 +54,9 @@ public class ProceduralTerrainGenerator {
         
         logger.info("Procedural terrain generation complete: {} base with single {} overlay and single {} overlay",
                 profile.getBaseType(), profile.getLowType(), profile.getHighType());
+        
+        // Log a small ASCII preview of the top-left corner for debugging
+        logTerrainPreview(mapData, 10, 10);
     }
     
     private void fillAllWithBaseTerrain(GameMapData mapData, TerrainType baseType) {
@@ -230,8 +237,37 @@ public class ProceduralTerrainGenerator {
         logger.info("Final terrain distribution:");
         for (Map.Entry<String, Integer> entry : counts.entrySet()) {
             float percent = (entry.getValue() * 100.0f) / total;
-            logger.info("  {} : {} tiles ({:.1f}%)", entry.getKey(), entry.getValue(), percent);
+            logger.info("  {} : {} tiles ({}%)", entry.getKey(), entry.getValue(), String.format("%.1f", percent));
         }
+    }
+    
+    private void logTerrainPreview(GameMapData mapData, int width, int height) {
+        int w = Math.min(width, mapData.getWidthTiles());
+        int h = Math.min(height, mapData.getHeightTiles());
+        
+        logger.info("Terrain preview (top-left {}x{} tiles):", w, h);
+        StringBuilder preview = new StringBuilder("\n");
+        
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+                char symbol = 'G'; // Grass
+                
+                if (tile.hasOverlay()) {
+                    TerrainType overlay = tile.getOverlayType();
+                    if (overlay == TerrainType.SHALLOW_WATER) {
+                        symbol = 'W';
+                    } else if (overlay == TerrainType.FOREST) {
+                        symbol = 'T';
+                    }
+                }
+                
+                preview.append(symbol);
+            }
+            preview.append('\n');
+        }
+        
+        logger.info(preview.toString());
     }
     
     // Helper classes
