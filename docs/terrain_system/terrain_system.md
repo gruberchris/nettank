@@ -38,31 +38,32 @@ public class TerrainTile {
 }
 ```
 
-## Terrain Types
+## Terrain Types ✅
 
-### TerrainType Properties
+### TerrainType Properties (Implemented)
 
-| Type | Speed | Passable | Blocks Bullets | Blocks Vision | Destructible | Flammable |
-|------|-------|----------|----------------|---------------|--------------|-----------|
-| GRASS | 100% | ✅ | ❌ | ❌ | ❌ | Yes (5s) |
-| DIRT | 95% | ✅ | ❌ | ❌ | ❌ | ❌ |
-| MUD | 60% | ✅ | ❌ | ❌ | ❌ | ❌ |
-| SAND | 85% | ✅ | ❌ | ❌ | ❌ | ❌ |
-| STONE | 100% | ✅ | ❌ | ❌ | ❌ | ❌ |
-| SHALLOW_WATER | 40% | ❌ | ❌ | ❌ | ❌ | ❌ |
-| DEEP_WATER | 0% | ❌ | ❌ | ❌ | ❌ | ❌ |
-| FOREST | 70% | ❌ | ✅ | Partial | ✅ | Yes (15s) |
-| MOUNTAIN | 0% | ❌ | ❌ | Full | ❌ | ❌ |
+| Type | Speed | Passable | Blocks Bullets | Blocks Vision | Destructible | Flammability | Burn Duration |
+|------|-------|----------|----------------|---------------|--------------|--------------|---------------|
+| GRASS | 100% | ✅ | ❌ | NONE | ❌ | HIGH (90%) | 5s |
+| DIRT | 95% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
+| MUD | 60% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
+| SAND | 85% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
+| STONE | 100% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
+| SHALLOW_WATER | 40% | ❌ | ❌ | NONE | ❌ | NONE | 0s |
+| DEEP_WATER | 0% | ❌ | ❌ | NONE | ❌ | NONE | 0s |
+| FOREST | 70% | ❌ | ✅ | PARTIAL | ✅ | MEDIUM (70%) | 15s |
+| MOUNTAIN | 0% | ❌ | ❌ | FULL | ❌ | NONE | 0s |
 
-### Terrain States
+### Terrain States ✅
 
-Dynamic states that affect tiles:
+Dynamic states that affect tiles (fully implemented):
 
-- **NORMAL**: Default state
-- **IGNITING**: Just caught fire (2s)
-- **BURNING**: Actively burning (speed penalty, visual effects)
-- **SMOLDERING**: Dying out (3s)
-- **SCORCHED**: Permanently burned (darkened texture overlay)
+- **NORMAL**: Default state (100% speed modifier)
+- **IGNITING**: Just caught fire (0-2s, 85% speed modifier)
+- **BURNING**: Actively burning (85% speed modifier, visual fire effects)
+- **SMOLDERING**: Dying out (last 3s, 90% speed modifier)
+- **SCORCHED**: Permanently burned (100% speed, darkened texture overlay)
+- **FLOODED**: Wet terrain, cannot be ignited (prevents fire)
 
 ## Procedural Generation
 
@@ -202,36 +203,59 @@ public boolean bulletCollides(int tileX, int tileY) {
 }
 ```
 
-## Dynamic Terrain (Fire System)
+## Dynamic Terrain (Fire System) ✅
 
-### Fire Propagation
+### Fire Propagation - Currently Implemented
 
 When explosions occur:
 
-1. **Ignition**: Flammable terrain within explosion radius catches fire
-2. **Burning**: Fire progresses through states (IGNITING → BURNING → SMOLDERING)
-3. **Scorched**: Burned terrain becomes permanently darkened
-4. **Optional**: Fire can spread to adjacent flammable tiles (future)
+1. **Ignition**: Flammable terrain within 2.5 tile radius catches fire
+2. **State Progression**: Fire advances through timed states
+   - IGNITING (0-2s): Just caught fire
+   - BURNING (2s - burn duration - 3s): Active burning phase
+   - SMOLDERING (last 3s): Fire dying out
+   - SCORCHED (permanent): Burned terrain with darkened texture
+3. **Probabilistic Ignition**: Based on terrain Flammability enum
+   - GRASS: 90% chance (5s burn duration)
+   - FOREST: 70% chance (15s burn duration)
+4. **Speed Penalties**: Burning and smoldering states apply movement speed reductions
+5. **Water Protection**: FLOODED state prevents ignition
 
-### Fire Manager (Server)
+### Fire Manager (Server) - Implemented
 
 ```java
 public class FireManager {
+    // Trigger fire on explosion
     public void onExplosion(Vector2f position, float radius);
+    
+    // Update all burning tiles, handle state transitions
     public void update(long currentTime);
-    // Handles fire state transitions and network sync
+    
+    // Try to ignite a specific tile
+    public boolean attemptIgnition(int tileX, int tileY, float chanceMultiplier);
+    
+    // Get all currently burning tiles for network sync
+    public List<TileStateChange> getBurningTiles();
 }
 ```
 
-### Usage
+### Usage in Server Game Loop
 
 ```java
-// Server game loop
+// Initialize with game map
+FireManager fireManager = new FireManager(gameMapData);
+
+// Update each frame
 fireManager.update(System.currentTimeMillis());
 
-// When explosion occurs
+// Trigger on explosions
 fireManager.onExplosion(explosionPos, explosionRadius);
 ```
+
+### Not Yet Implemented
+- ❌ Fire spreading to adjacent flammable tiles
+- ❌ Wind direction affecting spread
+- ❌ Rain/weather extinguishing fire
 
 ## Texture Requirements
 
@@ -259,23 +283,37 @@ Overlay textures MUST have:
 
 ## Server-Client Synchronization
 
-### Current Implementation
+### Current Implementation ✅
 
-**Temporary**: Fixed seed (12345) on both server and client
-- Ensures identical map generation
-- No network sync needed yet
+**Full Terrain Data Sync**: Server generates terrain and sends complete data to clients
+- Server generates terrain with ProceduralTerrainGenerator using a seed
+- Terrain is encoded using TerrainEncoder (compact binary format)
+- Full terrain data sent to clients on join via TERRAIN_DATA message
+- Terrain regenerated and broadcast to all clients between rounds
+- Clients decode terrain data using TerrainDecoder
 
-**Future**: Server sends seed to clients
 ```java
-// Server generates seed
-long seed = System.currentTimeMillis();
+// Server: Generate terrain
+ProceduralTerrainGenerator generator = new ProceduralTerrainGenerator(seed);
+generator.generateProceduralTerrain(gameMapData, BaseTerrainProfile.GRASSLAND);
 
-// Send to clients in join message
-joinResponse.setMapSeed(seed);
+// Server: Encode and send to client
+String encodedTerrain = TerrainEncoder.encode(gameMapData);
+handler.sendMessage(String.format("%s;%d;%d;%s",
+    NetworkProtocol.TERRAIN_DATA,
+    mapWidth, mapHeight,
+    encodedTerrain));
 
-// Client uses server's seed
-terrainGenerator.generate(serverSeed, profile);
+// Client: Decode received terrain
+TerrainEncoder.decode(mapData, encodedTerrainData);
 ```
+
+### Dynamic State Updates
+
+Fire and terrain state changes are synced separately:
+- Server FireManager tracks burning tiles
+- State changes broadcast to clients as they occur
+- Clients update local terrain state without regenerating entire map
 
 ## Performance
 
@@ -329,33 +367,42 @@ clientGameMap.registerTerrainTexture(TerrainType.FOREST, treeTex);
 clientGameMap.registerStateOverlayTexture(TerrainState.SCORCHED, scorchedTex);
 ```
 
-## Future Enhancements
+## Implementation Status & Future Enhancements
 
 ### Phase 1: Complete ✅
-- Three-layer terrain system
-- Procedural generation with noise
-- Single contiguous overlay regions
-- Base terrain profiles
-- Fire system with state transitions
-- Collision detection for overlays
+- ✅ Three-layer terrain system (Base Visual, Visual Overlay, Data Overlay)
+- ✅ Procedural generation with Perlin noise
+- ✅ Single contiguous overlay regions (flood fill algorithm)
+- ✅ Base terrain profiles (GRASSLAND, DESERT, DIRT_PLAINS, MUDLANDS)
+- ✅ Fire system with state transitions (IGNITING → BURNING → SMOLDERING → SCORCHED)
+- ✅ Collision detection for overlays (tanks and bullets)
+- ✅ TerrainTile with state management
+- ✅ FireManager with explosion-triggered ignition
+- ✅ Flammable terrain types (GRASS, FOREST)
+- ✅ Speed modifiers affected by terrain state
 
-### Phase 2: Planned
-- Network seed synchronization
-- Fire spreading between tiles
-- Destructible terrain (shoot trees to destroy)
-- Terrain regeneration over time
+### Phase 2: Complete ✅
+- ✅ Network terrain synchronization (TerrainEncoder/Decoder)
+- ✅ Server sends full terrain data to clients on join
+- ✅ Terrain regeneration between rounds
+- ✅ Broadcast terrain updates to all clients
+- ✅ Vision blocking types defined (NONE, PARTIAL, FULL)
+- ✅ Destructible property on terrain types
 
-### Phase 3: Planned
-- Line of sight calculations
-- Fog of war integration with vision blocking
-- Advanced fire effects (smoke, embers)
-- Weather effects (rain extinguishes fire)
+### Phase 3: Planned 🔄
+- ❌ Fire spreading between adjacent tiles
+- ❌ Destructible terrain implementation (shoot trees to destroy)
+- ❌ Line of sight calculations using vision blocking
+- ❌ Fog of war integration with vision blocking
+- ❌ Advanced fire effects (smoke particles, embers)
+- ❌ Weather effects (rain extinguishes fire)
 
-### Phase 4: Planned
-- Buildings as destructible entities
-- Multiple overlay layers
-- Roads/paths as visual overlays
-- Height maps for true 3D terrain
+### Phase 4: Planned 📋
+- ❌ Buildings as destructible entities
+- ❌ Multiple visual overlay layers
+- ❌ Roads/paths as visual overlays (tank tracks)
+- ❌ Height maps for elevation-based gameplay
+- ❌ Terrain deformation (craters from explosions)
 
 ## Troubleshooting
 
