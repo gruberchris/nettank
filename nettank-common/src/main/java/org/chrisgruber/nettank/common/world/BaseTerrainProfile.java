@@ -9,7 +9,7 @@ public enum BaseTerrainProfile {
         TerrainType.SHALLOW_WATER,      // LOW (5-10%)
         TerrainType.FOREST,             // HIGH (5-10%)
         0.08f,                          // LOW percent
-        0.07f                           // HIGH percent
+        0.10f                           // HIGH percent
     ),
     
     DESERT(
