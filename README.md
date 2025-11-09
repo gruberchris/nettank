@@ -65,8 +65,8 @@ See [GAME_CONFIG.md](docs/GAME_CONFIG.md) for complete configuration documentati
 
 ### For Developers
 - **[Documentation Index](docs/README.md)** - Complete documentation overview
-- **[Terrain System](docs/terrain_system.md)** - Game terrain architecture and features
-- **[Quick Reference](docs/terrain_quick_reference.md)** - Fast setup guide for terrain system
+- **[Terrain System](docs/terrain/terrain_system.md)** - Game terrain architecture and features
+- **[Quick Reference](docs/terrain/terrain_quick_reference.md)** - Fast setup guide for terrain system
 
 ## Launching The Game Client
 

@@ -13,15 +13,15 @@ Developer and architecture documentation uses lowercase filenames:
 
 ### Terrain System
 
-- **[terrain_system.md](terrain_system.md)** - ⭐ Complete reference: architecture, types, collision, generation (START HERE)
-- **[terrain_quick_reference.md](terrain_quick_reference.md)** - Quick integration: setup code, common queries, troubleshooting
-- **[terrain_layering_system.md](terrain_layering_system.md)** - Deep dive: three-layer system, rendering order, overlay mechanics
-- **[procedural_generation_implementation.md](procedural_generation_implementation.md)** - Algorithm: noise generation, flood fill, profiles
-- **[dynamic_terrain_system.md](dynamic_terrain_system.md)** - Fire system: ignition, spreading, state transitions
+- **[terrain_system.md](terrain/terrain_system.md)** - ⭐ Complete reference: architecture, types, collision, generation (START HERE)
+- **[terrain_quick_reference.md](terrain/terrain_quick_reference.md)** - Quick integration: setup code, common queries, troubleshooting
+- **[terrain_layering_system.md](terrain/terrain_layering_system.md)** - Deep dive: three-layer system, rendering order, overlay mechanics
+- **[procedural_generation_implementation.md](terrain/procedural_generation_implementation.md)** - Algorithm: noise generation, flood fill, profiles
+- **[dynamic_terrain_system.md](terrain/dynamic_terrain_system.md)** - Fire system: ignition, spreading, state transitions
 
 ### Game Systems
 
-- **[line_of_sight_system.md](line_of_sight_system.md)** - Vision blocking and fog of war (future)
+- **[line_of_sight_system.md](los/line_of_sight_system.md)** - Vision blocking and fog of war (future)
 
 ## Documentation Organization
 
@@ -43,9 +43,9 @@ Developer and architecture documentation uses lowercase filenames:
 - [Customize Controls](INPUT_CUSTOMIZATION.md)
 
 ### For Developers
-- [Terrain System Overview](terrain_system.md)
-- [Quick Setup Guide](terrain_quick_reference.md)
-- [Architecture Details](terrain_layering_system.md)
+- [Terrain System Overview](terrain/terrain_system.md)
+- [Quick Setup Guide](terrain/terrain_quick_reference.md)
+- [Architecture Details](terrain/terrain_layering_system.md)
 
 ## Contributing
 
