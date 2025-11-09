@@ -4,6 +4,7 @@ import org.chrisgruber.nettank.common.entities.BulletData;
 import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
 import org.chrisgruber.nettank.common.world.GameMapData;
+import org.chrisgruber.nettank.common.world.TerrainTile;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
@@ -66,6 +67,22 @@ public class GameServer {
         // Initialize server context
         this.serverContext.gameMode = new FreeForAll();
         this.serverContext.gameMapData = new GameMapData(mapWidth, mapHeight, GameMapData.DEFAULT_TILE_SIZE);
+        
+        // Generate unique seed for this game session
+        this.serverContext.terrainSeed = System.currentTimeMillis() ^ (mapWidth * 31L + mapHeight * 17L);
+        this.serverContext.terrainProfileName = "GRASSLAND";
+        
+        // Generate terrain for the map
+        org.chrisgruber.nettank.server.world.TerrainGenerator terrainGenerator = 
+            new org.chrisgruber.nettank.server.world.TerrainGenerator(serverContext.terrainSeed);
+        
+        // Choose the map type:
+        terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
+            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND, 
+            serverContext.terrainSeed);
+        
+        logger.info("Terrain generation complete (seed: {}, profile: {})", 
+            serverContext.terrainSeed, serverContext.terrainProfileName);
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
@@ -290,6 +307,16 @@ public class GameServer {
 
         logger.info("Sent MAP_INFO ({};{};{}) to player ID {}: {}", mapData.getWidthTiles(), mapData.getHeightTiles(), mapData.getTileSize(), playerId, handler.getSocket().getInetAddress().getHostAddress());
 
+        // Send terrain data to client
+        String encodedTerrain = org.chrisgruber.nettank.common.world.TerrainEncoder.encode(serverContext.gameMapData);
+        handler.sendMessage(String.format("%s;%d;%d;%s",
+                NetworkProtocol.TERRAIN_DATA,
+                mapData.getWidthTiles(),
+                mapData.getHeightTiles(),
+                encodedTerrain));
+        logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}", 
+            mapData.getWidthTiles(), mapData.getHeightTiles(), encodedTerrain.length(), playerId);
+
         handler.sendMessage(String.format("%s;%s;%d",
                 NetworkProtocol.GAME_STATE,
                 serverContext.currentGameState.name(),
@@ -465,13 +492,23 @@ public class GameServer {
             if (moveAmount != 0) {
                 float angleRad = (float) Math.toRadians(tankData.getRotation());
                 float dx = (float) -Math.sin(angleRad) * moveAmount;
-                float dy = (float) Math.cos(angleRad) * moveAmount; // Assuming 0=UP, +Y=UP (adjust if needed)
-                tankData.addPosition(dx, dy);
+                float dy = (float) Math.cos(angleRad) * moveAmount;
 
-                // Check bounds
-                serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
+                // Calculate new position
+                float newX = tankData.getX() + dx;
+                float newY = tankData.getY() + dy;
 
-                stateChangedThisTick = true;
+                // Check if new position is passable
+                if (serverContext.gameMapData.isPassableAt(newX, newY)) {
+                    tankData.addPosition(dx, dy);
+
+                    // Check bounds
+                    serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
+
+                    stateChangedThisTick = true;
+                } else {
+                    logger.debug("Tank {} blocked by impassable terrain at ({}, {})", tankData.getPlayerId(), newX, newY);
+                }
             }
         }
 
@@ -480,10 +517,37 @@ public class GameServer {
         // Update Bullets
         List<BulletData> bulletsToRemove = new ArrayList<>();
         for (BulletData bulletData : serverContext.bullets) {
-            bulletData.getPosition().add(bulletData.getXVelocity() * deltaTime, bulletData.getYVelocity() * deltaTime);
-            bulletData.getCollider().setPosition(bulletData.getPosition());
+            // Store old position before update
+            float oldX = bulletData.getX();
+            float oldY = bulletData.getY();
+            
+            // Calculate new position
+            float deltaX = bulletData.getXVelocity() * deltaTime;
+            float deltaY = bulletData.getYVelocity() * deltaTime;
+            float newX = oldX + deltaX;
+            float newY = oldY + deltaY;
+            
+            // Check for terrain collision along the path
+            boolean hitTerrain = checkBulletTerrainCollision(oldX, oldY, newX, newY);
+            
+            // Update bullet position only if no collision
+            if (!hitTerrain) {
+                bulletData.getPosition().add(deltaX, deltaY);
+                bulletData.getCollider().setPosition(bulletData.getPosition());
+            }
+            
             boolean expired = (currentTime - bulletData.getSpawnTime()) >= BULLET_LIFETIME_MS;
-            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData)) {
+            
+            if (hitTerrain) {
+                TerrainTile tile = serverContext.gameMapData.getTileAt(newX, newY);
+                if (tile != null) {
+                    logger.info("Bullet {} hit terrain at ({}, {}) - Base: {}, Overlay: {}, BlocksBullets: {}", 
+                        bulletData.getId(), newX, newY, 
+                        tile.getBaseType(), tile.getOverlayType(), tile.blocksBullets());
+                }
+            }
+            
+            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData) || hitTerrain) {
                 bulletsToRemove.add(bulletData);
             }
         }
@@ -744,9 +808,16 @@ public class GameServer {
 
         logger.info("Server changing state from {} to {}", serverContext.currentGameState, newState);
 
+        GameState previousState = serverContext.currentGameState;
+
         // Update server context state
         serverContext.currentGameState = newState;
         serverContext.stateChangeTime = System.currentTimeMillis();
+
+        // Regenerate terrain with new seed when transitioning from WAITING (first player joins)
+        if (previousState == GameState.WAITING && newState == GameState.COUNTDOWN) {
+            regenerateTerrainForNewRound();
+        }
 
         // Set roundStartTimeMillis when entering PLAYING state
         if (newState == GameState.PLAYING) {
@@ -797,6 +868,35 @@ public class GameServer {
             }
             default -> throw new IllegalStateException("Unexpected value: " + state);
         }
+    }
+
+    // Regenerates terrain with a new seed for a new round
+    private void regenerateTerrainForNewRound() {
+        logger.info("Regenerating terrain for new round.");
+        
+        // Generate new unique seed
+        serverContext.terrainSeed = System.currentTimeMillis() ^ (mapWidth * 31L + mapHeight * 17L);
+        
+        // Regenerate terrain using the terrain generator
+        org.chrisgruber.nettank.server.world.TerrainGenerator terrainGenerator = 
+            new org.chrisgruber.nettank.server.world.TerrainGenerator(serverContext.terrainSeed);
+        
+        terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
+            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND,
+            serverContext.terrainSeed);
+        
+        logger.info("Terrain regeneration complete (new seed: {}, profile: {})", 
+            serverContext.terrainSeed, serverContext.terrainProfileName);
+        
+        // Broadcast new terrain to all connected clients
+        String encodedTerrain = org.chrisgruber.nettank.common.world.TerrainEncoder.encode(serverContext.gameMapData);
+        broadcast(String.format("%s;%d;%d;%s",
+                NetworkProtocol.TERRAIN_DATA,
+                serverContext.gameMapData.getWidthTiles(),
+                serverContext.gameMapData.getHeightTiles(),
+                encodedTerrain), -1);
+        
+        logger.info("Broadcasted new terrain data to all clients ({} bytes)", encodedTerrain.length());
     }
 
     // Resets player state for a new round
@@ -946,5 +1046,34 @@ public class GameServer {
         long seconds = (millis / 1000) % 60;
         long minutes = (millis / (1000 * 60)) % 60;
         return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    private boolean checkBulletTerrainCollision(float oldX, float oldY, float newX, float newY) {
+        // Calculate the distance between old and new position
+        float dx = newX - oldX;
+        float dy = newY - oldY;
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        
+        // If the bullet barely moved, just check the new position
+        if (distance < 0.1f) {
+            return serverContext.gameMapData.blocksBulletsAt(newX, newY);
+        }
+        
+        // Sample multiple points along the bullet's path
+        // Use tile size to determine how many samples we need
+        float tileSize = serverContext.gameMapData.getTileSize();
+        int numSamples = (int) Math.ceil(distance / (tileSize * 0.5f)) + 1;
+        
+        for (int i = 0; i <= numSamples; i++) {
+            float t = (float) i / numSamples;
+            float checkX = oldX + dx * t;
+            float checkY = oldY + dy * t;
+            
+            if (serverContext.gameMapData.blocksBulletsAt(checkX, checkY)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }

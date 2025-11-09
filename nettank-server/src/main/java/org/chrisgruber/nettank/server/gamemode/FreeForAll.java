@@ -45,7 +45,7 @@ public class FreeForAll extends GameMode {
 
     @Override
     public boolean checkIsVictoryConditionMet(ServerContext serverContext) {
-        // Since gameWinCondition is NONE, the game never will never end
+        // FreeForAll has no victory condition - play continues indefinitely
         return false;
     }
 
@@ -177,8 +177,9 @@ public class FreeForAll extends GameMode {
 
     @Override
     public GameState shouldTransitionFromRoundOver(ServerContext serverContext, long currentTime) {
-        logger.trace("FreeForAll: Checking transition from ROUND_OVER to WAITING.");
-        return GameState.ROUND_OVER;
+        // FreeForAll never enters ROUND_OVER state - no victory condition
+        logger.trace("FreeForAll: Should not reach ROUND_OVER state.");
+        return GameState.PLAYING;
     }
 
     @Override

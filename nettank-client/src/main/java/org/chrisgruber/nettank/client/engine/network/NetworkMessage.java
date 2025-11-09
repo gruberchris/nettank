@@ -140,6 +140,38 @@ public sealed interface NetworkMessage {
         }
     }
     
+    record TerrainInit(
+        long seed,
+        String profileName
+    ) implements NetworkMessage {
+        public static TerrainInit parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid TerrainInit message: insufficient parts");
+            }
+            return new TerrainInit(
+                Long.parseLong(parts[1]),
+                parts[2]
+            );
+        }
+    }
+    
+    record TerrainData(
+        int width,
+        int height,
+        String encodedData
+    ) implements NetworkMessage {
+        public static TerrainData parse(String[] parts) {
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("Invalid TerrainData message: insufficient parts");
+            }
+            return new TerrainData(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]),
+                parts[3]
+            );
+        }
+    }
+    
     record PlayerLives(
         int playerId,
         int lives

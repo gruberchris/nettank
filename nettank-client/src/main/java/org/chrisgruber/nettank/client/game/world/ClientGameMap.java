@@ -6,39 +6,57 @@ import org.chrisgruber.nettank.client.engine.graphics.Shader;
 import org.chrisgruber.nettank.client.engine.graphics.Texture;
 import org.chrisgruber.nettank.client.game.entities.ClientEntity;
 import org.chrisgruber.nettank.common.world.GameMapData;
+import org.chrisgruber.nettank.common.world.TerrainTile;
+import org.chrisgruber.nettank.common.world.TerrainType;
+import org.chrisgruber.nettank.common.world.TerrainState;
 import org.joml.Vector2f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Random;
+import java.util.HashMap;
+import java.util.Map;
 
 public class ClientGameMap {
     private static final Logger logger = LoggerFactory.getLogger(ClientGameMap.class);
 
-    public enum TileType { GRASS, DIRT, WALL }
-
-    private final GameMapData mapData; // Holds common dimensions/utils
-    private final TileType[][] tiles; // Client-specific tile grid for rendering
+    private final GameMapData mapData;
 
     private static final float FOG_DARKNESS = 0.15f;
-    private static final float FOG_FADE_DISTANCE = 3.5f; // Tiles for smooth transition (increased for smoother blur). Try 4.0-5.0 for even softer
-    private static final Random random = new Random();
+    private static final float FOG_FADE_DISTANCE = 3.5f;
 
-    public ClientGameMap(int width, int height) {
-        logger.debug("Creating ClientGameMap ({}x{})", width, height);
+    private final Map<TerrainType, Texture> terrainTextures = new HashMap<>();
+    private final Map<TerrainState, Texture> stateOverlayTextures = new HashMap<>();
+    private final Map<String, Texture> visualOverlayTextures = new HashMap<>();
+
+    public ClientGameMap(int width, int height, String encodedTerrainData) {
+        logger.debug("Creating ClientGameMap ({}x{}) from server terrain data", width, height);
         this.mapData = new GameMapData(width, height);
-        this.tiles = new TileType[width][height];
-        generateSimpleMap();
+
+        // Decode terrain data received from the server
+        org.chrisgruber.nettank.common.world.TerrainEncoder.decode(mapData, encodedTerrainData);
+        logger.info("Client terrain loaded from server: {}x{} tiles", width, height);
     }
 
-    private void generateSimpleMap() {
-        logger.debug("Generating simple map pattern...");
+    public void registerTerrainTexture(TerrainType type, Texture texture) {
+        terrainTextures.put(type, texture);
+    }
 
-        for (int y = 0; y < mapData.getHeightTiles(); y++) {
-            for (int x = 0; x < mapData.getWidthTiles(); x++) {
-                tiles[x][y] = random.nextFloat() > 0.3f ? TileType.GRASS : TileType.DIRT;
-            }
-        }
+    public void registerStateOverlayTexture(TerrainState state, Texture texture) {
+        stateOverlayTextures.put(state, texture);
+    }
+
+    public void registerVisualOverlayTexture(String name, Texture texture) {
+        visualOverlayTextures.put(name, texture);
+    }
+
+    public void onTerrainStateChanged(int x, int y, TerrainState newState) {
+        if (!mapData.isValidTile(x, y)) return;
+
+        TerrainTile tile = mapData.getTile(x, y);
+        tile.setCurrentState(newState);
+        tile.setStateChangeTime(System.currentTimeMillis());
+        
+        logger.debug("Terrain state changed at ({}, {}) to {}", x, y, newState);
     }
     
     // Smoothstep function for smoother interpolation (eases in and out)
@@ -52,8 +70,7 @@ public class ClientGameMap {
 
         shader.bind();
 
-        final float tileSize = GameMapData.DEFAULT_TILE_SIZE; // Use constant from common
-        float renderRangeSq = viewRange * viewRange;
+        final float tileSize = GameMapData.DEFAULT_TILE_SIZE;
         boolean isSpectating = (viewRange == Float.MAX_VALUE);
 
         float viewLeft = camera.getViewLeft();
@@ -75,11 +92,9 @@ public class ClientGameMap {
                 float tint = 1.0f;
 
                 if (!isSpectating && fogCenter != null) {
-                    // Sample multiple points around tile center for smooth blur effect
                     float tintSum = 0.0f;
                     int sampleCount = 0;
                     
-                    // 3x3 sampling grid for blur effect
                     for (float dy = -0.33f; dy <= 0.33f; dy += 0.33f) {
                         for (float dx = -0.33f; dx <= 0.33f; dx += 0.33f) {
                             float sampleX = tileCenterX + (dx * tileSize);
@@ -92,7 +107,7 @@ public class ClientGameMap {
                                 sampleTint = FOG_DARKNESS;
                             } else if (dist > fadeStart) {
                                 float fadeProgress = (dist - fadeStart) / (FOG_FADE_DISTANCE * tileSize);
-                                fadeProgress = smoothstep(fadeProgress); // Apply smoothstep for even softer transition
+                                fadeProgress = smoothstep(fadeProgress);
                                 sampleTint = 1.0f - (fadeProgress * (1.0f - FOG_DARKNESS));
                             }
                             
@@ -101,22 +116,63 @@ public class ClientGameMap {
                         }
                     }
                     
-                    tint = tintSum / sampleCount; // Average the samples for blur effect
+                    tint = tintSum / sampleCount;
                 }
 
                 if (tint > FOG_DARKNESS - 0.01f) {
-                    TileType type = tiles[x][y];
-                    Texture texture = (type == TileType.GRASS) ? grassTexture : dirtTexture;
-                    if (texture == null) continue;
-
-                    texture.bind();
-                    shader.setUniform3f("u_tintColor", tint, tint, tint);
-                    renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                    TerrainTile tile = mapData.getTile(x, y);
+                    
+                    // Draw base terrain first
+                    TerrainType baseType = tile.getBaseType();
+                    Texture baseTexture = terrainTextures.get(baseType);
+                    if (baseTexture == null) {
+                        baseTexture = (baseType == TerrainType.GRASS) ? grassTexture : dirtTexture;
+                    }
+                    
+                    if (baseTexture != null) {
+                        baseTexture.bind();
+                        shader.setUniform3f("u_tintColor", tint, tint, tint);
+                        renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                    }
+                    
+                    // Draw overlay terrain on top (if exists) - affects gameplay
+                    if (tile.hasOverlay()) {
+                        TerrainType overlayType = tile.getOverlayType();
+                        Texture overlayTexture = terrainTextures.get(overlayType);
+                        
+                        if (overlayTexture != null) {
+                            overlayTexture.bind();
+                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                        }
+                    }
+                    
+                    // Draw visual overlay (tank tracks, roads, etc.) - purely cosmetic, no collision
+                    if (tile.hasVisualOverlay()) {
+                        String visualOverlayName = tile.getVisualOverlay();
+                        Texture visualTexture = visualOverlayTextures.get(visualOverlayName);
+                        
+                        if (visualTexture != null) {
+                            visualTexture.bind();
+                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                        }
+                    }
+                    
+                    // Draw state overlay (scorched, etc.) on top of everything
+                    if (tile.getCurrentState() == TerrainState.SCORCHED) {
+                        Texture scorchedTexture = stateOverlayTextures.get(TerrainState.SCORCHED);
+                        if (scorchedTexture != null) {
+                            scorchedTexture.bind();
+                            shader.setUniform3f("u_tintColor", tint * 0.7f, tint * 0.7f, tint * 0.7f);
+                            renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                        }
+                    }
                 }
             }
         }
 
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
     }
 
    public boolean isOutOfBounds(ClientEntity clientEntity) {
@@ -133,10 +189,26 @@ public class ClientGameMap {
                 clientEntity.getPosition().y() + radius > mapHeight;
     }
 
+    public void setVisualOverlay(int x, int y, String visualOverlayName) {
+        if (!mapData.isValidTile(x, y)) return;
+        TerrainTile tile = mapData.getTile(x, y);
+        tile.setVisualOverlay(visualOverlayName);
+    }
+
+    public void clearVisualOverlay(int x, int y) {
+        if (!mapData.isValidTile(x, y)) return;
+        TerrainTile tile = mapData.getTile(x, y);
+        tile.setVisualOverlay(null);
+    }
+
     public int getWidthTiles() { return mapData.widthTiles; }
     public int getHeightTiles() { return mapData.heightTiles;
    }
 
     public float getWorldWidth() { return mapData.getWorldWidth(); }
     public float getWorldHeight() { return mapData.getWorldHeight(); }
+    
+    public boolean blocksBulletsAt(float worldX, float worldY) {
+        return mapData.blocksBulletsAt(worldX, worldY);
+    }
 }

@@ -58,8 +58,15 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Textures
     private Texture tankTexture;
     private Texture bulletTexture;
-    private Texture grassTexture;
-    private Texture dirtTexture;
+    
+    // Terrain Textures
+    private Texture summerGrassTexture;
+    private Texture mudFieldTexture;
+    private Texture dirtFieldTexture;
+    private Texture forestFloorTexture;
+    private Texture desertSandTexture;
+    private Texture shallowWaterTexture;
+    private Texture summerTreeTexture;
 
     // Game Objects
     private ClientGameMap gameMap;
@@ -100,8 +107,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private int mapWidthTiles = -1;
     private int mapHeightTiles = -1;
     private float mapTileSize = -1.0f;
+    private String receivedTerrainData = null;
     private boolean mapInitialized = false;
     private volatile boolean mapInfoReceivedForProcessing = false;
+    private volatile boolean terrainInfoReceivedForProcessing = false;
 
     // Tank explosion effect
     private final List<Texture> explosionFrameTextures = new ArrayList<>();
@@ -336,9 +345,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         });
         // ----------------------------------
 
-        if (mapInfoReceivedForProcessing && !mapInitialized) {
+        // Initialize the map only when both MAP_INFO and TERRAIN_INIT have been received
+        if (mapInfoReceivedForProcessing && terrainInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
-            mapInfoReceivedForProcessing = false; // Reset the signal flag
+            mapInfoReceivedForProcessing = false; // Reset the signal flags
+            terrainInfoReceivedForProcessing = false;
         }
 
         // Update local bullet positions for client-side prediction
@@ -346,15 +357,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         killFeedMessages.removeIf(msg -> now >= msg.expiryTimeMillis());
 
-        // Update bullets and remove expired/out-of-bounds in a single pass
+        // Update bullets and remove expired/out-of-bounds/terrain-blocked in a single pass
         for (ClientBullet bullet : bullets) {
             bullet.update(deltaTime);
         }
         
-        bullets.removeIf(bullet -> 
-            (now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS) ||
-            (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet))
-        );
+        bullets.removeIf(bullet -> {
+            boolean expired = (now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS);
+            boolean outOfBounds = (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet));
+            boolean hitTerrain = (mapInitialized && gameMap != null && 
+                                  gameMap.blocksBulletsAt(bullet.getPosition().x, bullet.getPosition().y));
+            return expired || outOfBounds || hitTerrain;
+        });
 
         // Update camera position to follow the local tank (if it exists)
         if (localTank != null) {
@@ -388,6 +402,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
+    public void receiveTerrainData(int width, int height, String encodedData) {
+        logger.info("Received terrain data from server: {}x{} tiles, {} bytes", width, height, encodedData.length());
+        this.receivedTerrainData = encodedData;
+        this.terrainInfoReceivedForProcessing = true; // Signal the main thread
+    }
+
+    @Override
     public void updateShootCooldown(long cooldownRemainingMs) {
         if (localTank != null) {
             localTank.setCooldown(cooldownRemainingMs);
@@ -400,15 +421,31 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private void initializeMapAndTextures() {
         if (mapInitialized) return; // Should not happen if logic is correct, but safe check
 
-        logger.info("Main thread initializing map with dimensions: {}x{}", mapWidthTiles, mapHeightTiles);
+        logger.info("Main thread initializing map with dimensions: {}x{}, terrain data: {} bytes", 
+            mapWidthTiles, mapHeightTiles, receivedTerrainData != null ? receivedTerrainData.length() : 0);
         try {
-            // Create the map object (uses the stored dimensions)
-            this.gameMap = new ClientGameMap(mapWidthTiles, mapHeightTiles);
+            // Create the map object (uses the stored dimensions and terrain data from server)
+            this.gameMap = new ClientGameMap(mapWidthTiles, mapHeightTiles, receivedTerrainData);
 
             logger.debug("Main thread loading map textures...");
-            grassTexture = new Texture("textures/grass.png");
-            dirtTexture = new Texture("textures/dirt.png");
+            summerGrassTexture = new Texture("textures/Summer_Grass.png");
+            mudFieldTexture = new Texture("textures/Mud_Field.png");
+            dirtFieldTexture = new Texture("textures/Dirt_Field.png");
+            forestFloorTexture = new Texture("textures/Forest_Floor.png");
+            desertSandTexture = new Texture("textures/Desert.png");
+            shallowWaterTexture = new Texture("textures/Shallow_Water.png");
+            summerTreeTexture = new Texture("textures/Summer_Tree.png");
             logger.debug("Map textures loaded by main thread.");
+
+            // Register terrain textures with the new terrain system
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.GRASS, summerGrassTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.DIRT, dirtFieldTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.MUD, mudFieldTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SAND, desertSandTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.STONE, summerGrassTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SHALLOW_WATER, shallowWaterTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, summerTreeTexture);
+            logger.debug("Registered terrain textures for all types.");
 
             mapInitialized = true; // Mark map as fully ready
             logger.info("ClientGameMap and textures initialized successfully.");
@@ -442,8 +479,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float range = isSpectating ? Float.MAX_VALUE : VIEW_RANGE;
             Vector2f fogCenter = (localTank != null) ? localTank.getPosition() : null;
             // Ensure map textures are loaded before rendering
-            if (grassTexture != null && dirtTexture != null) {
-                gameMap.render(renderer, shader, grassTexture, dirtTexture, camera, range, fogCenter);
+            if (summerGrassTexture != null) {
+                gameMap.render(renderer, shader, summerGrassTexture, summerGrassTexture, camera, range, fogCenter);
             } else {
                 logger.warn("Attempted to render map, but map textures are not loaded.");
             }
@@ -843,8 +880,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (bulletTexture != null) bulletTexture.delete(); } catch (Exception e) { logger.error("Error deleting bulletTexture", e); }
 
         if (mapInitialized) {
-            try { if (grassTexture != null) grassTexture.delete(); } catch (Exception e) { logger.error("Error deleting grassTexture", e); }
-            try { if (dirtTexture != null) dirtTexture.delete(); } catch (Exception e) { logger.error("Error deleting dirtTexture", e); }
+            try { if (summerGrassTexture != null) summerGrassTexture.delete(); } catch (Exception e) { logger.error("Error deleting summerGrassTexture", e); }
+            try { if (mudFieldTexture != null) mudFieldTexture.delete(); } catch (Exception e) { logger.error("Error deleting mudFieldTexture", e); }
+            try { if (dirtFieldTexture != null) dirtFieldTexture.delete(); } catch (Exception e) { logger.error("Error deleting dirtFieldTexture", e); }
+            try { if (forestFloorTexture != null) forestFloorTexture.delete(); } catch (Exception e) { logger.error("Error deleting forestFloorTexture", e); }
+            try { if (desertSandTexture != null) desertSandTexture.delete(); } catch (Exception e) { logger.error("Error deleting desertSandTexture", e); }
         }
 
         // UIManager cleanup deletes its font texture, shader, renderer
