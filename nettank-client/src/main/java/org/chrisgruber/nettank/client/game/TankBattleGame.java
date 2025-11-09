@@ -65,6 +65,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private Texture dirtFieldTexture;
     private Texture forestFloorTexture;
     private Texture desertSandTexture;
+    private Texture shallowWaterTexture;
+    private Texture summerTreeTexture;
 
     // Game Objects
     private ClientGameMap gameMap;
@@ -351,15 +353,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         killFeedMessages.removeIf(msg -> now >= msg.expiryTimeMillis());
 
-        // Update bullets and remove expired/out-of-bounds in a single pass
+        // Update bullets and remove expired/out-of-bounds/terrain-blocked in a single pass
         for (ClientBullet bullet : bullets) {
             bullet.update(deltaTime);
         }
         
-        bullets.removeIf(bullet -> 
-            (now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS) ||
-            (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet))
-        );
+        bullets.removeIf(bullet -> {
+            boolean expired = (now - bullet.getSpawnTime() >= BulletData.LIFETIME_MS);
+            boolean outOfBounds = (mapInitialized && gameMap != null && gameMap.isOutOfBounds(bullet));
+            boolean hitTerrain = (mapInitialized && gameMap != null && 
+                                  gameMap.blocksBulletsAt(bullet.getPosition().x, bullet.getPosition().y));
+            return expired || outOfBounds || hitTerrain;
+        });
 
         // Update camera position to follow the local tank (if it exists)
         if (localTank != null) {
@@ -416,6 +421,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             dirtFieldTexture = new Texture("textures/Dirt_Field.png");
             forestFloorTexture = new Texture("textures/Forest_Floor.png");
             desertSandTexture = new Texture("textures/Desert.png");
+            shallowWaterTexture = new Texture("textures/Shallow_Water.png");
+            summerTreeTexture = new Texture("textures/Summer_Tree.png");
             logger.debug("Map textures loaded by main thread.");
 
             // Register terrain textures with the new terrain system
@@ -424,7 +431,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.MUD, mudFieldTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SAND, desertSandTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.STONE, summerGrassTexture);
-            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, forestFloorTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SHALLOW_WATER, shallowWaterTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, summerTreeTexture);
             logger.debug("Registered terrain textures for all types.");
 
             mapInitialized = true; // Mark map as fully ready

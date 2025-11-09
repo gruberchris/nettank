@@ -28,20 +28,23 @@ public class ClientGameMap {
 
     private final Map<TerrainType, Texture> terrainTextures = new HashMap<>();
     private final Map<TerrainState, Texture> stateOverlayTextures = new HashMap<>();
+    private final Map<String, Texture> visualOverlayTextures = new HashMap<>();
 
     public ClientGameMap(int width, int height) {
         logger.debug("Creating ClientGameMap ({}x{})", width, height);
         this.mapData = new GameMapData(width, height);
-        
-        // TEMPORARY: Generate same terrain as server until we add network sync
-        // Option 1: All grass
-        // generateAllGrassMap();
-        
-        // Option 2: Grass/Dirt/Mud thirds
-        // generateGrassDirtMudMap();
-        
-        // Option 3: All desert (currently active)
-        generateAllDesertMap();
+
+        // IMPORTANT: Must use same seed as server! For now, using hardcoded seed.
+        // TODO: Server should send seed to client via network
+        generateProceduralTerrain(org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND);
+    }
+
+    private void generateProceduralTerrain(org.chrisgruber.nettank.common.world.BaseTerrainProfile profile) {
+        // TEMPORARY: Using fixed seed for now so client/server match
+        // TODO: Server should send seed to client
+        long fixedSeed = 12345L; // Must match server seed!
+        ProceduralTerrainGenerator procGen = new ProceduralTerrainGenerator(fixedSeed);
+        procGen.generateProceduralTerrain(mapData, profile);
     }
 
     private void generateAllDesertMap() {
@@ -90,6 +93,10 @@ public class ClientGameMap {
 
     public void registerStateOverlayTexture(TerrainState state, Texture texture) {
         stateOverlayTextures.put(state, texture);
+    }
+
+    public void registerVisualOverlayTexture(String name, Texture texture) {
+        visualOverlayTextures.put(name, texture);
     }
 
     public void onTerrainStateChanged(int x, int y, TerrainState newState) {
@@ -164,19 +171,45 @@ public class ClientGameMap {
 
                 if (tint > FOG_DARKNESS - 0.01f) {
                     TerrainTile tile = mapData.getTile(x, y);
-                    TerrainType type = tile.getBaseType();
                     
-                    Texture texture = terrainTextures.get(type);
-                    if (texture == null) {
-                        texture = (type == TerrainType.GRASS) ? grassTexture : dirtTexture;
+                    // Draw base terrain first
+                    TerrainType baseType = tile.getBaseType();
+                    Texture baseTexture = terrainTextures.get(baseType);
+                    if (baseTexture == null) {
+                        baseTexture = (baseType == TerrainType.GRASS) ? grassTexture : dirtTexture;
                     }
                     
-                    if (texture == null) continue;
-
-                    texture.bind();
-                    shader.setUniform3f("u_tintColor", tint, tint, tint);
-                    renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                    if (baseTexture != null) {
+                        baseTexture.bind();
+                        shader.setUniform3f("u_tintColor", tint, tint, tint);
+                        renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                    }
                     
+                    // Draw overlay terrain on top (if exists) - affects gameplay
+                    if (tile.hasOverlay()) {
+                        TerrainType overlayType = tile.getOverlayType();
+                        Texture overlayTexture = terrainTextures.get(overlayType);
+                        
+                        if (overlayTexture != null) {
+                            overlayTexture.bind();
+                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                        }
+                    }
+                    
+                    // Draw visual overlay (tank tracks, roads, etc.) - purely cosmetic, no collision
+                    if (tile.hasVisualOverlay()) {
+                        String visualOverlayName = tile.getVisualOverlay();
+                        Texture visualTexture = visualOverlayTextures.get(visualOverlayName);
+                        
+                        if (visualTexture != null) {
+                            visualTexture.bind();
+                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
+                        }
+                    }
+                    
+                    // Draw state overlay (scorched, etc.) on top of everything
                     if (tile.getCurrentState() == TerrainState.SCORCHED) {
                         Texture scorchedTexture = stateOverlayTextures.get(TerrainState.SCORCHED);
                         if (scorchedTexture != null) {
@@ -206,10 +239,26 @@ public class ClientGameMap {
                 clientEntity.getPosition().y() + radius > mapHeight;
     }
 
+    public void setVisualOverlay(int x, int y, String visualOverlayName) {
+        if (!mapData.isValidTile(x, y)) return;
+        TerrainTile tile = mapData.getTile(x, y);
+        tile.setVisualOverlay(visualOverlayName);
+    }
+
+    public void clearVisualOverlay(int x, int y) {
+        if (!mapData.isValidTile(x, y)) return;
+        TerrainTile tile = mapData.getTile(x, y);
+        tile.setVisualOverlay(null);
+    }
+
     public int getWidthTiles() { return mapData.widthTiles; }
     public int getHeightTiles() { return mapData.heightTiles;
    }
 
     public float getWorldWidth() { return mapData.getWorldWidth(); }
     public float getWorldHeight() { return mapData.getWorldHeight(); }
+    
+    public boolean blocksBulletsAt(float worldX, float worldY) {
+        return mapData.blocksBulletsAt(worldX, worldY);
+    }
 }

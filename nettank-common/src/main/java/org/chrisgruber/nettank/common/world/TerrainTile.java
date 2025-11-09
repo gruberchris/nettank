@@ -2,12 +2,16 @@ package org.chrisgruber.nettank.common.world;
 
 public class TerrainTile {
     private TerrainType baseType;
+    private TerrainType overlayType;
+    private String visualOverlay; // Non-interactable visual layer (tank tracks, roads, etc)
     private TerrainState currentState;
     private long stateChangeTime;
     private long fireDuration;
 
     public TerrainTile(TerrainType baseType) {
         this.baseType = baseType;
+        this.overlayType = null;
+        this.visualOverlay = null;
         this.currentState = TerrainState.NORMAL;
         this.stateChangeTime = 0;
         this.fireDuration = 0;
@@ -19,6 +23,34 @@ public class TerrainTile {
 
     public void setBaseType(TerrainType baseType) {
         this.baseType = baseType;
+    }
+
+    public TerrainType getOverlayType() {
+        return overlayType;
+    }
+
+    public void setOverlayType(TerrainType overlayType) {
+        this.overlayType = overlayType;
+    }
+
+    public boolean hasOverlay() {
+        return overlayType != null;
+    }
+
+    public String getVisualOverlay() {
+        return visualOverlay;
+    }
+
+    public void setVisualOverlay(String visualOverlay) {
+        this.visualOverlay = visualOverlay;
+    }
+
+    public boolean hasVisualOverlay() {
+        return visualOverlay != null && !visualOverlay.isEmpty();
+    }
+
+    public TerrainType getEffectiveType() {
+        return overlayType != null ? overlayType : baseType;
     }
 
     public TerrainState getCurrentState() {
@@ -46,10 +78,22 @@ public class TerrainTile {
     }
 
     public float getEffectiveSpeedModifier() {
-        return baseType.getSpeedModifier() * currentState.getSpeedModifier();
+        TerrainType effectiveType = getEffectiveType();
+        return effectiveType.getSpeedModifier() * currentState.getSpeedModifier();
     }
 
     public boolean isPassable() {
-        return baseType.isPassable();
+        TerrainType effectiveType = getEffectiveType();
+        return effectiveType.isPassable();
+    }
+
+    public boolean blocksBullets() {
+        TerrainType effectiveType = getEffectiveType();
+        return effectiveType.blocksBullets();
+    }
+
+    public boolean isDestructible() {
+        TerrainType effectiveType = getEffectiveType();
+        return effectiveType.isDestructible();
     }
 }

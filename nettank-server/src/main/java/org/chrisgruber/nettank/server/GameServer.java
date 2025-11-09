@@ -4,6 +4,7 @@ import org.chrisgruber.nettank.common.entities.BulletData;
 import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
 import org.chrisgruber.nettank.common.world.GameMapData;
+import org.chrisgruber.nettank.common.world.TerrainTile;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
@@ -72,14 +73,9 @@ public class GameServer {
             new org.chrisgruber.nettank.server.world.TerrainGenerator();
         
         // Choose map type:
-        // Option 1: All grass (simple, uniform)
-        // terrainGenerator.generateAllGrassMap(serverContext.gameMapData);
-        
-        // Option 2: Grass/Dirt/Mud in thirds (1/3 each, organized layout)
-        // terrainGenerator.generateGrassDirtMudMap(serverContext.gameMapData);
-        
-        // Option 3: All desert
-        terrainGenerator.generateAllDesertMap(serverContext.gameMapData);
+
+        terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
+            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND);
         
         logger.info("Terrain generation complete");
 
@@ -481,13 +477,23 @@ public class GameServer {
             if (moveAmount != 0) {
                 float angleRad = (float) Math.toRadians(tankData.getRotation());
                 float dx = (float) -Math.sin(angleRad) * moveAmount;
-                float dy = (float) Math.cos(angleRad) * moveAmount; // Assuming 0=UP, +Y=UP (adjust if needed)
-                tankData.addPosition(dx, dy);
+                float dy = (float) Math.cos(angleRad) * moveAmount;
 
-                // Check bounds
-                serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
+                // Calculate new position
+                float newX = tankData.getX() + dx;
+                float newY = tankData.getY() + dy;
 
-                stateChangedThisTick = true;
+                // Check if new position is passable
+                if (serverContext.gameMapData.isPassableAt(newX, newY)) {
+                    tankData.addPosition(dx, dy);
+
+                    // Check bounds
+                    serverContext.gameMapData.checkAndCorrectBoundaries(tankData);
+
+                    stateChangedThisTick = true;
+                } else {
+                    logger.debug("Tank {} blocked by impassable terrain at ({}, {})", tankData.getPlayerId(), newX, newY);
+                }
             }
         }
 
@@ -496,10 +502,37 @@ public class GameServer {
         // Update Bullets
         List<BulletData> bulletsToRemove = new ArrayList<>();
         for (BulletData bulletData : serverContext.bullets) {
-            bulletData.getPosition().add(bulletData.getXVelocity() * deltaTime, bulletData.getYVelocity() * deltaTime);
-            bulletData.getCollider().setPosition(bulletData.getPosition());
+            // Store old position before update
+            float oldX = bulletData.getX();
+            float oldY = bulletData.getY();
+            
+            // Calculate new position
+            float deltaX = bulletData.getXVelocity() * deltaTime;
+            float deltaY = bulletData.getYVelocity() * deltaTime;
+            float newX = oldX + deltaX;
+            float newY = oldY + deltaY;
+            
+            // Check for terrain collision along the path
+            boolean hitTerrain = checkBulletTerrainCollision(oldX, oldY, newX, newY);
+            
+            // Update bullet position only if no collision
+            if (!hitTerrain) {
+                bulletData.getPosition().add(deltaX, deltaY);
+                bulletData.getCollider().setPosition(bulletData.getPosition());
+            }
+            
             boolean expired = (currentTime - bulletData.getSpawnTime()) >= BULLET_LIFETIME_MS;
-            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData)) {
+            
+            if (hitTerrain) {
+                TerrainTile tile = serverContext.gameMapData.getTileAt(newX, newY);
+                if (tile != null) {
+                    logger.info("Bullet {} hit terrain at ({}, {}) - Base: {}, Overlay: {}, BlocksBullets: {}", 
+                        bulletData.getId(), newX, newY, 
+                        tile.getBaseType(), tile.getOverlayType(), tile.blocksBullets());
+                }
+            }
+            
+            if (expired || serverContext.gameMapData.isOutOfBounds(bulletData) || hitTerrain) {
                 bulletsToRemove.add(bulletData);
             }
         }
@@ -962,5 +995,34 @@ public class GameServer {
         long seconds = (millis / 1000) % 60;
         long minutes = (millis / (1000 * 60)) % 60;
         return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    private boolean checkBulletTerrainCollision(float oldX, float oldY, float newX, float newY) {
+        // Calculate the distance between old and new position
+        float dx = newX - oldX;
+        float dy = newY - oldY;
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        
+        // If the bullet barely moved, just check the new position
+        if (distance < 0.1f) {
+            return serverContext.gameMapData.blocksBulletsAt(newX, newY);
+        }
+        
+        // Sample multiple points along the bullet's path
+        // Use tile size to determine how many samples we need
+        float tileSize = serverContext.gameMapData.getTileSize();
+        int numSamples = (int) Math.ceil(distance / (tileSize * 0.5f)) + 1;
+        
+        for (int i = 0; i <= numSamples; i++) {
+            float t = (float) i / numSamples;
+            float checkX = oldX + dx * t;
+            float checkY = oldY + dy * t;
+            
+            if (serverContext.gameMapData.blocksBulletsAt(checkX, checkY)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }

@@ -2,55 +2,51 @@
 
 ## Quick Start Integration
 
-### 1. Server Setup (3 lines of code)
+### 1. Server Setup
 
 ```java
-// In your GameServer or ServerContext initialization
+// Create terrain generator
+ProceduralTerrainGenerator terrainGen = new ProceduralTerrainGenerator();
+
+// Generate terrain with profile
+terrainGen.generateProceduralTerrain(gameMapData, BaseTerrainProfile.GRASSLAND);
+
+// Create fire manager
 FireManager fireManager = new FireManager(gameMapData);
 
-// In your game update loop (60 Hz)
+// In game update loop (60 Hz)
 fireManager.update(System.currentTimeMillis());
 
-// When bullet explodes or tank destroyed
+// When explosion occurs
 fireManager.onExplosion(explosionPosition, explosionRadius);
 ```
 
-### 2. Client Setup (Textures)
+### 2. Client Setup
 
 ```java
-// Register textures once during initialization
+// Generate matching terrain (must use same profile as server!)
+proceduralGen.generateProceduralTerrain(gameMapData, BaseTerrainProfile.GRASSLAND);
+
+// Register textures
 clientGameMap.registerTerrainTexture(TerrainType.GRASS, grassTexture);
-clientGameMap.registerTerrainTexture(TerrainType.DIRT, dirtTexture);
-// ... register others as you add them
-
-// Optional: Scorched overlay
+clientGameMap.registerTerrainTexture(TerrainType.SHALLOW_WATER, waterTexture);
+clientGameMap.registerTerrainTexture(TerrainType.FOREST, treeTexture);
 clientGameMap.registerStateOverlayTexture(TerrainState.SCORCHED, scorchedTexture);
-```
-
-### 3. Generate Terrain (Server)
-
-```java
-// Option A: Simple random terrain
-TerrainGenerator generator = new TerrainGenerator();
-generator.generateSimpleTerrain(gameMapData);
-
-// Option B: Terrain with patches (forests, mud, etc.)
-generator.generateTerrainWithFeatures(gameMapData);
 ```
 
 ## Terrain Types Cheat Sheet
 
-| Type          | Symbol | Speed | Can Pass? | Flammable? | Burn Time |
-|---------------|--------|-------|-----------|------------|-----------|
-| GRASS         | 🟩     | 100%  | ✅        | Yes        | 5s        |
-| DIRT          | 🟫     | 95%   | ✅        | No         | -         |
-| MUD           | 🟤     | 60%   | ✅        | No         | -         |
-| SHALLOW_WATER | 🔵     | 40%   | ✅        | No         | -         |
-| DEEP_WATER    | 🌊     | 0%    | ❌        | No         | -         |
-| SAND          | 🟨     | 85%   | ✅        | No         | -         |
-| STONE         | ⬜     | 100%  | ✅        | No         | -         |
-| FOREST        | 🌲     | 70%   | ✅        | Yes        | 15s       |
-| MOUNTAIN      | 🗻     | 0%    | ❌        | No         | -         |
+| Type          | Speed | Passable | Blocks Bullets | Flammable | Burn Time |
+|---------------|-------|----------|----------------|-----------|-----------|
+| GRASS         | 100%  | ✅       | ❌             | Yes       | 5s        |
+| DIRT          | 95%   | ✅       | ❌             | No        | -         |
+| MUD           | 60%   | ✅       | ❌             | No        | -         |
+| SHALLOW_WATER | 40%   | ❌       | ❌             | No        | -         |
+| DEEP_WATER    | 0%    | ❌       | ❌             | No        | -         |
+| SAND          | 85%   | ✅       | ❌             | No        | -         |
+| STONE         | 100%  | ✅       | ❌             | No        | -         |
+| FOREST        | 70%   | ❌       | ✅             | Yes       | 15s       |
+| MOUNTAIN      | 0%    | ❌       | ❌             | No        | -         |
 
 ## Fire States Timeline
 
@@ -65,14 +61,20 @@ Explosion → IGNITING (2s) → BURNING (varies) → SMOLDERING (3s) → SCORCHE
 // Get terrain at world position
 TerrainTile tile = gameMapData.getTileAt(worldX, worldY);
 
-// Check if passable
-boolean canPass = gameMapData.isPassableAt(worldX, worldY);
+// Check if passable for tanks
+boolean canPass = tile.isPassable();
+
+// Check if bullets collide
+boolean bulletHits = tile.getEffectiveType() == TerrainType.FOREST;
 
 // Get speed modifier (includes terrain + state)
-float speedMod = gameMapData.getSpeedModifierAt(worldX, worldY);
+float speedMod = tile.getEffectiveSpeedModifier();
 
-// Check terrain type
+// Check base terrain
 if (tile.getBaseType() == TerrainType.GRASS) { ... }
+
+// Check overlay terrain
+if (tile.hasOverlay() && tile.getOverlayType() == TerrainType.FOREST) { ... }
 
 // Check terrain state
 if (tile.getCurrentState() == TerrainState.BURNING) { ... }
@@ -253,23 +255,24 @@ public class TankBattleGame {
 }
 ```
 
-## What's Ready to Use RIGHT NOW
+## Current Status
 
-✅ Terrain types with different movement speeds
-✅ Terrain passability (impassable water/mountains)
+✅ Three-layer terrain system (base + visual overlay + data overlay)
+✅ Procedural generation with single contiguous regions
+✅ Four terrain profiles (Grassland, Desert, Dirt Plains, Mudlands)
+✅ Terrain collision detection for tanks and bullets
+✅ Overlay terrain blocks bullets (trees)
 ✅ Fire ignition from explosions
 ✅ Fire state progression (igniting → burning → scorched)
-✅ Terrain queries (speed modifier, passability)
-✅ Client rendering with base terrain + scorched overlay
-✅ Procedural terrain generation
+✅ Safe spawn points (no spawning in overlays)
 
-## What Needs Implementation for Full Experience
+## Future Enhancements
 
-⏳ Network synchronization of terrain state changes
-⏳ Fire visual effects (FlameEffect integration)
-⏳ Fire damage to entities
-⏳ Texture loading for all terrain types
-⏳ Fire spreading to adjacent tiles (Phase 2)
+⏳ Network seed synchronization (currently fixed seed)
+⏳ Fire spreading between tiles
+⏳ Destructible overlay terrain
+⏳ Fire visual effects integration
+⏳ Line of sight / fog of war with terrain
 
 ## Support & Documentation
 

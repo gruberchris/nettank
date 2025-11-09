@@ -108,13 +108,22 @@ public class GameMapData {
         float worldWidth = widthTiles * tileSize;
         float worldHeight = heightTiles * tileSize;
         float margin = tileSize * 2;
-        // Ensure the margin is not too large for map size
         float effectiveWidth = Math.max(0, worldWidth - 2 * margin);
         float effectiveHeight = Math.max(0, worldHeight - 2 * margin);
 
-        float spawnX = margin + random.nextFloat() * effectiveWidth;
-        float spawnY = margin + random.nextFloat() * effectiveHeight;
-        return new Vector2f(spawnX, spawnY);
+        int maxAttempts = 100;
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            float spawnX = margin + random.nextFloat() * effectiveWidth;
+            float spawnY = margin + random.nextFloat() * effectiveHeight;
+            
+            TerrainTile tile = getTileAt(spawnX, spawnY);
+            if (tile != null && !tile.hasOverlay()) {
+                return new Vector2f(spawnX, spawnY);
+            }
+        }
+        
+        logger.warn("Could not find clear spawn point after {} attempts, using fallback position", maxAttempts);
+        return new Vector2f(margin + effectiveWidth / 2, margin + effectiveHeight / 2);
     }
 
     public int getWidthTiles() { return widthTiles; }
@@ -154,5 +163,13 @@ public class GameMapData {
             return false;
         }
         return tile.isPassable();
+    }
+
+    public boolean blocksBulletsAt(float worldX, float worldY) {
+        TerrainTile tile = getTileAt(worldX, worldY);
+        if (tile == null) {
+            return false;
+        }
+        return tile.blocksBullets();
     }
 }
