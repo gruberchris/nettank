@@ -21,5 +21,6 @@ public interface NetworkCallbackHandler {
     void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage);
     void handlePlayerDestroyed(int targetId, int shooterId);
     void storeMapInfo(int widthTiles, int heightTiles, float tileSize);
+    void receiveTerrainData(int width, int height, String encodedData);
     void updateShootCooldown(long cooldownRemainingMs);
 }

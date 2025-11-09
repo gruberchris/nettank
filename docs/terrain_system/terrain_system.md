@@ -379,4 +379,5 @@ clientGameMap.registerStateOverlayTexture(TerrainState.SCORCHED, scorchedTex);
 - `dynamic_terrain_system.md` - Fire system details
 - `contiguous_terrain_generation.md` - Procedural generation algorithm
 - `procedural_generation_implementation.md` - Implementation details
+- `round_based_regeneration.md` - Round-based terrain regeneration
 - `line_of_sight_system.md` - Vision blocking system (future)

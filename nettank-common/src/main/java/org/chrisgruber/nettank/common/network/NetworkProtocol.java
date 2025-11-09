@@ -28,5 +28,7 @@ public class NetworkProtocol {
     public static final String SPECTATE_END = "SPEC_END";           // SPECTATE_END;<playerId>
     public static final String SPECTATE_PERMANENT = "SPEC_PERM";    // SPECTATE_PERM;<playerId>
     public static final String MAP_INFO = "MAP";     // MAP;<widthTiles>;<heightTiles>;<tileSize>
+    public static final String TERRAIN_INIT = "TER"; // TER;<seed>;<profileName>
+    public static final String TERRAIN_DATA = "TRD"; // TRD;<width>;<height>;<compressedData>
     public static final String SHOOT_COOLDOWN = "SHT_CDN";     // SHT_CDN;<cooldownRemainingMs>
 }

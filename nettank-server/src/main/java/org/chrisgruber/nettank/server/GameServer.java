@@ -68,16 +68,20 @@ public class GameServer {
         this.serverContext.gameMode = new FreeForAll();
         this.serverContext.gameMapData = new GameMapData(mapWidth, mapHeight, GameMapData.DEFAULT_TILE_SIZE);
         
+        // Generate unique seed for this game session
+        this.serverContext.terrainSeed = System.currentTimeMillis() ^ (mapWidth * 31L + mapHeight * 17L);
+        this.serverContext.terrainProfileName = "GRASSLAND";
+        
         // Generate terrain for the map
         org.chrisgruber.nettank.server.world.TerrainGenerator terrainGenerator = 
-            new org.chrisgruber.nettank.server.world.TerrainGenerator();
+            new org.chrisgruber.nettank.server.world.TerrainGenerator(serverContext.terrainSeed);
         
-        // Choose map type:
-
+        // Choose the map type:
         terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
             org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND);
         
-        logger.info("Terrain generation complete");
+        logger.info("Terrain generation complete (seed: {}, profile: {})", 
+            serverContext.terrainSeed, serverContext.terrainProfileName);
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
@@ -301,6 +305,16 @@ public class GameServer {
                 mapData.getTileSize()));
 
         logger.info("Sent MAP_INFO ({};{};{}) to player ID {}: {}", mapData.getWidthTiles(), mapData.getHeightTiles(), mapData.getTileSize(), playerId, handler.getSocket().getInetAddress().getHostAddress());
+
+        // Send terrain data to client
+        String encodedTerrain = org.chrisgruber.nettank.common.world.TerrainEncoder.encode(serverContext.gameMapData);
+        handler.sendMessage(String.format("%s;%d;%d;%s",
+                NetworkProtocol.TERRAIN_DATA,
+                mapData.getWidthTiles(),
+                mapData.getHeightTiles(),
+                encodedTerrain));
+        logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}", 
+            mapData.getWidthTiles(), mapData.getHeightTiles(), encodedTerrain.length(), playerId);
 
         handler.sendMessage(String.format("%s;%s;%d",
                 NetworkProtocol.GAME_STATE,
@@ -793,9 +807,16 @@ public class GameServer {
 
         logger.info("Server changing state from {} to {}", serverContext.currentGameState, newState);
 
+        GameState previousState = serverContext.currentGameState;
+
         // Update server context state
         serverContext.currentGameState = newState;
         serverContext.stateChangeTime = System.currentTimeMillis();
+
+        // Regenerate terrain with new seed when transitioning from WAITING (first player joins)
+        if (previousState == GameState.WAITING && newState == GameState.COUNTDOWN) {
+            regenerateTerrainForNewRound();
+        }
 
         // Set roundStartTimeMillis when entering PLAYING state
         if (newState == GameState.PLAYING) {
@@ -846,6 +867,34 @@ public class GameServer {
             }
             default -> throw new IllegalStateException("Unexpected value: " + state);
         }
+    }
+
+    // Regenerates terrain with a new seed for a new round
+    private void regenerateTerrainForNewRound() {
+        logger.info("Regenerating terrain for new round.");
+        
+        // Generate new unique seed
+        serverContext.terrainSeed = System.currentTimeMillis() ^ (mapWidth * 31L + mapHeight * 17L);
+        
+        // Regenerate terrain using the terrain generator
+        org.chrisgruber.nettank.server.world.TerrainGenerator terrainGenerator = 
+            new org.chrisgruber.nettank.server.world.TerrainGenerator(serverContext.terrainSeed);
+        
+        terrainGenerator.generateProceduralTerrain(serverContext.gameMapData, 
+            org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND);
+        
+        logger.info("Terrain regeneration complete (new seed: {}, profile: {})", 
+            serverContext.terrainSeed, serverContext.terrainProfileName);
+        
+        // Broadcast new terrain to all connected clients
+        String encodedTerrain = org.chrisgruber.nettank.common.world.TerrainEncoder.encode(serverContext.gameMapData);
+        broadcast(String.format("%s;%d;%d;%s",
+                NetworkProtocol.TERRAIN_DATA,
+                serverContext.gameMapData.getWidthTiles(),
+                serverContext.gameMapData.getHeightTiles(),
+                encodedTerrain), -1);
+        
+        logger.info("Broadcasted new terrain data to all clients ({} bytes)", encodedTerrain.length());
     }
 
     // Resets player state for a new round

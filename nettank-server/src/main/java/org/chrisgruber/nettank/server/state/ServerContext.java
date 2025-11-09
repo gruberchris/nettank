@@ -31,6 +31,8 @@ public class ServerContext {
     public final List<BulletData> bullets = new CopyOnWriteArrayList<>();
     public GameMapData gameMapData;
     public GameMode gameMode;
+    public long terrainSeed;
+    public String terrainProfileName;
 
     // Game Flow State (volatile for thread safety)
     public volatile GameState currentGameState = GameState.WAITING;

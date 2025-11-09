@@ -328,6 +328,16 @@ public class GameClient implements Runnable {
                         logger.error("Malformed MAP_INFO message: {}", e.getMessage());
                     }
                 }
+                case NetworkProtocol.TERRAIN_DATA -> {
+                    try {
+                        var msg = NetworkMessage.TerrainData.parse(parts);
+                        networkCallbackHandler.receiveTerrainData(msg.width(), msg.height(), msg.encodedData());
+                        logger.info("Received TERRAIN_DATA: {}x{} tiles, {} bytes", 
+                            msg.width(), msg.height(), msg.encodedData().length());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed TERRAIN_DATA message: {}", e.getMessage());
+                    }
+                }
                 case NetworkProtocol.ERROR_MSG -> {
                     try {
                         var msg = NetworkMessage.ErrorMessage.parse(parts);

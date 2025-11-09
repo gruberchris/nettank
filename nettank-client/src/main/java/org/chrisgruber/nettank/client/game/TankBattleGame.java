@@ -107,8 +107,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private int mapWidthTiles = -1;
     private int mapHeightTiles = -1;
     private float mapTileSize = -1.0f;
+    private String receivedTerrainData = null;
     private boolean mapInitialized = false;
     private volatile boolean mapInfoReceivedForProcessing = false;
+    private volatile boolean terrainInfoReceivedForProcessing = false;
 
     // Tank explosion effect
     private final List<Texture> explosionFrameTextures = new ArrayList<>();
@@ -343,9 +345,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         });
         // ----------------------------------
 
-        if (mapInfoReceivedForProcessing && !mapInitialized) {
+        // Initialize the map only when both MAP_INFO and TERRAIN_INIT have been received
+        if (mapInfoReceivedForProcessing && terrainInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
-            mapInfoReceivedForProcessing = false; // Reset the signal flag
+            mapInfoReceivedForProcessing = false; // Reset the signal flags
+            terrainInfoReceivedForProcessing = false;
         }
 
         // Update local bullet positions for client-side prediction
@@ -398,6 +402,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
+    public void receiveTerrainData(int width, int height, String encodedData) {
+        logger.info("Received terrain data from server: {}x{} tiles, {} bytes", width, height, encodedData.length());
+        this.receivedTerrainData = encodedData;
+        this.terrainInfoReceivedForProcessing = true; // Signal the main thread
+    }
+
+    @Override
     public void updateShootCooldown(long cooldownRemainingMs) {
         if (localTank != null) {
             localTank.setCooldown(cooldownRemainingMs);
@@ -410,10 +421,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private void initializeMapAndTextures() {
         if (mapInitialized) return; // Should not happen if logic is correct, but safe check
 
-        logger.info("Main thread initializing map with dimensions: {}x{}", mapWidthTiles, mapHeightTiles);
+        logger.info("Main thread initializing map with dimensions: {}x{}, terrain data: {} bytes", 
+            mapWidthTiles, mapHeightTiles, receivedTerrainData != null ? receivedTerrainData.length() : 0);
         try {
-            // Create the map object (uses the stored dimensions)
-            this.gameMap = new ClientGameMap(mapWidthTiles, mapHeightTiles);
+            // Create the map object (uses the stored dimensions and terrain data from server)
+            this.gameMap = new ClientGameMap(mapWidthTiles, mapHeightTiles, receivedTerrainData);
 
             logger.debug("Main thread loading map textures...");
             summerGrassTexture = new Texture("textures/Summer_Grass.png");

@@ -17,6 +17,8 @@ Developer and architecture documentation uses lowercase filenames:
 - **[terrain_quick_reference.md](terrain_system/terrain_quick_reference.md)** - Quick integration: setup code, common queries, troubleshooting
 - **[terrain_layering_system.md](terrain_system/terrain_layering_system.md)** - Deep dive: three-layer system, rendering order, overlay mechanics
 - **[procedural_generation_implementation.md](terrain_system/procedural_generation_implementation.md)** - Algorithm: noise generation, flood fill, profiles
+- **[server_client_terrain_protocol.md](terrain_system/server_client_terrain_protocol.md)** - Network protocol: seed synchronization, client-server communication
+- **[round_based_regeneration.md](terrain_system/round_based_regeneration.md)** - Round system: automatic terrain regeneration between rounds
 - **[dynamic_terrain_system.md](terrain_system/dynamic_terrain_system.md)** - Fire system: ignition, spreading, state transitions
 
 ### Game Systems
