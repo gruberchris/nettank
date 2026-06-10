@@ -6,7 +6,7 @@ A multiplayer top-down 2D tank battle game where players control tanks and try t
 
 ## Requirements
 
-- **Java**: OpenJDK 21 (Java 21) or newer
+- **Java**: OpenJDK 25 (Java 25) or newer
 - **Operating System**: Windows, macOS, or Linux
 - **Graphics**: OpenGL 3.3 compatible graphics card
 
@@ -70,7 +70,7 @@ See [GAME_CONFIG.md](docs/GAME_CONFIG.md) for complete configuration documentati
 
 ## Launching The Game Client
 
-**Note:** OpenJDK 21 (Java 21) Runtime or newer is required to run the game client or the server.
+**Note:** OpenJDK 25 (Java 25) Runtime or newer is required to run the game client or the server.
 
 The game client is a universal jar file that can be run on any platform with Java installed.
 
@@ -157,14 +157,14 @@ java -jar nettank-server.jar <port> <network_hz> <map_width> <map_height>
 
 **Example:**
 ```shell
-java -server -XX:+UseG1GC -Xms512m -Xmx1024m -jar nettank-server.jar 5555 60 100 100
+java -server -XX:+UseG1GC -Xms512m -Xmx1024m -jar nettank-server.jar 5555 30 50 50
 ```
 
 **Parameters:**
 - `port` - Server port (default: 5555)
-- `network_hz` - Network update rate in Hz (default: 60, range: 20-120)
-- `map_width` - Map width in tiles (default: 100)
-- `map_height` - Map height in tiles (default: 100)
+- `network_hz` - Network update rate in Hz (default: 30, range: 20-120)
+- `map_width` - Map width in tiles (default: 50)
+- `map_height` - Map height in tiles (default: 50)
 
 ### Running with Docker
 
