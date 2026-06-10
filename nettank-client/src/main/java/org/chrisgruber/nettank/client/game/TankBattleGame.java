@@ -8,6 +8,7 @@ import org.chrisgruber.nettank.client.engine.graphics.Texture;
 import org.chrisgruber.nettank.client.engine.network.GameClient;
 import org.chrisgruber.nettank.client.engine.network.NetworkCallbackHandler;
 import org.chrisgruber.nettank.client.engine.ui.KillFeedMessage;
+import org.chrisgruber.nettank.client.engine.ui.HealthBar;
 import org.chrisgruber.nettank.client.engine.ui.StatusMessageKind;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
 import org.chrisgruber.nettank.client.game.effects.ExplosionEffect;
@@ -54,6 +55,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private Renderer renderer;
     private Camera camera;
     private UIManager uiManager;
+    private HealthBar healthBar;
 
     // Textures
     private Texture tankTexture;
@@ -167,6 +169,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             renderer = new Renderer();
             camera = new Camera(windowWidth, windowHeight);
             uiManager = new UIManager();
+            healthBar = new HealthBar();
 
             // Load game textures
             logger.debug("Loading textures...");
@@ -635,25 +638,30 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private void renderUI() {
         uiManager.startUIRendering(windowWidth, windowHeight);
 
-        // Define positions for top-left UI elements
-        final float statusTextX = 10; // X position for status text
-        final float hitPointsY = 10; // Y position for Hit Points
-        final float timerY = 35;     // Y position for Timer (below Hit Points + padding)
-        final float killsY = 55;     // Y position for Player Kills (below Timer + padding)
-        final float killFeedPaddingX = 10; // Padding from the right edge
-        final float killFeedStartY = 10;   // Starting Y position from the top
-        final float killFeedLineHeight = 20; // Vertical space between messages (adjust as needed)
-        final float playersCountY = 75; // Y position for Player Count (below Kills + padding)
+        // --- Top-Left UI Elements ---
+        final float statusTextX = 10;
+        float currentY = 10; // Starting Y position
+        float lineSpacing = 5; // Space between UI elements
+        float textHeight = uiManager.getTextHeight(UI_TEXT_SCALE_STATUS);
+        float secondaryTextHeight = uiManager.getTextHeight(UI_TEXT_SCALE_SECONDARY_STATUS);
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            uiManager.drawText("HIT POINTS: %d".formatted(localTank.getHitPoints()), 
-                             statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.GREEN);
+            // --- Render Health Bar ---
+            if (healthBar != null) {
+                float healthBarWidth = 150;
+                float healthBarHeight = 15;
+                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), TankData.MAX_HIT_POINTS, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
+                currentY += healthBarHeight + lineSpacing;
+            }
+            // -------------------------
         } else if (isSpectating) {
-            uiManager.drawText("SPECTATING", statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
+            uiManager.drawText("SPECTATING", statusTextX, currentY, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
+            currentY += textHeight + lineSpacing;
         } else {
-            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...", 
-                             statusTextX, hitPointsY, UI_TEXT_SCALE_STATUS, Colors.WHITE);
+            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...",
+                             statusTextX, currentY, UI_TEXT_SCALE_STATUS, Colors.WHITE);
+            currentY += textHeight + lineSpacing;
         }
 
         // Render Timer
@@ -663,102 +671,82 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             long minutes = (elapsedMillis / (1000 * 60)) % 60;
             long hours = (elapsedMillis / (1000 * 60 * 60)) % 24;
 
-            String timeStr;
+            String timeStr = (hours > 0)
+                ? String.format("TIME: %02d:%02d:%02d", hours, minutes, seconds)
+                : String.format("TIME: %02d:%02d", minutes, seconds);
 
-            if (hours > 0) {
-                timeStr = String.format("TIME: %02d:%02d:%02d", hours, minutes, seconds);
-            }
-            else {
-                timeStr = String.format("TIME: %02d:%02d", minutes, seconds);
-            }
-
-            uiManager.drawText(timeStr, statusTextX, timerY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
-        } else if (currentGameState == GameState.ROUND_OVER && finalElapsedTimeMillis >= 0) {
-            // TODO: Timer display handled by announcements in ROUND_OVER
+            uiManager.drawText(timeStr, statusTextX, currentY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
+            currentY += secondaryTextHeight + lineSpacing;
         }
 
-        // Render Player's Kills
+        // Render Player's Kills & Player Count
         if (localTank != null && !isSpectating) {
             uiManager.drawText("KILLS: %d".formatted(playerKills),
-                    statusTextX, killsY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED);
+                    statusTextX, currentY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED);
+            currentY += secondaryTextHeight + lineSpacing;
+
+            uiManager.drawText("PLAYERS: %d".formatted(tanks.size()),
+                             statusTextX, currentY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
         }
 
-        if (localTank != null && !isSpectating) {
-            uiManager.drawText("PLAYERS: %d".formatted(tanks.size()), 
-                             statusTextX, playersCountY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
-        }
+
+        // --- Bottom-Center and Right-Side UI ---
+        final float killFeedPaddingX = 10;
+        final float killFeedStartY = 10;
+        final float killFeedLineHeight = 20;
 
         // Render weapon cooldown indicator (center bottom of screen)
         if (localTank != null && !isSpectating) {
             long cooldownRemaining = localTank.getCooldownRemaining();
             if (cooldownRemaining > 0) {
-                float cooldownSeconds = cooldownRemaining / 1000.0f;
-                String cooldownText = String.format("RELOADING: %.1fs", cooldownSeconds);
+                String cooldownText = String.format("RELOADING: %.1fs", cooldownRemaining / 1000.0f);
                 float textWidth = uiManager.getTextWidth(cooldownText, UI_TEXT_SCALE_STATUS);
-                float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
-                float y = windowHeight - 40; // Near bottom of screen
+                float x = (windowWidth - textWidth) / 2.0f;
+                float y = windowHeight - 40;
                 uiManager.drawText(cooldownText, x, y, UI_TEXT_SCALE_STATUS, Colors.WHITE);
             }
         }
 
-        // Render Kill Feed Messages
+        // Render Kill Feed Messages (top-right)
         float currentKillFeedY = killFeedStartY;
-
         for (KillFeedMessage feedMessage : killFeedMessages) {
-            // Calculate the width of the message text
             float textWidth = uiManager.getTextWidth(feedMessage.message(), UI_TEXT_SCALE_KILL_FEED);
-
-            // Calculate the X position (right-aligned)
             float x = windowWidth - textWidth - killFeedPaddingX;
-
-            // Select the text color
-            Vector3f textColor;
-
-            switch (feedMessage.getStatusMessageKind()) {
-                case StatusMessageKind.PlayerKilled -> textColor = Colors.RED;
-                case StatusMessageKind.PlayerLeft -> textColor = Colors.ORANGE;
-                case StatusMessageKind.PlayerJoined -> textColor = Colors.WHITE;
-                default -> textColor = Colors.CYAN;
-            }
-
-            // Draw the text
+            Vector3f textColor = switch (feedMessage.getStatusMessageKind()) {
+                case PlayerKilled -> Colors.RED;
+                case PlayerLeft -> Colors.ORANGE;
+                case PlayerJoined -> Colors.WHITE;
+                default -> Colors.CYAN;
+            };
             uiManager.drawText(feedMessage.message(), x, currentKillFeedY, UI_TEXT_SCALE_KILL_FEED, textColor);
-
-            // Move down for the next message
             currentKillFeedY += killFeedLineHeight;
         }
 
         // --- Render Centered Messages ---
-        final float centerMessageY = windowHeight * 0.4f; // Vertical position (adjust 0.4f if needed)
+        final float centerMessageY = windowHeight * 0.4f;
 
         // Render Announcements
         if (!announcements.isEmpty()) {
             String announcement = announcements.getFirst();
             float textWidth = uiManager.getTextWidth(announcement, UI_TEXT_SCALE_ANNOUNCEMENT);
-            float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
+            float x = (windowWidth - textWidth) / 2.0f;
             uiManager.drawText(announcement, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
         }
 
         // Render Game State messages
         String stateMessage = "";
-
         switch (currentGameState) {
-            case WAITING:
-                stateMessage = "WAITING FOR PLAYERS (" + tanks.size() + ")";
-                break;
-            case COUNTDOWN:
-                // TODO: I want to show the countdown number here, "3... 2... 1...FIGHT!"
-                if (announcements.isEmpty()) { // Only show if no countdown number announcement
+            case WAITING -> stateMessage = "WAITING FOR PLAYERS (" + tanks.size() + ")";
+            case COUNTDOWN -> {
+                if (announcements.isEmpty()) {
                     stateMessage = "ROUND STARTING...";
                 }
-                break;
+            }
         }
 
-        if (!stateMessage.isEmpty()) { // Check if we have a state message to display
-            // Calculate width needed to center the text
+        if (!stateMessage.isEmpty()) {
             float textWidth = uiManager.getTextWidth(stateMessage, UI_TEXT_SCALE_ANNOUNCEMENT);
-            float x = (windowWidth - textWidth) / 2.0f; // Center horizontally
-            // Draw using the large announcement scale
+            float x = (windowWidth - textWidth) / 2.0f;
             uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
         }
 
@@ -891,6 +879,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try {
             if (uiManager != null) {
                 uiManager.cleanup();
+            }
+            if (healthBar != null) {
+                healthBar.cleanup();
             }
         } catch (Exception e) {
             logger.error("Error cleaning up uiManager", e);

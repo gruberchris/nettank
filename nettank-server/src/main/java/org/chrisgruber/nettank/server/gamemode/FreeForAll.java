@@ -61,7 +61,7 @@ public class FreeForAll extends GameMode {
             tankData.setForSpawn(
                     serverContext.gameMapData.getRandomSpawnPoint(),
                     this.random.nextFloat(0f, 359f), // Random rotation
-                    1, // Hit points
+                    TankData.MAX_HIT_POINTS, // Hit points
                     0, // Death time
                     0  // Last shot time
             );
@@ -80,7 +80,7 @@ public class FreeForAll extends GameMode {
             tankData.setForSpawn(
                     serverContext.gameMapData.getRandomSpawnPoint(),
                     this.random.nextFloat(0f, 359f), // Random rotation
-                    1, // Hit points
+                    TankData.MAX_HIT_POINTS, // Hit points
                     0, // Death time
                     0  // Last shot time
             );
