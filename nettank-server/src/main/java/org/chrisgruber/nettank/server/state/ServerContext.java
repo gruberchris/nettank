@@ -27,10 +27,19 @@ public class ServerContext {
     public final Map<Integer, TankData> tanks = new ConcurrentHashMap<>();
     public final AtomicInteger nextPlayerId = new AtomicInteger(0);
 
+    // Lobby readiness: the round cannot start until every connected player is ready
+    public final java.util.Set<Integer> readyPlayerIds = ConcurrentHashMap.newKeySet();
+
+    public boolean areAllPlayersReady() {
+        return !clients.isEmpty() && readyPlayerIds.containsAll(clients.keySet());
+    }
+
     // World State
     public final List<BulletData> bullets = new CopyOnWriteArrayList<>();
     public GameMapData gameMapData;
     public GameMode gameMode;
+    public org.chrisgruber.nettank.server.world.FireManager fireManager;
+    public org.chrisgruber.nettank.server.world.PowerUpManager powerUpManager;
     public long terrainSeed;
     public String terrainProfileName;
 

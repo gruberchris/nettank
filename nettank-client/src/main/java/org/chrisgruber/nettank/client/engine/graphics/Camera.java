@@ -11,6 +11,12 @@ public class Camera {
     private Vector2f position;
     private float zoom = 1.0f; // Added zoom capability
 
+    // Screen shake: magnitude decays to zero over SHAKE_DURATION_MS
+    private static final long SHAKE_DURATION_MS = 300;
+    private float shakeMagnitude = 0.0f;
+    private long shakeEndTimeMillis = 0;
+    private final java.util.Random shakeRandom = new java.util.Random();
+
     private float screenWidth;
     private float screenHeight;
 
@@ -38,10 +44,34 @@ public class Camera {
         // The view matrix transforms world coordinates to camera coordinates.
         // It's the inverse of the camera's transformation.
         // We move the world in the opposite direction of the camera.
-        Vector3f cameraPos = new Vector3f(-position.x, -position.y, 0);
+        Vector2f shake = currentShakeOffset();
+        Vector3f cameraPos = new Vector3f(-(position.x + shake.x), -(position.y + shake.y), 0);
         viewMatrix.identity().translate(cameraPos);
         // Apply zoom by scaling the view matrix after translation
         // viewMatrix.scale(1.0f / zoom); // Scaling the view is equivalent to adjusting ortho projection bounds
+    }
+
+    /**
+     * Kicks off a screen shake of the given magnitude (world units), decaying
+     * to zero over ~300 ms. Stronger ongoing shakes are not reduced.
+     */
+    public void addShake(float magnitude) {
+        this.shakeMagnitude = Math.max(this.shakeMagnitude, magnitude);
+        this.shakeEndTimeMillis = System.currentTimeMillis() + SHAKE_DURATION_MS;
+    }
+
+    private Vector2f currentShakeOffset() {
+        long now = System.currentTimeMillis();
+        if (shakeMagnitude <= 0.0f || now >= shakeEndTimeMillis) {
+            shakeMagnitude = 0.0f;
+            return new Vector2f();
+        }
+
+        float remaining = (shakeEndTimeMillis - now) / (float) SHAKE_DURATION_MS;
+        float magnitude = shakeMagnitude * remaining;
+        return new Vector2f(
+                (shakeRandom.nextFloat() * 2.0f - 1.0f) * magnitude,
+                (shakeRandom.nextFloat() * 2.0f - 1.0f) * magnitude);
     }
 
     public void setPosition(float x, float y) {

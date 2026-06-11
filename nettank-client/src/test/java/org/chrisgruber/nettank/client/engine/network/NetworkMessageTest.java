@@ -190,7 +190,7 @@ class NetworkMessageTest {
     
     @Test
     void testNewPlayerParse_Valid() {
-        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "Player1", "1.0", "0.5", "0.0"};
+        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "Player1", "1.0", "0.5", "0.0", "0.79", "HEAVY"};
         var msg = NetworkMessage.NewPlayer.parse(parts);
         
         assertEquals(42, msg.id());
@@ -201,6 +201,8 @@ class NetworkMessageTest {
         assertEquals(1.0f, msg.colorR(), 0.001f);
         assertEquals(0.5f, msg.colorG(), 0.001f);
         assertEquals(0.0f, msg.colorB(), 0.001f);
+        assertEquals(0.79f, msg.turretRotation(), 0.001f);
+        assertEquals("HEAVY", msg.tankType());
     }
     
     @Test
@@ -214,15 +216,16 @@ class NetworkMessageTest {
     
     @Test
     void testPlayerUpdateParse_Valid() {
-        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57"};
+        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57", "0.79"};
         var msg = NetworkMessage.PlayerUpdate.parse(parts);
         
         assertEquals(42, msg.id());
         assertEquals(150.5f, msg.x(), 0.001f);
         assertEquals(200.3f, msg.y(), 0.001f);
         assertEquals(1.57f, msg.rotation(), 0.001f);
+        assertEquals(0.79f, msg.turretRotation(), 0.001f);
     }
-    
+
     // ========== PlayerLeft Tests ==========
     
     @Test
@@ -261,13 +264,34 @@ class NetworkMessageTest {
     @Test
     void testHitParse_Valid() {
         UUID bulletId = UUID.randomUUID();
-        String[] parts = {"HIT", "10", "20", bulletId.toString(), "25"};
+        String[] parts = {"HIT", "10", "20", bulletId.toString(), "25", "REAR", "1"};
         var msg = NetworkMessage.Hit.parse(parts);
         
         assertEquals(10, msg.targetId());
         assertEquals(20, msg.shooterId());
         assertEquals(bulletId, msg.bulletId());
         assertEquals(25, msg.damage());
+        assertEquals("REAR", msg.side());
+        assertTrue(msg.critical());
+    }
+
+    @Test
+    void testArmorStatusParse_Valid() {
+        String[] parts = {"ARM", "2", "1", "1", "0", "3"};
+        var msg = NetworkMessage.ArmorStatus.parse(parts);
+
+        assertEquals(2, msg.front());
+        assertEquals(1, msg.left());
+        assertEquals(1, msg.right());
+        assertEquals(0, msg.rear());
+        assertEquals(3, msg.hitPoints());
+    }
+
+    @Test
+    void testArmorStatusParse_InsufficientParts() {
+        String[] parts = {"ARM", "2", "1"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.ArmorStatus.parse(parts));
     }
     
     // ========== Destroyed Tests ==========
@@ -285,13 +309,14 @@ class NetworkMessageTest {
     
     @Test
     void testRespawnParse_Valid() {
-        String[] parts = {"RSP", "42", "100.5", "200.3", "1.57"};
+        String[] parts = {"RSP", "42", "100.5", "200.3", "1.57", "2.5"};
         var msg = NetworkMessage.Respawn.parse(parts);
         
         assertEquals(42, msg.id());
         assertEquals(100.5f, msg.x(), 0.001f);
         assertEquals(200.3f, msg.y(), 0.001f);
         assertEquals(1.57f, msg.rotation(), 0.001f);
+        assertEquals(2.5f, msg.turretRotation(), 0.001f);
     }
     
     // ========== RoundOver Tests ==========
@@ -316,6 +341,105 @@ class NetworkMessageTest {
         assertEquals("Connection failed", msg.errorText());
     }
     
+    // ========== AmmoCount Tests ==========
+
+    @Test
+    void testAmmoCountParse_Valid() {
+        String[] parts = {"AMO", "3", "12"};
+        var msg = NetworkMessage.AmmoCount.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertEquals(12, msg.ammoCount());
+    }
+
+    @Test
+    void testAmmoCountParse_InsufficientParts() {
+        String[] parts = {"AMO", "3"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.AmmoCount.parse(parts));
+    }
+
+    // ========== TerrainStateChange Tests ==========
+
+    @Test
+    void testTerrainStateChangeParse_Valid() {
+        String[] parts = {"TST", "12", "34", "BURNING"};
+        var msg = NetworkMessage.TerrainStateChange.parse(parts);
+
+        assertEquals(12, msg.tileX());
+        assertEquals(34, msg.tileY());
+        assertEquals("BURNING", msg.stateName());
+    }
+
+    @Test
+    void testTerrainStateChangeParse_InsufficientParts() {
+        String[] parts = {"TST", "12", "34"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.TerrainStateChange.parse(parts));
+    }
+
+    // ========== PlayerReady Tests ==========
+
+    @Test
+    void testPlayerReadyParse_Valid() {
+        String[] parts = {"PRD", "3", "1"};
+        var msg = NetworkMessage.PlayerReady.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertTrue(msg.ready());
+
+        String[] notReady = {"PRD", "4", "0"};
+        assertFalse(NetworkMessage.PlayerReady.parse(notReady).ready());
+    }
+
+    @Test
+    void testPlayerReadyParse_InsufficientParts() {
+        String[] parts = {"PRD", "3"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.PlayerReady.parse(parts));
+    }
+
+    // ========== PowerUp Tests ==========
+
+    @Test
+    void testPowerUpSpawnParse_Valid() {
+        String[] parts = {"PUS", "7", "DAMAGE_2X", "150.5", "200.25"};
+        var msg = NetworkMessage.PowerUpSpawn.parse(parts);
+
+        assertEquals(7, msg.powerUpId());
+        assertEquals("DAMAGE_2X", msg.type());
+        assertEquals(150.5f, msg.x(), 0.001f);
+        assertEquals(200.25f, msg.y(), 0.001f);
+    }
+
+    @Test
+    void testPowerUpRemoveParse_Valid() {
+        String[] parts = {"PUR", "7", "TAKEN"};
+        var msg = NetworkMessage.PowerUpRemove.parse(parts);
+
+        assertEquals(7, msg.powerUpId());
+        assertEquals("TAKEN", msg.reason());
+    }
+
+    @Test
+    void testPowerUpActivatedParse_Valid() {
+        String[] parts = {"PUA", "3", "SPEED_3X", "8000"};
+        var msg = NetworkMessage.PowerUpActivated.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertEquals("SPEED_3X", msg.type());
+        assertEquals(8000L, msg.durationMs());
+    }
+
+    @Test
+    void testPowerUpEndedParse_Valid() {
+        String[] parts = {"PUE", "3", "SPEED_3X"};
+        var msg = NetworkMessage.PowerUpEnded.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertEquals("SPEED_3X", msg.type());
+    }
+
     // ========== Parameterized Tests for Number Parsing ==========
     
     @ParameterizedTest
@@ -332,7 +456,7 @@ class NetworkMessageTest {
     
     private static Stream<Arguments> provideInvalidNumberFormats() {
         return Stream.of(
-            Arguments.of(new String[]{"UPD", "not-a-number", "150.5", "200.3", "1.57"}, 
+            Arguments.of(new String[]{"UPD", "not-a-number", "150.5", "200.3", "1.57", "0.0"}, 
                         NetworkMessage.PlayerUpdate.class),
             Arguments.of(new String[]{"LIV", "42", "not-a-number"}, 
                         NetworkMessage.PlayerLives.class)
@@ -343,7 +467,7 @@ class NetworkMessageTest {
     
     @Test
     void testRecordsAreImmutable() {
-        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57"};
+        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57", "0.79"};
         var msg1 = NetworkMessage.PlayerUpdate.parse(parts);
         var msg2 = NetworkMessage.PlayerUpdate.parse(parts);
         
@@ -366,7 +490,7 @@ class NetworkMessageTest {
     
     @Test
     void testNegativeNumbers() {
-        String[] parts = {"UPD", "-1", "-150.5", "-200.3", "-1.57"};
+        String[] parts = {"UPD", "-1", "-150.5", "-200.3", "-1.57", "-0.5"};
         var msg = NetworkMessage.PlayerUpdate.parse(parts);
         
         assertEquals(-1, msg.id());
@@ -377,7 +501,7 @@ class NetworkMessageTest {
     
     @Test
     void testZeroValues() {
-        String[] parts = {"UPD", "0", "0.0", "0.0", "0.0"};
+        String[] parts = {"UPD", "0", "0.0", "0.0", "0.0", "0.0"};
         var msg = NetworkMessage.PlayerUpdate.parse(parts);
         
         assertEquals(0, msg.id());
@@ -397,7 +521,7 @@ class NetworkMessageTest {
     
     @Test
     void testEmptyStringInMessage() {
-        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "", "1.0", "0.5", "0.0"};
+        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "", "1.0", "0.5", "0.0", "0.0", "STANDARD"};
         var msg = NetworkMessage.NewPlayer.parse(parts);
         
         assertEquals("", msg.name());

@@ -55,8 +55,44 @@ public class ClientGameMap {
         TerrainTile tile = mapData.getTile(x, y);
         tile.setCurrentState(newState);
         tile.setStateChangeTime(System.currentTimeMillis());
-        
+
+        // Mirror of the server's burn-down rule (FireManager): a flammable overlay
+        // that finishes burning is destroyed, leaving drivable scorched ground
+        if (newState == TerrainState.SCORCHED && tile.hasOverlay()
+                && tile.getOverlayType().getFlammability() != org.chrisgruber.nettank.common.world.Flammability.NONE) {
+            tile.setOverlayType(null);
+        }
+
         logger.debug("Terrain state changed at ({}, {}) to {}", x, y, newState);
+    }
+
+    // Re-decodes terrain for a new round into the existing map, resetting all tile states
+    public void reloadTerrain(String encodedTerrainData) {
+        org.chrisgruber.nettank.common.world.TerrainEncoder.decode(mapData, encodedTerrainData);
+
+        for (int y = 0; y < mapData.getHeightTiles(); y++) {
+            for (int x = 0; x < mapData.getWidthTiles(); x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+                tile.setCurrentState(TerrainState.NORMAL);
+                tile.setVisualOverlay(null);
+            }
+        }
+
+        logger.info("Client terrain reloaded from server: {}x{} tiles", mapData.getWidthTiles(), mapData.getHeightTiles());
+    }
+
+    public TerrainState getTileState(int x, int y) {
+        if (!mapData.isValidTile(x, y)) return TerrainState.NORMAL;
+        return mapData.getTile(x, y).getCurrentState();
+    }
+
+    public float getTileSize() {
+        return mapData.getTileSize();
+    }
+
+    public TerrainType getEffectiveTypeAt(float worldX, float worldY) {
+        TerrainTile tile = mapData.getTileAt(worldX, worldY);
+        return tile != null ? tile.getEffectiveType() : TerrainType.GRASS;
     }
     
     // Smoothstep function for smoother interpolation (eases in and out)
@@ -131,7 +167,7 @@ public class ClientGameMap {
                     
                     if (baseTexture != null) {
                         baseTexture.bind();
-                        shader.setUniform3f("u_tintColor", tint, tint, tint);
+                        shader.setUniform4f("u_tintColor", tint, tint, tint, 1.0f);
                         renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                     }
                     
@@ -142,7 +178,7 @@ public class ClientGameMap {
                         
                         if (overlayTexture != null) {
                             overlayTexture.bind();
-                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            shader.setUniform4f("u_tintColor", tint, tint, tint, 1.0f);
                             renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                         }
                     }
@@ -154,7 +190,7 @@ public class ClientGameMap {
                         
                         if (visualTexture != null) {
                             visualTexture.bind();
-                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            shader.setUniform4f("u_tintColor", tint, tint, tint, 1.0f);
                             renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                         }
                     }
@@ -164,7 +200,7 @@ public class ClientGameMap {
                         Texture scorchedTexture = stateOverlayTextures.get(TerrainState.SCORCHED);
                         if (scorchedTexture != null) {
                             scorchedTexture.bind();
-                            shader.setUniform3f("u_tintColor", tint * 0.7f, tint * 0.7f, tint * 0.7f);
+                            shader.setUniform4f("u_tintColor", tint * 0.7f, tint * 0.7f, tint * 0.7f, 1.0f);
                             renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                         }
                     }
@@ -172,7 +208,7 @@ public class ClientGameMap {
             }
         }
 
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
    public boolean isOutOfBounds(ClientEntity clientEntity) {

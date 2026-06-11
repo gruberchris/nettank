@@ -361,6 +361,8 @@ public class ClientHandler implements Runnable {
                 case NetworkProtocol.CONNECT -> handleConnectMessage(parts);
                 case NetworkProtocol.INPUT -> handleInputMessage(parts);
                 case NetworkProtocol.SHOOT_CMD -> handleShootCommand();
+                case NetworkProtocol.SELECT_TANK_TYPE -> handleSelectTankTypeMessage(parts);
+                case NetworkProtocol.READY -> handleReadyMessage(parts);
                 case NetworkProtocol.PING -> handlePingMessage();
                 default -> {
                     logger.warn("Unknown command from client {}: {}", playerId, command);
@@ -401,8 +403,28 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        logger.info("Registration request from client: {}", name);
-        server.registerPlayer(this, name);
+        // Protocol version check: fail fast on stale builds (client and server ship in lockstep)
+        int clientProtocolVersion = -1;
+        if (parts.length >= 3) {
+            try {
+                clientProtocolVersion = Integer.parseInt(parts[2]);
+            } catch (NumberFormatException e) {
+                logger.warn("Non-numeric protocol version received from client: '{}'", parts[2]);
+            }
+        }
+
+        if (clientProtocolVersion != NetworkProtocol.PROTOCOL_VERSION) {
+            logger.warn("Protocol version mismatch from client '{}': client={}, server={}",
+                    name, clientProtocolVersion, NetworkProtocol.PROTOCOL_VERSION);
+            sendMessage(NetworkProtocol.ERROR_MSG + ";Protocol mismatch");
+            closeConnection("Protocol mismatch");
+            return;
+        }
+
+        var tankType = org.chrisgruber.nettank.common.entities.TankType.fromString(parts.length >= 4 ? parts[3] : null);
+
+        logger.info("Registration request from client: {} (tank type: {})", name, tankType);
+        server.registerPlayer(this, name, tankType);
     }
 
     private boolean isValidPlayerName(String name) {
@@ -411,7 +433,7 @@ public class ClientHandler implements Runnable {
     }
 
     private void handleInputMessage(String[] parts) {
-        if (parts.length < 5) {
+        if (parts.length < 6) {
             logger.warn("Malformed INPUT message from client {}: missing parts", playerId);
             return;
         }
@@ -421,7 +443,8 @@ public class ClientHandler implements Runnable {
             boolean s = Boolean.parseBoolean(parts[2]);
             boolean a = Boolean.parseBoolean(parts[3]);
             boolean d = Boolean.parseBoolean(parts[4]);
-            server.handlePlayerMovementInput(playerId, w, s, a, d);
+            float turretTurn = Float.parseFloat(parts[5]);
+            server.handlePlayerMovementInput(playerId, w, s, a, d, turretTurn);
         } catch (Exception e) {
             logger.error("Error parsing INPUT parameters from client {}", playerId, e);
         }
@@ -429,6 +452,22 @@ public class ClientHandler implements Runnable {
 
     private void handleShootCommand() {
         server.handlePlayerShootMainWeaponInput(playerId);
+    }
+
+    private void handleSelectTankTypeMessage(String[] parts) {
+        if (parts.length < 2) {
+            logger.warn("Malformed SELECT_TANK_TYPE message from client {}", playerId);
+            return;
+        }
+        server.handleTankTypeSelection(playerId, parts[1]);
+    }
+
+    private void handleReadyMessage(String[] parts) {
+        if (parts.length < 2) {
+            logger.warn("Malformed READY message from client {}", playerId);
+            return;
+        }
+        server.handlePlayerReady(playerId, "1".equals(parts[1]));
     }
 
     private void handlePingMessage() {

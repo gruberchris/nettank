@@ -228,10 +228,12 @@ public sealed interface NetworkMessage {
         String name,
         float colorR,
         float colorG,
-        float colorB
+        float colorB,
+        float turretRotation,
+        String tankType
     ) implements NetworkMessage {
         public static NewPlayer parse(String[] parts) {
-            if (parts.length < 9) {
+            if (parts.length < 11) {
                 throw new IllegalArgumentException("Invalid NewPlayer message: insufficient parts");
             }
             return new NewPlayer(
@@ -242,26 +244,60 @@ public sealed interface NetworkMessage {
                 parts[5],
                 Float.parseFloat(parts[6]),
                 Float.parseFloat(parts[7]),
-                Float.parseFloat(parts[8])
+                Float.parseFloat(parts[8]),
+                Float.parseFloat(parts[9]),
+                parts[10]
             );
         }
     }
-    
+
+    record PlayerReady(
+        int playerId,
+        boolean ready
+    ) implements NetworkMessage {
+        public static PlayerReady parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid PlayerReady message: insufficient parts");
+            }
+            return new PlayerReady(
+                Integer.parseInt(parts[1]),
+                "1".equals(parts[2])
+            );
+        }
+    }
+
+    record TankVisibility(
+        int playerId,
+        boolean visible
+    ) implements NetworkMessage {
+        public static TankVisibility parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid TankVisibility message: insufficient parts");
+            }
+            return new TankVisibility(
+                Integer.parseInt(parts[1]),
+                !"0".equals(parts[2])
+            );
+        }
+    }
+
     record PlayerUpdate(
         int id,
         float x,
         float y,
-        float rotation
+        float rotation,
+        float turretRotation
     ) implements NetworkMessage {
         public static PlayerUpdate parse(String[] parts) {
-            if (parts.length < 5) {
+            if (parts.length < 6) {
                 throw new IllegalArgumentException("Invalid PlayerUpdate message: insufficient parts");
             }
             return new PlayerUpdate(
                 Integer.parseInt(parts[1]),
                 Float.parseFloat(parts[2]),
                 Float.parseFloat(parts[3]),
-                Float.parseFloat(parts[4])
+                Float.parseFloat(parts[4]),
+                Float.parseFloat(parts[5])
             );
         }
     }
@@ -304,17 +340,42 @@ public sealed interface NetworkMessage {
         int targetId,
         int shooterId,
         java.util.UUID bulletId,
-        int damage
+        int damage,
+        String side,
+        boolean critical
     ) implements NetworkMessage {
         public static Hit parse(String[] parts) {
-            if (parts.length < 5) {
+            if (parts.length < 7) {
                 throw new IllegalArgumentException("Invalid Hit message: insufficient parts");
             }
             return new Hit(
                 Integer.parseInt(parts[1]),
                 Integer.parseInt(parts[2]),
                 java.util.UUID.fromString(parts[3]),
-                Integer.parseInt(parts[4])
+                Integer.parseInt(parts[4]),
+                parts[5],
+                "1".equals(parts[6])
+            );
+        }
+    }
+
+    record ArmorStatus(
+        int front,
+        int left,
+        int right,
+        int rear,
+        int hitPoints
+    ) implements NetworkMessage {
+        public static ArmorStatus parse(String[] parts) {
+            if (parts.length < 6) {
+                throw new IllegalArgumentException("Invalid ArmorStatus message: insufficient parts");
+            }
+            return new ArmorStatus(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]),
+                Integer.parseInt(parts[3]),
+                Integer.parseInt(parts[4]),
+                Integer.parseInt(parts[5])
             );
         }
     }
@@ -338,17 +399,19 @@ public sealed interface NetworkMessage {
         int id,
         float x,
         float y,
-        float rotation
+        float rotation,
+        float turretRotation
     ) implements NetworkMessage {
         public static Respawn parse(String[] parts) {
-            if (parts.length < 5) {
+            if (parts.length < 6) {
                 throw new IllegalArgumentException("Invalid Respawn message: insufficient parts");
             }
             return new Respawn(
                 Integer.parseInt(parts[1]),
                 Float.parseFloat(parts[2]),
                 Float.parseFloat(parts[3]),
-                Float.parseFloat(parts[4])
+                Float.parseFloat(parts[4]),
+                Float.parseFloat(parts[5])
             );
         }
     }
@@ -370,6 +433,104 @@ public sealed interface NetworkMessage {
         }
     }
     
+    record TerrainStateChange(
+        int tileX,
+        int tileY,
+        String stateName
+    ) implements NetworkMessage {
+        public static TerrainStateChange parse(String[] parts) {
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("Invalid TerrainStateChange message: insufficient parts");
+            }
+            return new TerrainStateChange(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]),
+                parts[3]
+            );
+        }
+    }
+
+    record AmmoCount(
+        int playerId,
+        int ammoCount
+    ) implements NetworkMessage {
+        public static AmmoCount parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid AmmoCount message: insufficient parts");
+            }
+            return new AmmoCount(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2])
+            );
+        }
+    }
+
+    record PowerUpSpawn(
+        int powerUpId,
+        String type,
+        float x,
+        float y
+    ) implements NetworkMessage {
+        public static PowerUpSpawn parse(String[] parts) {
+            if (parts.length < 5) {
+                throw new IllegalArgumentException("Invalid PowerUpSpawn message: insufficient parts");
+            }
+            return new PowerUpSpawn(
+                Integer.parseInt(parts[1]),
+                parts[2],
+                Float.parseFloat(parts[3]),
+                Float.parseFloat(parts[4])
+            );
+        }
+    }
+
+    record PowerUpRemove(
+        int powerUpId,
+        String reason
+    ) implements NetworkMessage {
+        public static PowerUpRemove parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid PowerUpRemove message: insufficient parts");
+            }
+            return new PowerUpRemove(
+                Integer.parseInt(parts[1]),
+                parts[2]
+            );
+        }
+    }
+
+    record PowerUpActivated(
+        int playerId,
+        String type,
+        long durationMs
+    ) implements NetworkMessage {
+        public static PowerUpActivated parse(String[] parts) {
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("Invalid PowerUpActivated message: insufficient parts");
+            }
+            return new PowerUpActivated(
+                Integer.parseInt(parts[1]),
+                parts[2],
+                Long.parseLong(parts[3])
+            );
+        }
+    }
+
+    record PowerUpEnded(
+        int playerId,
+        String type
+    ) implements NetworkMessage {
+        public static PowerUpEnded parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid PowerUpEnded message: insufficient parts");
+            }
+            return new PowerUpEnded(
+                Integer.parseInt(parts[1]),
+                parts[2]
+            );
+        }
+    }
+
     record ErrorMessage(
         String errorText
     ) implements NetworkMessage {

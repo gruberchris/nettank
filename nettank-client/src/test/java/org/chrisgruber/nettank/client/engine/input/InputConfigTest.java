@@ -50,13 +50,16 @@ class InputConfigTest {
         assertEquals("S", config.keyboard.backward);
         assertEquals("A", config.keyboard.rotateLeft);
         assertEquals("D", config.keyboard.rotateRight);
+        assertEquals("Q", config.keyboard.turretLeft);
+        assertEquals("E", config.keyboard.turretRight);
         assertEquals("SPACE", config.keyboard.shoot);
         assertEquals("ESCAPE", config.keyboard.exit);
         
         // Verify default gamepad settings
         assertEquals("RIGHT_TRIGGER", config.gamepad.forward);
         assertEquals("LEFT_TRIGGER", config.gamepad.backward);
-        assertEquals("RIGHT_STICK_X", config.gamepad.rotateAxis);
+        assertEquals("LEFT_STICK_X", config.gamepad.rotateAxis);
+        assertEquals("RIGHT_STICK_X", config.gamepad.turretAxis);
         assertEquals("BUTTON_A", config.gamepad.shoot);
         assertEquals(0.2f, config.gamepad.stickDeadzone, 0.001f);
         assertEquals(0.1f, config.gamepad.triggerThreshold, 0.001f);
@@ -271,6 +274,43 @@ class InputConfigTest {
         
         assertNotNull(config);
         assertEquals("W", config.keyboard.forward); // Should have default values
+    }
+
+    @Test
+    void testPreTurretConfigMigratesRotateAxisToLeftStick() throws IOException {
+        // Simulate a config written before turret controls existed: no configVersion,
+        // hull rotation on RIGHT_STICK_X (the old default)
+        Files.createDirectories(configFile.getParent());
+        String legacyJson = """
+                {
+                  "keyboard": {
+                    "forward": "W",
+                    "backward": "S",
+                    "rotateLeft": "A",
+                    "rotateRight": "D",
+                    "shoot": "SPACE",
+                    "exit": "ESCAPE"
+                  },
+                  "gamepad": {
+                    "forward": "RIGHT_TRIGGER",
+                    "backward": "LEFT_TRIGGER",
+                    "rotateAxis": "RIGHT_STICK_X",
+                    "shoot": "BUTTON_A",
+                    "stickDeadzone": 0.2,
+                    "triggerThreshold": 0.1,
+                    "rotationSensitivity": 1.0
+                  }
+                }
+                """;
+        Files.writeString(configFile, legacyJson);
+
+        InputConfig migrated = InputConfig.load();
+
+        assertEquals(InputConfig.CURRENT_CONFIG_VERSION, migrated.configVersion);
+        assertEquals("LEFT_STICK_X", migrated.gamepad.rotateAxis);
+        assertEquals("RIGHT_STICK_X", migrated.gamepad.turretAxis);
+        assertEquals("Q", migrated.keyboard.turretLeft);
+        assertEquals("E", migrated.keyboard.turretRight);
     }
 
     @Test

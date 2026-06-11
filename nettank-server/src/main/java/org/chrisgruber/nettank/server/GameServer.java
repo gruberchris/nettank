@@ -2,6 +2,7 @@ package org.chrisgruber.nettank.server;
 
 import org.chrisgruber.nettank.common.entities.BulletData;
 import org.chrisgruber.nettank.common.entities.TankData;
+import org.chrisgruber.nettank.common.entities.TankStats;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
 import org.chrisgruber.nettank.common.world.GameMapData;
 import org.chrisgruber.nettank.common.world.TerrainTile;
@@ -32,7 +33,8 @@ public class GameServer {
     private ServerSocket serverSocket;
     private Thread gameLoopThread;
 
-    // Server-specific Constants
+    // Legacy flat combat constants. Gameplay now reads per-tank stats via getEffectiveStats();
+    // these remain as the reference values mirrored by TankStats.STANDARD.
     public static final float TANK_MOVE_SPEED = 100.0f;
     public static final float TANK_TURN_SPEED = 50.0f;
     public static final float BULLET_SPEED = 350.0f;
@@ -53,6 +55,30 @@ public class GameServer {
     private final List<Vector3f> availableColors;
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
     private final ServerContext serverContext = new ServerContext();
+
+    // Burning terrain damage: 1 HP per 2 seconds standing in fire (bypasses armor)
+    private static final long FIRE_DAMAGE_INTERVAL_MS = 2000;
+    private static final int FIRE_TICK_DAMAGE = 1;
+    private final java.util.Map<Integer, Long> lastFireDamageTimeByPlayerId = new java.util.HashMap<>();
+
+    // Critical hits: rear hits always crit; front/side hits crit with this probability.
+    // Random is injectable so tests can drive damage resolution deterministically.
+    private static final float SIDE_CRIT_CHANCE = 0.10f;
+    java.util.Random critRandom = new java.util.Random(); // package-private for tests
+
+    // Stealth cloak: idle delay before cloaking in the open; concealing terrain cloaks instantly
+    private static final long CLOAK_IDLE_DELAY_MS = 2000;
+    final java.util.Set<Integer> cloakedPlayerIds = new java.util.HashSet<>(); // package-private for tests
+    private final java.util.Map<Integer, Long> lastHullActivityTimeByPlayerId = new java.util.HashMap<>();
+
+    // Line-of-sight fog of war: per-(viewer, target) visibility driven by terrain
+    // raycasts; STEALTH tanks are harder to spot (reduced detection radius)
+    private static final float STEALTH_DETECTION_FACTOR = 0.7f;
+    private final java.util.Map<Long, Boolean> visibilityByViewerTarget = new java.util.HashMap<>();
+
+    private static long viewerTargetKey(int viewerId, int targetId) {
+        return ((long) viewerId << 32) | (targetId & 0xFFFFFFFFL);
+    }
 
     public GameServer(int port, int networkHz, int mapWidth, int mapHeight) {
         this.port = port;
@@ -81,8 +107,11 @@ public class GameServer {
             org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND, 
             serverContext.terrainSeed);
         
-        logger.info("Terrain generation complete (seed: {}, profile: {})", 
+        logger.info("Terrain generation complete (seed: {}, profile: {})",
             serverContext.terrainSeed, serverContext.terrainProfileName);
+
+        this.serverContext.fireManager = new org.chrisgruber.nettank.server.world.FireManager(serverContext.gameMapData);
+        this.serverContext.powerUpManager = new org.chrisgruber.nettank.server.world.PowerUpManager();
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
@@ -268,6 +297,10 @@ public class GameServer {
     // --- Registration & Removal ---
 
     public synchronized void registerPlayer(ClientHandler handler, String playerName) {
+        registerPlayer(handler, playerName, org.chrisgruber.nettank.common.entities.TankType.STANDARD);
+    }
+
+    public synchronized void registerPlayer(ClientHandler handler, String playerName, org.chrisgruber.nettank.common.entities.TankType tankType) {
         if (serverContext.clients.size() >= serverContext.gameMode.getMaxAllowedPlayers()) {
             handler.sendMessage(NetworkProtocol.ERROR_MSG + ";Server full");
             handler.closeConnection("Server full"); return;
@@ -287,6 +320,7 @@ public class GameServer {
         float rotation = 0.0f;  // default rotation. this is assigned to the tank now but randomized again by the game mode handlers below.
 
         TankData newTankData = new TankData(playerId, spawnPos, velocity, rotation, assignedColor, playerName);
+        newTankData.setTankType(tankType);
         serverContext.clients.put(playerId, handler);
         serverContext.tanks.put(playerId, newTankData);
 
@@ -314,8 +348,32 @@ public class GameServer {
                 mapData.getWidthTiles(),
                 mapData.getHeightTiles(),
                 encodedTerrain));
-        logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}", 
+        logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}",
             mapData.getWidthTiles(), mapData.getHeightTiles(), encodedTerrain.length(), playerId);
+
+        // Sync current lobby ready states to the new joiner
+        for (Integer readyPlayerId : serverContext.readyPlayerIds) {
+            handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_READY, readyPlayerId, 1));
+        }
+
+        // Sync existing battlefield power-ups to the late joiner
+        if (serverContext.powerUpManager != null) {
+            for (var powerUp : serverContext.powerUpManager.getSpawnedPowerUps()) {
+                handler.sendMessage(String.format("%s;%d;%s;%f;%f", NetworkProtocol.POWERUP_SPAWN,
+                        powerUp.id, powerUp.type.name(), powerUp.position.x, powerUp.position.y));
+            }
+        }
+
+        // Sync ongoing fire/scorch states to the late joiner (TERRAIN_DATA carries types only)
+        for (int ty = 0; ty < mapData.getHeightTiles(); ty++) {
+            for (int tx = 0; tx < mapData.getWidthTiles(); tx++) {
+                TerrainTile tile = mapData.getTile(tx, ty);
+                if (tile != null && tile.getCurrentState() != org.chrisgruber.nettank.common.world.TerrainState.NORMAL) {
+                    handler.sendMessage(String.format("%s;%d;%d;%s",
+                            NetworkProtocol.TERRAIN_STATE, tx, ty, tile.getCurrentState().name()));
+                }
+            }
+        }
 
         handler.sendMessage(String.format("%s;%s;%d",
                 NetworkProtocol.GAME_STATE,
@@ -330,28 +388,86 @@ public class GameServer {
 
         serverContext.gameMode.handleNewPlayerJoin(serverContext, playerId, playerName, newTankData);
 
+        sendArmorStatus(newTankData);
+
         var totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
 
         // Send all tanks and their lives to new player
         for (TankData tankData : serverContext.tanks.values()) {
-            var tankColor = tankData.getColor();
-            handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
-                    NetworkProtocol.NEW_PLAYER, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(),
-                    tankData.getPlayerName(), tankColor.x(), tankColor.y(), tankColor.z()));
+            handler.sendMessage(formatNewPlayerMessage(tankData));
             handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed));
         }
 
         logger.info("Sent existing player's tanks to new player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         // Inform others about new player and lives
-        String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
-                NetworkProtocol.NEW_PLAYER, newTankData.getPlayerId(), newTankData.getX(), newTankData.getY(), newTankData.getRotation(),
-                newTankData.getPlayerName(), newTankData.getColor().x(), newTankData.getColor().y(), newTankData.getColor().z());
+        String newPlayerMsg = formatNewPlayerMessage(newTankData);
         String livesMsg = String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, newTankData.getPlayerId(), totalRespawnsAllowed);
         broadcast(newPlayerMsg, playerId);
         broadcast(livesMsg, playerId);
 
         logger.info("Broadcast new player info to others: ID={}, Name={}", playerId, playerName);
+    }
+
+    private String formatNewPlayerMessage(TankData tankData) {
+        var tankColor = tankData.getColor();
+        return String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f;%f;%s",
+                NetworkProtocol.NEW_PLAYER, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(),
+                tankData.getPlayerName(), tankColor.x(), tankColor.y(), tankColor.z(),
+                tankData.getTurretRotation(), tankData.getTankType().name());
+    }
+
+    // Applies a lobby tank-type selection; only valid while the round has not started
+    public synchronized void handleTankTypeSelection(int playerId, String typeName) {
+        if (serverContext.currentGameState != GameState.WAITING && serverContext.currentGameState != GameState.COUNTDOWN) {
+            logger.warn("Rejected tank type selection from playerId {} during {} state.", playerId, serverContext.currentGameState);
+            return;
+        }
+
+        TankData tankData = serverContext.tanks.get(playerId);
+        if (tankData == null) {
+            logger.error("Unable to process tank type selection for playerId {}: no tank data found.", playerId);
+            return;
+        }
+
+        var tankType = org.chrisgruber.nettank.common.entities.TankType.fromString(typeName);
+        TankStats stats = serverContext.gameMode.getTankStats(tankType);
+        tankData.setTankType(tankType);
+        tankData.setHitPoints(stats.maxHitPoints());
+        tankData.setArmorFromStats(stats);
+        sendArmorStatus(tankData);
+
+        logger.info("PlayerId {} selected tank type {}", playerId, tankType);
+
+        // Changing type revokes readiness; the player must confirm again
+        if (serverContext.readyPlayerIds.remove(playerId)) {
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_READY, playerId, 0), -1);
+        }
+
+        // Rebroadcast the extended NEW so every client (including the owner) sees the new type
+        broadcast(formatNewPlayerMessage(tankData), -1);
+    }
+
+    // Sets a player's lobby ready state; the round cannot start until all players are ready
+    public synchronized void handlePlayerReady(int playerId, boolean ready) {
+        if (serverContext.currentGameState != GameState.WAITING && serverContext.currentGameState != GameState.COUNTDOWN) {
+            logger.warn("Ignored ready={} from playerId {} during {} state.", ready, playerId, serverContext.currentGameState);
+            return;
+        }
+
+        if (!serverContext.tanks.containsKey(playerId)) {
+            logger.error("Unable to process ready state for playerId {}: no tank data found.", playerId);
+            return;
+        }
+
+        boolean changed = ready
+                ? serverContext.readyPlayerIds.add(playerId)
+                : serverContext.readyPlayerIds.remove(playerId);
+
+        if (changed) {
+            logger.info("PlayerId {} is {}.", playerId, ready ? "READY" : "no longer ready");
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_READY, playerId, ready ? 1 : 0), -1);
+        }
     }
 
     // Returns the time data for the new connected player based on the current game state when they connected - invoked from registerPlayer()
@@ -375,6 +491,15 @@ public class GameServer {
     public synchronized void removePlayer(int playerId) {
         ClientHandler handler = serverContext.clients.remove(playerId);
         TankData tankData = serverContext.tanks.remove(playerId);
+        lastFireDamageTimeByPlayerId.remove(playerId);
+        lastHullActivityTimeByPlayerId.remove(playerId);
+        cloakedPlayerIds.remove(playerId);
+        serverContext.readyPlayerIds.remove(playerId);
+        visibilityByViewerTarget.keySet().removeIf(key ->
+                (int) (key >> 32) == playerId || key.intValue() == playerId);
+        if (serverContext.powerUpManager != null) {
+            serverContext.powerUpManager.clearEffectsForPlayer(playerId);
+        }
 
         if (handler != null && tankData != null) {
             logger.info("Player removed: ID={}, Name={}", playerId, tankData.getPlayerName());
@@ -453,7 +578,7 @@ public class GameServer {
         return delta;
     }
 
-    private synchronized boolean updateGameLogic(float deltaTime) {
+    synchronized boolean updateGameLogic(float deltaTime) {
         boolean stateChangedThisTick = false;
         long currentTime = System.currentTimeMillis();
 
@@ -471,10 +596,23 @@ public class GameServer {
         for (TankData tankData : serverContext.tanks.values()) {
             if (tankData.isDestroyed()) continue;  // No need to update destroyed tanks
 
+            TankStats stats = getEffectiveStats(tankData);
+
+            // Track hull activity for the stealth cloak (turret aiming does not break cloak)
+            if (tankData.isMovingForward() || tankData.isMovingBackward()
+                    || tankData.isTurningLeft() || tankData.isTurningRight()) {
+                lastHullActivityTimeByPlayerId.put(tankData.getPlayerId(), currentTime);
+            }
+
+            // Terrain under the tank slows movement; turning suffers less so mud feels
+            // heavy without rotation-locking tanks
+            float terrainSpeedModifier = serverContext.gameMapData.getSpeedModifierAt(tankData.getX(), tankData.getY());
+            float terrainTurnModifier = Math.max(terrainSpeedModifier, 0.5f);
+
             // Movement Logic
             float turnAmount = 0;
-            if (tankData.isTurningLeft()) turnAmount += TANK_TURN_SPEED * deltaTime;
-            if (tankData.isTurningRight()) turnAmount -= TANK_TURN_SPEED * deltaTime;
+            if (tankData.isTurningLeft()) turnAmount += stats.turnSpeed() * terrainTurnModifier * deltaTime;
+            if (tankData.isTurningRight()) turnAmount -= stats.turnSpeed() * terrainTurnModifier * deltaTime;
 
             if (turnAmount != 0) {
                 tankData.setRotation(tankData.getRotation() + turnAmount);
@@ -485,9 +623,16 @@ public class GameServer {
                 }
             }
 
+            // Turret rotates independently of the hull (positive input = clockwise/right)
+            float turretTurnInput = tankData.getTurretTurnInput();
+            if (turretTurnInput != 0) {
+                tankData.setTurretRotation(tankData.getTurretRotation() - turretTurnInput * stats.turretTurnSpeed() * deltaTime);
+                stateChangedThisTick = true;
+            }
+
             float moveAmount = 0;
-            if (tankData.isMovingForward()) moveAmount = TANK_MOVE_SPEED * deltaTime;
-            else if (tankData.isMovingBackward()) moveAmount = -TANK_MOVE_SPEED * deltaTime * 0.7f;
+            if (tankData.isMovingForward()) moveAmount = stats.moveSpeed() * terrainSpeedModifier * deltaTime;
+            else if (tankData.isMovingBackward()) moveAmount = -stats.moveSpeed() * terrainSpeedModifier * deltaTime * stats.backwardSpeedFactor();
 
             if (moveAmount != 0) {
                 float angleRad = (float) Math.toRadians(tankData.getRotation());
@@ -536,7 +681,7 @@ public class GameServer {
                 bulletData.getCollider().setPosition(bulletData.getPosition());
             }
             
-            boolean expired = (currentTime - bulletData.getSpawnTime()) >= BULLET_LIFETIME_MS;
+            boolean expired = (currentTime - bulletData.getSpawnTime()) >= getEffectiveStatsForBulletOwner(bulletData).bulletLifetimeMs();
             
             if (hitTerrain) {
                 TerrainTile tile = serverContext.gameMapData.getTileAt(newX, newY);
@@ -549,6 +694,11 @@ public class GameServer {
             
             if (expired || serverContext.gameMapData.isOutOfBounds(bulletData) || hitTerrain) {
                 bulletsToRemove.add(bulletData);
+
+                // Detonating shells can ignite flammable terrain (not when leaving the map)
+                if ((expired || hitTerrain) && serverContext.fireManager != null) {
+                    serverContext.fireManager.onExplosion(bulletData.getPosition(), BulletData.SIZE, currentTime);
+                }
             }
         }
 
@@ -563,12 +713,36 @@ public class GameServer {
                     handleHit(tankData, bulletData);
                     bulletData.setDestroyed(true);
                     bulletsToRemove.add(bulletData);
+
+                    if (serverContext.fireManager != null) {
+                        serverContext.fireManager.onExplosion(bulletData.getPosition(), BulletData.SIZE, currentTime);
+                    }
                     break;
                 }
             }
         }
 
         serverContext.bullets.removeAll(bulletsToRemove);
+
+        // Fire propagation and burning-tile damage
+        if (serverContext.fireManager != null) {
+            serverContext.fireManager.update(currentTime);
+
+            for (var change : serverContext.fireManager.drainStateChanges()) {
+                broadcast(String.format("%s;%d;%d;%s", NetworkProtocol.TERRAIN_STATE, change.x, change.y, change.state.name()), -1);
+            }
+
+            stateChangedThisTick |= applyFireDamageToTanks(currentTime);
+        }
+
+        updateCloakStates(currentTime);
+        updatePerRecipientVisibility();
+
+        // Power-up lifecycle: spawns, pickups, buff expiry
+        if (serverContext.powerUpManager != null) {
+            serverContext.powerUpManager.update(serverContext, currentTime);
+            processPowerUpEvents();
+        }
 
         logger.trace("Bullets collisions processed. Bullets removed: {} Current state: {}, Time: {}", bulletsToRemove.size(), serverContext.currentGameState, currentTime);
 
@@ -581,12 +755,13 @@ public class GameServer {
                     serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
 
                     Vector2f spawnPos = tankData.getPosition();
-                    broadcast(String.format("%s;%d;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y, tankData.getRotation()), -1);
+                    broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y, tankData.getRotation(), tankData.getTurretRotation()), -1);
 
                     int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId());
                     broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), respawnsRemaining), -1);
 
                     sendSpectatorEndMessage(tankData.getPlayerId());
+                    sendArmorStatus(tankData);
 
                     stateChangedThisTick = true;
                 }
@@ -600,34 +775,260 @@ public class GameServer {
         return stateChangedThisTick;
     }
 
-    private synchronized void handleHit(TankData target, BulletData bulletData) {
+    synchronized void handleHit(TankData target, BulletData bulletData) {
         TankData shooter = serverContext.tanks.get(bulletData.getPlayerId());
         String shooterName = (shooter != null) ? shooter.getPlayerName() : "Unknown";
         String targetName = target.getPlayerName();
-        logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
         if (target.isDestroyed()) {
             logger.debug("Hit ignored: {} is already destroyed.", targetName);
             return;
         }
 
-        int weaponDamage = 1;
-        target.takeHit(weaponDamage);
+        // Directional damage: struck side from the impact bearing relative to the hull
+        org.chrisgruber.nettank.common.entities.ArmorSide side = computeHitSide(target, bulletData.getPosition());
+        boolean critical = side == org.chrisgruber.nettank.common.entities.ArmorSide.REAR
+                || critRandom.nextFloat() < SIDE_CRIT_CHANCE;
+
+        int weaponDamage = bulletData.getDamage();
+        target.applyDirectionalDamage(side, weaponDamage, critical);
+
+        logger.info("Hit registered: {} -> {} ({} side, {} damage{})",
+                shooterName, targetName, side, weaponDamage, critical ? ", CRIT" : "");
+
+        // Side and crit are public so all clients can render directional impact effects;
+        // armor values stay hidden (only the owner gets them, via ARM)
+        broadcast(String.format("%s;%d;%d;%s;%d;%s;%d", NetworkProtocol.HIT,
+                target.getPlayerId(), bulletData.getPlayerId(), bulletData.getId(),
+                weaponDamage, side.name(), critical ? 1 : 0), -1);
+        sendArmorStatus(target);
 
         if (target.isDestroyed()) {
-            target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
-            int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
-            broadcast(String.format("%s;%d;%d;%s;%d", NetworkProtocol.HIT, target.getPlayerId(), bulletData.getPlayerId(), bulletData.getId(), weaponDamage), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), bulletData.getPlayerId()), -1);
-            sendSpectatorStartMessage(target.getPlayerId(), target);
+            handleTankDestruction(target, bulletData.getPlayerId());
+        }
+    }
 
-            if (respawnsRemaining <= 0) {
-                logger.info("{} was eliminated from the round.", targetName);
-                broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
-                sendSpectatePermanentMessage(target.getPlayerId());
+    // Maps an impact position to the struck hull side. Bearing convention matches
+    // movement: rotation r faces direction (-sin r, cos r) with positive r = CCW,
+    // so a +90 degree relative bearing is the hull's LEFT side.
+    static org.chrisgruber.nettank.common.entities.ArmorSide computeHitSide(TankData target, Vector2f impactPosition) {
+        float dx = impactPosition.x - target.getX();
+        float dy = impactPosition.y - target.getY();
+
+        float bearing = (float) Math.toDegrees(Math.atan2(-dx, dy));
+        float relative = bearing - target.getRotation();
+        relative = ((relative % 360.0f) + 360.0f) % 360.0f;
+
+        if (relative >= 315.0f || relative < 45.0f) return org.chrisgruber.nettank.common.entities.ArmorSide.FRONT;
+        if (relative < 135.0f) return org.chrisgruber.nettank.common.entities.ArmorSide.LEFT;
+        if (relative < 225.0f) return org.chrisgruber.nettank.common.entities.ArmorSide.REAR;
+        return org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT;
+    }
+
+    // Sends the player's authoritative armor + HP snapshot to them (and only them)
+    private void sendArmorStatus(TankData tankData) {
+        ClientHandler handler = serverContext.clients.get(tankData.getPlayerId());
+        if (handler == null) return;
+
+        handler.sendMessage(String.format("%s;%d;%d;%d;%d;%d", NetworkProtocol.ARMOR_STATUS,
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT),
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.LEFT),
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT),
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.REAR),
+                tankData.getHitPoints()));
+    }
+
+    // Shared destruction flow for bullet kills and environmental (fire) kills.
+    // killerPlayerId is -1 for environmental deaths.
+    private synchronized void handleTankDestruction(TankData target, int killerPlayerId) {
+        String targetName = target.getPlayerName();
+
+        target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
+
+        // Buffs are lost on death (PUE events go out on the next tick's drain)
+        if (serverContext.powerUpManager != null) {
+            serverContext.powerUpManager.clearEffectsForPlayer(target.getPlayerId());
+        }
+
+        int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
+        broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
+        broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), killerPlayerId), -1);
+        sendSpectatorStartMessage(target.getPlayerId(), target);
+
+        if (respawnsRemaining <= 0) {
+            logger.info("{} was eliminated from the round.", targetName);
+            broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
+            sendSpectatePermanentMessage(target.getPlayerId());
+        }
+    }
+
+    // Translates power-up events into protocol messages and applies instant repairs
+    private synchronized void processPowerUpEvents() {
+        for (var event : serverContext.powerUpManager.drainEvents()) {
+            switch (event) {
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Spawned spawned ->
+                        broadcast(String.format("%s;%d;%s;%f;%f", NetworkProtocol.POWERUP_SPAWN,
+                                spawned.powerUpId(), spawned.type().name(), spawned.x(), spawned.y()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Removed removed ->
+                        broadcast(String.format("%s;%d;%s", NetworkProtocol.POWERUP_REMOVE,
+                                removed.powerUpId(), removed.reason()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Activated activated ->
+                        broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.POWERUP_ACTIVATED,
+                                activated.playerId(), activated.type().name(), activated.durationMs()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Ended ended ->
+                        broadcast(String.format("%s;%d;%s", NetworkProtocol.POWERUP_ENDED,
+                                ended.playerId(), ended.type().name()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.InstantApplied instant ->
+                        applyInstantPowerUp(instant.playerId(), instant.type());
             }
         }
+    }
+
+    // Instant pickups: REPAIR_ARMOR restores +1 to every side (capped at the type's
+    // per-side max); REPAIR_HP restores +2 HP capped at max
+    private synchronized void applyInstantPowerUp(int playerId, org.chrisgruber.nettank.common.entities.PowerUpType type) {
+        TankData tankData = serverContext.tanks.get(playerId);
+        if (tankData == null || tankData.isDestroyed()) return;
+
+        TankStats stats = serverContext.gameMode.getTankStats(tankData.getTankType());
+
+        switch (type) {
+            case REPAIR_ARMOR -> {
+                for (var side : org.chrisgruber.nettank.common.entities.ArmorSide.values()) {
+                    int max = stats.armorFor(side);
+                    tankData.setArmor(side, Math.min(max, tankData.getArmor(side) + 1));
+                }
+            }
+            case REPAIR_HP -> tankData.setHitPoints(Math.min(stats.maxHitPoints(), tankData.getHitPoints() + 2));
+            default -> logger.warn("Unhandled instant power-up type: {}", type);
+        }
+
+        sendArmorStatus(tankData);
+        logger.info("PlayerId {} picked up instant power-up {}", playerId, type);
+    }
+
+    // Decides whether a tank is cloaked right now. Cloak requires a stealth chassis,
+    // no hull movement, and no recent shot; concealing terrain (FOREST/HILL) skips
+    // the idle delay, otherwise the tank must have been still for CLOAK_IDLE_DELAY_MS.
+    synchronized boolean computeShouldCloak(TankData tankData, long currentTime) {
+        if (!tankData.getTankType().hasCloak() || tankData.isDestroyed()) return false;
+
+        boolean hullActive = tankData.isMovingForward() || tankData.isMovingBackward()
+                || tankData.isTurningLeft() || tankData.isTurningRight();
+        if (hullActive) return false;
+
+        if (currentTime - tankData.getLastShotTime() < CLOAK_IDLE_DELAY_MS) return false;
+
+        TerrainTile tile = serverContext.gameMapData.getTileAt(tankData.getX(), tankData.getY());
+        boolean inConcealment = tile != null
+                && (tile.getEffectiveType() == org.chrisgruber.nettank.common.world.TerrainType.FOREST
+                || tile.getEffectiveType() == org.chrisgruber.nettank.common.world.TerrainType.HILL);
+        if (inConcealment) return true;
+
+        long lastActivity = lastHullActivityTimeByPlayerId.getOrDefault(tankData.getPlayerId(), 0L);
+        return currentTime - lastActivity >= CLOAK_IDLE_DELAY_MS;
+    }
+
+    // Applies cloak transitions. The owner gets a VIS for their own tank (the client
+    // renders own-cloak at half alpha); enemies learn about it through the
+    // per-recipient visibility pass, which folds cloak and line-of-sight together.
+    private synchronized void updateCloakStates(long currentTime) {
+        for (TankData tankData : serverContext.tanks.values()) {
+            int playerId = tankData.getPlayerId();
+            boolean shouldCloak = computeShouldCloak(tankData, currentTime);
+            boolean isCloaked = cloakedPlayerIds.contains(playerId);
+
+            if (shouldCloak == isCloaked) continue;
+
+            if (shouldCloak) {
+                cloakedPlayerIds.add(playerId);
+            } else {
+                cloakedPlayerIds.remove(playerId);
+            }
+
+            ClientHandler owner = serverContext.clients.get(playerId);
+            if (owner != null) {
+                owner.sendMessage(String.format("%s;%d;%d", NetworkProtocol.VISIBILITY, playerId, shouldCloak ? 0 : 1));
+            }
+            logger.debug("PlayerId {} {}.", playerId, shouldCloak ? "cloaked" : "decloaked");
+        }
+    }
+
+    // Whether the target tank is visible to the viewer right now: cloak hides from
+    // everyone but the owner; otherwise terrain line-of-sight decides, with STEALTH
+    // chassis ~30% harder to spot. Destroyed (spectating) viewers see everything.
+    synchronized boolean computeVisibility(TankData viewer, TankData target) {
+        if (viewer.getPlayerId() == target.getPlayerId()) return true;
+        if (cloakedPlayerIds.contains(target.getPlayerId())) return false;
+        if (viewer.isDestroyed()) return true;
+
+        float sightRadius = getEffectiveStats(viewer).sightRadius();
+        if (target.getTankType() == org.chrisgruber.nettank.common.entities.TankType.STEALTH) {
+            sightRadius *= STEALTH_DETECTION_FACTOR;
+        }
+
+        return org.chrisgruber.nettank.server.world.LineOfSightCalculator.canSee(
+                serverContext.gameMapData, viewer.getPosition(), target.getPosition(), sightRadius);
+    }
+
+    // Recomputes per-recipient visibility and notifies each viewer of transitions
+    private synchronized void updatePerRecipientVisibility() {
+        for (ClientHandler viewerHandler : serverContext.clients.values()) {
+            if (viewerHandler == null) continue;
+            TankData viewer = serverContext.tanks.get(viewerHandler.getPlayerId());
+            if (viewer == null) continue;
+
+            for (TankData target : serverContext.tanks.values()) {
+                if (target.getPlayerId() == viewer.getPlayerId()) continue;
+
+                boolean visible = computeVisibility(viewer, target);
+                long key = viewerTargetKey(viewer.getPlayerId(), target.getPlayerId());
+                boolean previous = visibilityByViewerTarget.getOrDefault(key, true);
+
+                if (visible != previous) {
+                    visibilityByViewerTarget.put(key, visible);
+                    viewerHandler.sendMessage(String.format("%s;%d;%d",
+                            NetworkProtocol.VISIBILITY, target.getPlayerId(), visible ? 1 : 0));
+                }
+            }
+        }
+    }
+
+    boolean isVisibleTo(int viewerId, int targetId) {
+        if (viewerId == targetId) return true;
+        return visibilityByViewerTarget.getOrDefault(viewerTargetKey(viewerId, targetId), true);
+    }
+
+    // Damages tanks standing on tiles that are on fire (IGNITING/BURNING/SMOLDERING).
+    // Fire damage bypasses armor and reduces hitpoints directly.
+    private synchronized boolean applyFireDamageToTanks(long currentTime) {
+        boolean stateChanged = false;
+
+        for (TankData tankData : serverContext.tanks.values()) {
+            if (tankData.isDestroyed()) continue;
+
+            TerrainTile tile = serverContext.gameMapData.getTileAt(tankData.getX(), tankData.getY());
+            if (tile == null || !tile.getCurrentState().hasVisualEffect()) continue;
+
+            long lastDamageTime = lastFireDamageTimeByPlayerId.getOrDefault(tankData.getPlayerId(), 0L);
+            if (currentTime - lastDamageTime < FIRE_DAMAGE_INTERVAL_MS) continue;
+
+            lastFireDamageTimeByPlayerId.put(tankData.getPlayerId(), currentTime);
+            // Fire damage bypasses armor entirely and reduces hitpoints directly
+            tankData.takeHit(FIRE_TICK_DAMAGE);
+            sendArmorStatus(tankData);
+            stateChanged = true;
+
+            logger.debug("Tank for playerId {} took {} fire damage standing on a burning tile, remaining HP: {}",
+                    tankData.getPlayerId(), FIRE_TICK_DAMAGE, tankData.getHitPoints());
+
+            if (tankData.isDestroyed()) {
+                logger.info("{} was destroyed by fire.", tankData.getPlayerName());
+                handleTankDestruction(tankData, -1);
+            }
+        }
+
+        return stateChanged;
     }
 
     private synchronized void sendSpectatorStartMessage(int playerId, TankData tankData) {
@@ -670,8 +1071,47 @@ public class GameServer {
         logger.debug("Spectate permanently message sent to playerId: {}", playerId);
     }
 
+    // Resolves the combat stats currently in effect for a tank: per-type base stats
+    // from the game mode with active power-up multipliers layered on top.
+    public synchronized TankStats getEffectiveStats(TankData tankData) {
+        TankStats base = serverContext.gameMode.getTankStats(tankData.getTankType());
+
+        var powerUpManager = serverContext.powerUpManager;
+        if (powerUpManager == null) return base;
+
+        int playerId = tankData.getPlayerId();
+        float damageMultiplier = powerUpManager.getMultiplier(playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category.DAMAGE);
+        float reloadMultiplier = powerUpManager.getMultiplier(playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category.RELOAD);
+        float speedMultiplier = powerUpManager.getMultiplier(playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category.SPEED);
+
+        if (damageMultiplier == 1.0f && reloadMultiplier == 1.0f && speedMultiplier == 1.0f) return base;
+
+        return new TankStats(
+                base.maxHitPoints(),
+                base.moveSpeed() * speedMultiplier,
+                base.turnSpeed(),
+                base.backwardSpeedFactor(),
+                base.bulletSpeed(),
+                base.bulletLifetimeMs(),
+                Math.round(base.bulletDamage() * damageMultiplier),
+                (long) (base.shootCooldownMs() / reloadMultiplier),
+                base.turretTurnSpeed(),
+                base.frontArmor(), base.leftArmor(), base.rightArmor(), base.rearArmor(),
+                base.sightRadius());
+    }
+
+    // Stats for an in-flight bullet's owner; falls back to mode base stats if the owner left.
+    private TankStats getEffectiveStatsForBulletOwner(BulletData bulletData) {
+        TankData owner = serverContext.tanks.get(bulletData.getPlayerId());
+        return owner != null ? getEffectiveStats(owner) : serverContext.gameMode.getBaseStats();
+    }
+
     // Process player movement input and set the tank's movement state
     public synchronized void handlePlayerMovementInput(int playerId, boolean w, boolean s, boolean a, boolean d) {
+        handlePlayerMovementInput(playerId, w, s, a, d, 0.0f);
+    }
+
+    public synchronized void handlePlayerMovementInput(int playerId, boolean w, boolean s, boolean a, boolean d, float turretTurn) {
         if (serverContext.currentGameState != GameState.PLAYING) {
             logger.warn("Unable to process tank movement input for playerId: {} because the game is not in PLAYING state.", playerId);
             return;
@@ -689,9 +1129,9 @@ public class GameServer {
             return;
         }
 
-        tankData.setInputState(w, s, a, d);
+        tankData.setInputState(w, s, a, d, turretTurn);
 
-        logger.debug("Processed movement input for PlayerId: {} input controls state was -> w:{}, s:{}, a:{}, d:{}", playerId, w, s, a, d);
+        logger.debug("Processed movement input for PlayerId: {} input controls state was -> w:{}, s:{}, a:{}, d:{}, turretTurn:{}", playerId, w, s, a, d, turretTurn);
     }
 
     // Process player main weapon shoot input and shoot a bullet if possible
@@ -714,15 +1154,16 @@ public class GameServer {
         }
 
         long currentTime = System.currentTimeMillis();
+        TankStats stats = getEffectiveStats(tankData);
 
         // Check main weapon cooldown to see if the tank can shoot
-        boolean hasCooledDown = currentTime - tankData.getLastShotTime() >= TANK_SHOOT_COOLDOWN_MS;
+        boolean hasCooledDown = currentTime - tankData.getLastShotTime() >= stats.shootCooldownMs();
 
         if (!hasCooledDown) {
-            var cooldownTimeRemainingInMilliseconds = TANK_SHOOT_COOLDOWN_MS - (currentTime - tankData.getLastShotTime());
+            var cooldownTimeRemainingInMilliseconds = stats.shootCooldownMs() - (currentTime - tankData.getLastShotTime());
             var timeSinceLastShotInMilliseconds = currentTime - tankData.getLastShotTime();
             logger.debug("PlayerId: {} attempted to shoot but the weapon is still cooling down. Time since last shot: {}ms. Cooldown time remaining: {}ms", playerId, timeSinceLastShotInMilliseconds, cooldownTimeRemainingInMilliseconds);
-            
+
             // Send cooldown remaining time to the player
             ClientHandler handler = serverContext.clients.get(playerId);
             if (handler != null) {
@@ -731,9 +1172,17 @@ public class GameServer {
             return;
         }
 
+        boolean hasUnlimitedAmmoBuff = serverContext.powerUpManager != null
+                && serverContext.powerUpManager.hasUnlimitedAmmo(playerId);
+        if (!hasUnlimitedAmmoBuff && !serverContext.gameMode.tryConsumeMainWeaponAmmo(playerId)) {
+            logger.debug("PlayerId: {} attempted to shoot but is out of main weapon ammo.", playerId);
+            return;
+        }
+
         tankData.recordShot(currentTime);
 
-        float angleRad = (float) Math.toRadians(tankData.getRotation());
+        // Shots fire along the turret, not the hull
+        float angleRad = (float) Math.toRadians(tankData.getTurretRotation());
         float dirX = (float) -Math.sin(angleRad);
         float dirY = (float) Math.cos(angleRad);
 
@@ -742,14 +1191,22 @@ public class GameServer {
         float startY = tankData.getY() + dirY * spawnDist;
 
         Vector2f position = new Vector2f(startX, startY);
-        Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BULLET_SPEED);
+        Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(stats.bulletSpeed());
 
-        float rotation = tankData.getRotation();
+        float rotation = tankData.getTurretRotation();
         UUID bulletId = UUID.randomUUID();
 
         // Create BulletData object
-        BulletData bullet = new BulletData(bulletId, playerId, position, velocity, rotation, currentTime, false);
+        BulletData bullet = new BulletData(bulletId, playerId, position, velocity, rotation, currentTime, false, stats.bulletDamage());
         serverContext.bullets.add(bullet);
+
+        int remainingAmmo = serverContext.gameMode.getMainWeaponAmmoForPlayer(playerId);
+        if (remainingAmmo >= 0) {
+            ClientHandler handler = serverContext.clients.get(playerId);
+            if (handler != null) {
+                handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.AMMO_COUNT, playerId, remainingAmmo));
+            }
+        }
 
         logger.debug("PlayerId: {} shot a bullet at position ({}, {}) with direction ({}, {})", playerId, startX, startY, dirX, dirY);
 
@@ -835,6 +1292,7 @@ public class GameServer {
         sendStateAnnouncement(newState);
 
         if (newState == GameState.PLAYING) {
+            serverContext.readyPlayerIds.clear();
             resetPlayersForNewRound();
         }
     }
@@ -885,9 +1343,14 @@ public class GameServer {
             org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND,
             serverContext.terrainSeed);
         
-        logger.info("Terrain regeneration complete (new seed: {}, profile: {})", 
+        logger.info("Terrain regeneration complete (new seed: {}, profile: {})",
             serverContext.terrainSeed, serverContext.terrainProfileName);
-        
+
+        // Fresh fire and power-up state for the new round (tile states were reset by the generator)
+        serverContext.fireManager = new org.chrisgruber.nettank.server.world.FireManager(serverContext.gameMapData);
+        serverContext.powerUpManager = new org.chrisgruber.nettank.server.world.PowerUpManager();
+        lastFireDamageTimeByPlayerId.clear();
+
         // Broadcast new terrain to all connected clients
         String encodedTerrain = org.chrisgruber.nettank.common.world.TerrainEncoder.encode(serverContext.gameMapData);
         broadcast(String.format("%s;%d;%d;%s",
@@ -904,13 +1367,15 @@ public class GameServer {
         logger.info("Resetting players for new round.");
 
         serverContext.bullets.clear();
+        lastFireDamageTimeByPlayerId.clear();
 
         int totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
 
         for(TankData tankData : serverContext.tanks.values()) {
             serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
-            broadcast(String.format("%s;%d;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
+            broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(), tankData.getTurretRotation()), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed), -1);
+            sendArmorStatus(tankData);
         }
     }
 
@@ -976,8 +1441,10 @@ public class GameServer {
         }
     }
 
-    // Broadcasts the current game state to all players
-    private void broadcastState() {
+    // Broadcasts the current game state per recipient: cloaked tanks are sent only to
+    // their owner. This per-recipient visibility filter is also the hook for the
+    // line-of-sight system (Phase 8).
+    void broadcastState() {
         if (serverContext.currentGameState != GameState.PLAYING) {
             // Do not broadcast state if not in PLAYING state
             logger.trace("Skipping broadcastState: Game state is {} not PLAYING.", serverContext.currentGameState);
@@ -990,8 +1457,16 @@ public class GameServer {
                 continue;
             }
 
-            broadcast(String.format("%s;%d;%f;%f;%f",
-                    NetworkProtocol.PLAYER_UPDATE, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
+            String updateMessage = String.format("%s;%d;%f;%f;%f;%f",
+                    NetworkProtocol.PLAYER_UPDATE, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(), tankData.getTurretRotation());
+            boolean cloaked = cloakedPlayerIds.contains(tankData.getPlayerId());
+
+            for (ClientHandler handler : serverContext.clients.values()) {
+                if (handler == null) continue;
+                if (cloaked && handler.getPlayerId() != tankData.getPlayerId()) continue;
+                if (!isVisibleTo(handler.getPlayerId(), tankData.getPlayerId())) continue;
+                handler.sendMessage(updateMessage);
+            }
         }
     }
 

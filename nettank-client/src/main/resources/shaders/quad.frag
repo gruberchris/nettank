@@ -5,7 +5,7 @@ out vec4 f_color;
 
 uniform sampler2D u_texture;
 uniform vec4 u_texRect = vec4(0.0, 0.0, 1.0, 1.0); // Default: full texture
-uniform vec3 u_tintColor = vec3(1.0, 1.0, 1.0);
+uniform vec4 u_tintColor = vec4(1.0, 1.0, 1.0, 1.0);
 
 void main() {
     // Calculate the actual texture coordinate within the specified sub-rectangle
@@ -15,8 +15,7 @@ void main() {
     // Sample the texture at the calculated coordinate
     vec4 texColor = texture(u_texture, subTexCoord);
 
-    // Apply the tint color ONLY to the RGB components of the texture color.
-    // Preserve the original alpha value directly from the texture.
-    f_color.rgb = texColor.rgb * u_tintColor; // Multiply RGB by tint
-    f_color.a = texColor.a;                   // Use original texture alpha
+    // Apply the tint to RGB and modulate the texture alpha by the tint alpha
+    f_color.rgb = texColor.rgb * u_tintColor.rgb;
+    f_color.a = texColor.a * u_tintColor.a;
 }

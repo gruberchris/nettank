@@ -130,6 +130,10 @@ public class Shader {
         glUniform4f(getUniformLocation(name), v0, v1, v2, v3);
     }
 
+    public void setUniform4f(String name, Vector3f rgb, float alpha) {
+        glUniform4f(getUniformLocation(name), rgb.x, rgb.y, rgb.z, alpha);
+    }
+
     public void bind() {
         glUseProgram(programId);
     }

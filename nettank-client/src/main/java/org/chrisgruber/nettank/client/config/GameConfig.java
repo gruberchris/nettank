@@ -17,6 +17,8 @@ public class GameConfig {
     private static final String CONFIG_FILE = "game-config.json";
     
     public String playerName = "Player";
+    public String tankType = "STANDARD"; // initial lobby selection: STANDARD, HEAVY, LIGHT, STEALTH
+    public String effectsQuality = "FULL"; // OFF, LOW (no decals/dust/vignettes), FULL
     public DisplayConfig display = new DisplayConfig();
     
     public static class DisplayConfig {

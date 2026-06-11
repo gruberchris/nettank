@@ -50,7 +50,7 @@ class TankBattleGameTest {
     void testAddOrUpdateTank_NewTank() throws Exception {
         game = createGameInstance();
         
-        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f, 1.57f, "STANDARD");
         
         Field tanksField = TankBattleGame.class.getDeclaredField("tanks");
         tanksField.setAccessible(true);
@@ -68,7 +68,7 @@ class TankBattleGameTest {
         game = createGameInstance();
         
         // Add a tank first
-        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f, 1.57f, "STANDARD");
         
         // Remove it
         game.removeTank(1);
@@ -86,10 +86,10 @@ class TankBattleGameTest {
         game = createGameInstance();
         
         // Add a tank first
-        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f, 1.57f, "STANDARD");
         
         // Update its state
-        game.updateTankState(1, 150.0f, 250.0f, 3.14f, false);
+        game.updateTankState(1, 150.0f, 250.0f, 3.14f, 3.14f, false);
         
         Field tanksField = TankBattleGame.class.getDeclaredField("tanks");
         tanksField.setAccessible(true);
@@ -129,7 +129,7 @@ class TankBattleGameTest {
         game.spawnBullet(bulletId, 1, 100.0f, 200.0f, 5.0f, 3.0f);
         
         // Handle hit
-        game.handlePlayerHit(2, 1, bulletId, 25);
+        game.handlePlayerHit(2, 1, bulletId, 25, "FRONT", false);
         
         Field bulletsField = TankBattleGame.class.getDeclaredField("bullets");
         bulletsField.setAccessible(true);
@@ -179,7 +179,7 @@ class TankBattleGameTest {
         game = createGameInstance();
         
         // Add a tank first
-        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f, 1.57f, "STANDARD");
         
         // Update lives
         game.updatePlayerLives(1, 3);
@@ -257,7 +257,7 @@ class TankBattleGameTest {
         
         // Set local player ID and add local tank
         game.setLocalPlayerId(1);
-        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "Player1", 1.0f, 0.5f, 0.0f, 1.57f, "STANDARD");
         
         // Update cooldown
         game.updateShootCooldown(1500L);
@@ -292,7 +292,7 @@ class TankBattleGameTest {
         game = createGameInstance();
         
         // Try to update a tank that doesn't exist
-        assertDoesNotThrow(() -> game.updateTankState(999, 150.0f, 250.0f, 3.14f, false));
+        assertDoesNotThrow(() -> game.updateTankState(999, 150.0f, 250.0f, 3.14f, 3.14f, false));
     }
 
     @Test
@@ -318,14 +318,14 @@ class TankBattleGameTest {
         UUID bulletId = UUID.randomUUID();
         
         // Try to handle hit with a bullet that doesn't exist
-        assertDoesNotThrow(() -> game.handlePlayerHit(2, 1, bulletId, 25));
+        assertDoesNotThrow(() -> game.handlePlayerHit(2, 1, bulletId, 25, "FRONT", false));
     }
 
     @Test
     void testAddOrUpdateTank_NegativeCoordinates() throws Exception {
         game = createGameInstance();
         
-        game.addOrUpdateTank(1, -100.0f, -200.0f, -1.57f, "Player1", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, -100.0f, -200.0f, -1.57f, "Player1", 1.0f, 0.5f, 0.0f, -1.57f, "STANDARD");
         
         Field tanksField = TankBattleGame.class.getDeclaredField("tanks");
         tanksField.setAccessible(true);
@@ -342,7 +342,7 @@ class TankBattleGameTest {
     void testAddOrUpdateTank_ZeroValues() throws Exception {
         game = createGameInstance();
         
-        game.addOrUpdateTank(0, 0.0f, 0.0f, 0.0f, "Player0", 0.0f, 0.0f, 0.0f);
+        game.addOrUpdateTank(0, 0.0f, 0.0f, 0.0f, "Player0", 0.0f, 0.0f, 0.0f, 0.0f, "STANDARD");
         
         Field tanksField = TankBattleGame.class.getDeclaredField("tanks");
         tanksField.setAccessible(true);
@@ -357,7 +357,7 @@ class TankBattleGameTest {
     void testAddOrUpdateTank_EmptyName() throws Exception {
         game = createGameInstance();
         
-        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "", 1.0f, 0.5f, 0.0f);
+        game.addOrUpdateTank(1, 100.0f, 200.0f, 1.57f, "", 1.0f, 0.5f, 0.0f, 1.57f, "STANDARD");
         
         Field tanksField = TankBattleGame.class.getDeclaredField("tanks");
         tanksField.setAccessible(true);

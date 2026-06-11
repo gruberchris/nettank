@@ -22,6 +22,7 @@ import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
+import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -78,6 +79,63 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Player specific
     private int localPlayerId = -1;
     private ClientTank localTank = null;
+    private int localAmmoCount = -1; // -1 = unlimited (mode never sends AMO)
+    private org.chrisgruber.nettank.common.entities.TankType selectedTankType = org.chrisgruber.nettank.common.entities.TankType.STANDARD;
+    private static final float CLOAK_FADE_PER_SECOND = 2.5f; // ~0.4 s fade
+    private static final float OWN_CLOAK_ALPHA = 0.5f;
+
+    // Lobby tank selection screen (Phase 9)
+    private org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen selectionScreen;
+    private boolean selectionConfirmed = false;
+    // Lobby readiness: the round starts only when every player is ready
+    private final Map<Integer, Boolean> lobbyReadyByPlayerId = new ConcurrentHashMap<>();
+    private volatile long countdownEndTimeMillis = 0;
+    private long lastCountdownSecond = -1;
+    private long countdownTickTimeMillis = 0;
+
+    // Directional armor HUD state (owner-only, fed by ARM messages); index = ArmorSide.ordinal()
+    private org.chrisgruber.nettank.client.engine.ui.ArmorIndicator armorIndicator;
+    private final int[] localArmor = {-1, -1, -1, -1}; // -1 = no snapshot received yet
+    private final long[] armorHitFlashTimes = new long[4];
+
+    // Power-ups: battlefield pickups and active buffs (auras + HUD countdowns)
+    private record ClientPowerUp(int id, org.chrisgruber.nettank.common.entities.PowerUpType type,
+                                 Vector2f position, long spawnTime) {}
+    private record ActiveBuff(org.chrisgruber.nettank.common.entities.PowerUpType type, long endTimeMillis) {}
+    private final Map<Integer, ClientPowerUp> powerUps = new ConcurrentHashMap<>();
+    private final Map<Integer, Map<org.chrisgruber.nettank.common.entities.PowerUpType.Category, ActiveBuff>> activeBuffsByPlayerId = new ConcurrentHashMap<>();
+    private static final float POWERUP_RENDER_SIZE = 24.0f;
+
+    // Hit feedback effects
+    private final List<org.chrisgruber.nettank.client.game.effects.HitSparkEffect> hitSparks = new CopyOnWriteArrayList<>();
+    private final List<org.chrisgruber.nettank.client.game.effects.FloatingTextEffect> floatingTexts = new CopyOnWriteArrayList<>();
+    private static final long HIT_SPARK_DURATION_MS = 250;
+    private static final float HIT_SPARK_RENDER_SIZE = 26.0f;
+    private static final long FLOATING_TEXT_DURATION_MS = 1200;
+
+    // Effects quality (from game-config.json): LOW drops decals, dust, and vignettes
+    private enum EffectsQuality { OFF, LOW, FULL }
+    private EffectsQuality effectsQuality = EffectsQuality.FULL;
+    private boolean effectsAtLeastLow() { return effectsQuality != EffectsQuality.OFF; }
+    private boolean effectsFull() { return effectsQuality == EffectsQuality.FULL; }
+
+    // Phase 7 visual effects
+    private final List<org.chrisgruber.nettank.client.game.effects.MuzzleFlashEffect> muzzleFlashes = new CopyOnWriteArrayList<>();
+    private final java.util.Deque<org.chrisgruber.nettank.client.game.effects.TrackMarkEffect> trackMarks = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private final List<org.chrisgruber.nettank.client.game.effects.DustPuffEffect> dustPuffs = new CopyOnWriteArrayList<>();
+    private final java.util.Deque<org.chrisgruber.nettank.client.game.effects.ScorchDecal> scorchDecals = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private final Map<Integer, Vector2f> lastGroundEffectPosition = new ConcurrentHashMap<>();
+    private long lastHullSmokeTime = 0;
+    private org.chrisgruber.nettank.client.engine.ui.VignetteOverlay vignetteOverlay;
+    private long lastOwnHitTime = 0;
+    private boolean lastOwnHitCrit = false;
+    private static final int TRACK_MARK_CAP = 400;
+    private static final int SCORCH_DECAL_CAP = 200;
+    private static final float GROUND_EFFECT_SPACING = 12.0f;
+    private static final long MUZZLE_FLASH_DURATION_MS = 120;
+    private static final long RESPAWN_SHIMMER_DURATION_MS = 500;
+    private static final long OWN_HIT_VIGNETTE_MS = 450;
+    private static final float EXPLOSION_SHAKE_RANGE = 400.0f;
     private final String playerName;
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
@@ -101,6 +159,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean prevKeyS = false;
     private boolean prevKeyA = false;
     private boolean prevKeyD = false;
+    private float prevTurretTurn = 0.0f;
 
     // Config
     public static final float VIEW_RANGE = 400.0f;
@@ -132,6 +191,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private static final String FLAME_FILENAME_PREFIX = "textures/flame/Flame_"; // Adjust path/prefix
     private static final String FLAME_FILENAME_SUFFIX = ".png";
 
+    // Terrain tile fire (driven by TST messages from the server)
+    private record TileStateUpdate(int x, int y, org.chrisgruber.nettank.common.world.TerrainState state) {}
+    private final java.util.Queue<TileStateUpdate> pendingTerrainStateChanges = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private final Map<Long, FlameEffect> tileFireEffects = new ConcurrentHashMap<>();
+    private static final float TILE_FIRE_RENDER_SIZE = 40.0f;
+
     // Smoke effect
     private final List<Texture> smokeFrameTextures = new ArrayList<>();
     private final Map<Integer, SmokeEffect> activeSmokeEffects = new ConcurrentHashMap<>();
@@ -145,10 +210,24 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
      * Constructor for the Tank Battle Game.
      */
     public TankBattleGame(String hostIp, int port, String playerName, String title, int width, int height) {
+        this(hostIp, port, playerName, "STANDARD", title, width, height);
+    }
+
+    public TankBattleGame(String hostIp, int port, String playerName, String initialTankType, String title, int width, int height) {
+        this(hostIp, port, playerName, initialTankType, "FULL", title, width, height);
+    }
+
+    public TankBattleGame(String hostIp, int port, String playerName, String initialTankType, String effectsQuality, String title, int width, int height) {
         super(title, width, height);
         this.serverIp = hostIp;
         this.serverPort = port;
         this.playerName = playerName;
+        this.selectedTankType = org.chrisgruber.nettank.common.entities.TankType.fromString(initialTankType);
+        try {
+            this.effectsQuality = EffectsQuality.valueOf(effectsQuality.trim().toUpperCase());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            this.effectsQuality = EffectsQuality.FULL;
+        }
     }
 
     // --- Implementation of Abstract Methods from GameEngine ---
@@ -170,6 +249,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             camera = new Camera(windowWidth, windowHeight);
             uiManager = new UIManager();
             healthBar = new HealthBar();
+            armorIndicator = new org.chrisgruber.nettank.client.engine.ui.ArmorIndicator();
+            vignetteOverlay = new org.chrisgruber.nettank.client.engine.ui.VignetteOverlay();
+            selectionScreen = new org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen();
 
             // Load game textures
             logger.debug("Loading textures...");
@@ -264,7 +346,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // Start networking game client AFTER core graphics setup
             logger.info("Starting network client...");
             currentGameState = GameState.CONNECTING;
-            gameClient = new GameClient(serverIp, serverPort, playerName, this);
+            gameClient = new GameClient(serverIp, serverPort, playerName, selectedTankType.name(), this);
             new Thread(gameClient, "GameClientThread").start();
 
         } catch (IOException e) {
@@ -334,6 +416,26 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         });
         // --------------------------------
 
+        // --- Apply queued terrain state changes and sync tile fire visuals ---
+        processTerrainStateChanges();
+        updateTileFireEffects();
+
+        // --- Ease cloak fades ---
+        for (ClientTank tank : tanks.values()) {
+            tank.updateAlpha(deltaTime, CLOAK_FADE_PER_SECOND);
+        }
+
+        // --- Hit feedback effects ---
+        hitSparks.removeIf(org.chrisgruber.nettank.client.game.effects.HitSparkEffect::update);
+        floatingTexts.removeIf(org.chrisgruber.nettank.client.game.effects.FloatingTextEffect::isFinished);
+
+        // --- Phase 7 cosmetic effects ---
+        muzzleFlashes.removeIf(org.chrisgruber.nettank.client.game.effects.MuzzleFlashEffect::update);
+        trackMarks.removeIf(org.chrisgruber.nettank.client.game.effects.TrackMarkEffect::isFinished);
+        dustPuffs.removeIf(org.chrisgruber.nettank.client.game.effects.DustPuffEffect::isFinished);
+        scorchDecals.removeIf(org.chrisgruber.nettank.client.game.effects.ScorchDecal::isFinished);
+        spawnGroundEffects();
+
         // --- Update Active Smoke Effects ---
         activeSmokeEffects.entrySet().removeIf(entry -> {
             SmokeEffect smoke = entry.getValue();
@@ -352,6 +454,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (mapInfoReceivedForProcessing && terrainInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
             mapInfoReceivedForProcessing = false; // Reset the signal flags
+            terrainInfoReceivedForProcessing = false;
+        } else if (terrainInfoReceivedForProcessing && mapInitialized && gameMap != null && receivedTerrainData != null) {
+            // New round: the server regenerated terrain, re-decode it into the existing map
+            gameMap.reloadTerrain(receivedTerrainData);
+            pendingTerrainStateChanges.clear();
+            tileFireEffects.clear();
+            powerUps.clear();
+            activeBuffsByPlayerId.clear();
             terrainInfoReceivedForProcessing = false;
         }
 
@@ -412,6 +522,105 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
+    public void powerUpSpawned(int powerUpId, String type, float x, float y) {
+        var powerUpType = org.chrisgruber.nettank.common.entities.PowerUpType.fromString(type);
+        if (powerUpType == null) {
+            logger.error("Received unknown power-up type '{}' for id {}", type, powerUpId);
+            return;
+        }
+        powerUps.put(powerUpId, new ClientPowerUp(powerUpId, powerUpType, new Vector2f(x, y), System.currentTimeMillis()));
+        logger.debug("Power-up spawned: {} ({}) at ({}, {})", powerUpId, type, x, y);
+    }
+
+    @Override
+    public void powerUpRemoved(int powerUpId, String reason) {
+        powerUps.remove(powerUpId);
+        logger.debug("Power-up removed: {} ({})", powerUpId, reason);
+    }
+
+    @Override
+    public void powerUpActivated(int playerId, String type, long durationMs) {
+        var powerUpType = org.chrisgruber.nettank.common.entities.PowerUpType.fromString(type);
+        if (powerUpType == null) return;
+
+        activeBuffsByPlayerId
+                .computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                .put(powerUpType.getCategory(), new ActiveBuff(powerUpType, System.currentTimeMillis() + durationMs));
+        logger.debug("Power-up activated for player {}: {} ({} ms)", playerId, type, durationMs);
+    }
+
+    @Override
+    public void powerUpEnded(int playerId, String type) {
+        var powerUpType = org.chrisgruber.nettank.common.entities.PowerUpType.fromString(type);
+        if (powerUpType == null) return;
+
+        var buffs = activeBuffsByPlayerId.get(playerId);
+        if (buffs != null) {
+            buffs.remove(powerUpType.getCategory());
+        }
+        logger.debug("Power-up ended for player {}: {}", playerId, type);
+    }
+
+    private static Vector3f powerUpCategoryColor(org.chrisgruber.nettank.common.entities.PowerUpType.Category category) {
+        return switch (category) {
+            case DAMAGE -> new Vector3f(1.0f, 0.25f, 0.2f);
+            case RELOAD -> new Vector3f(1.0f, 0.6f, 0.1f);
+            case SPEED -> new Vector3f(0.25f, 0.55f, 1.0f);
+            case AMMO -> new Vector3f(0.2f, 0.95f, 0.95f);
+            case ARMOR -> new Vector3f(0.3f, 0.9f, 0.3f);
+            case HEALTH -> new Vector3f(1.0f, 0.5f, 0.8f);
+        };
+    }
+
+    @Override
+    public void updatePlayerReady(int playerId, boolean ready) {
+        lobbyReadyByPlayerId.put(playerId, ready);
+
+        // Server echo is authoritative for our own ready state (e.g. revoked by a type change)
+        if (playerId == localPlayerId) {
+            selectionConfirmed = ready;
+        }
+
+        logger.debug("Lobby ready state: player {} -> {}", playerId, ready);
+    }
+
+    @Override
+    public void updateTankVisibility(int playerId, boolean visible) {
+        ClientTank tank = tanks.get(playerId);
+        if (tank == null) {
+            logger.warn("Received visibility update for unknown player ID: {}", playerId);
+            return;
+        }
+
+        if (visible) {
+            tank.setTargetAlpha(1.0f);
+        } else {
+            // Own tank stays faintly visible while cloaked; enemies fade out fully
+            tank.setTargetAlpha(playerId == localPlayerId ? OWN_CLOAK_ALPHA : 0.0f);
+        }
+
+        logger.debug("Tank visibility update: player {} -> {}", playerId, visible);
+    }
+
+    @Override
+    public void terrainStateChanged(int tileX, int tileY, String stateName) {
+        try {
+            var state = org.chrisgruber.nettank.common.world.TerrainState.valueOf(stateName);
+            pendingTerrainStateChanges.add(new TileStateUpdate(tileX, tileY, state));
+        } catch (IllegalArgumentException e) {
+            logger.error("Received unknown terrain state '{}' for tile ({}, {})", stateName, tileX, tileY);
+        }
+    }
+
+    @Override
+    public void updateAmmoCount(int playerId, int ammoCount) {
+        if (playerId == localPlayerId) {
+            this.localAmmoCount = ammoCount;
+            logger.debug("Updated local ammo count: {}", ammoCount);
+        }
+    }
+
+    @Override
     public void updateShootCooldown(long cooldownRemainingMs) {
         if (localTank != null) {
             localTank.setCooldown(cooldownRemainingMs);
@@ -419,6 +628,52 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         } else {
             logger.warn("Received shoot cooldown update ({}ms remaining) but localTank is null. This may indicate an unexpected state or timing issue.", cooldownRemainingMs);
         }
+    }
+
+    private static long tileKey(int x, int y) {
+        return ((long) x << 32) | (y & 0xFFFFFFFFL);
+    }
+
+    // Drains TST updates queued by the network thread into the map (render thread only)
+    private void processTerrainStateChanges() {
+        if (gameMap == null) return;
+
+        TileStateUpdate update;
+        while ((update = pendingTerrainStateChanges.poll()) != null) {
+            gameMap.onTerrainStateChanged(update.x(), update.y(), update.state());
+
+            long key = tileKey(update.x(), update.y());
+            if (update.state().hasVisualEffect()) {
+                if (!tileFireEffects.containsKey(key) && !flameFrameTextures.isEmpty()) {
+                    tileFireEffects.put(key, newTileFlame(update.x(), update.y()));
+                }
+            } else {
+                tileFireEffects.remove(key);
+            }
+        }
+    }
+
+    // Tile fires loop until the tile stops burning, so finished flame animations are respawned
+    private void updateTileFireEffects() {
+        if (gameMap == null || tileFireEffects.isEmpty()) return;
+
+        for (var entry : tileFireEffects.entrySet()) {
+            long key = entry.getKey();
+            int x = (int) (key >> 32);
+            int y = (int) key;
+
+            if (!gameMap.getTileState(x, y).hasVisualEffect()) {
+                tileFireEffects.remove(key);
+            } else if (entry.getValue().update() && !flameFrameTextures.isEmpty()) {
+                tileFireEffects.put(key, newTileFlame(x, y));
+            }
+        }
+    }
+
+    private FlameEffect newTileFlame(int tileX, int tileY) {
+        float tileSize = gameMap.getTileSize();
+        Vector2f center = new Vector2f((tileX + 0.5f) * tileSize, (tileY + 0.5f) * tileSize);
+        return new FlameEffect(center, FLAME_DURATION_MS, flameFrameTextures, TILE_FIRE_RENDER_SIZE);
     }
 
     private void initializeMapAndTextures() {
@@ -448,6 +703,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.STONE, summerGrassTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SHALLOW_WATER, shallowWaterTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, summerTreeTexture);
+            // PLACEHOLDER ART: dedicated hill/rocks tiles and a scorched-ground overlay are pending
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.HILL, dirtFieldTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.ROCKS, forestFloorTexture);
+            gameMap.registerStateOverlayTexture(org.chrisgruber.nettank.common.world.TerrainState.SCORCHED, dirtFieldTexture);
             logger.debug("Registered terrain textures for all types.");
 
             mapInitialized = true; // Mark map as fully ready
@@ -496,23 +755,156 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
         float renderRangeSq = isSpectating ? Float.MAX_VALUE : VIEW_RANGE * VIEW_RANGE;
 
+        // --- Render Ground Decals (scorch marks, track marks, dust) ---
+        if (effectsFull() && bulletTexture != null) {
+            bulletTexture.bind(); // soft round sprite reused for all ground decals
+
+            for (var decal : scorchDecals) {
+                shader.setUniform4f("u_tintColor", 0.08f, 0.06f, 0.05f, decal.getAlpha());
+                renderer.drawQuad(decal.getPosition().x, decal.getPosition().y,
+                        decal.getRenderSize(), decal.getRenderSize(), decal.getRotationDegrees(), shader);
+            }
+
+            for (var mark : trackMarks) {
+                float alpha = mark.getAlpha();
+                if (alpha <= 0.01f) continue;
+                shader.setUniform4f("u_tintColor", 0.12f, 0.1f, 0.08f, alpha);
+                renderer.drawQuad(mark.getLeftTrack().x, mark.getLeftTrack().y,
+                        mark.getMarkSize(), mark.getMarkSize(), mark.getRotationDegrees(), shader);
+                renderer.drawQuad(mark.getRightTrack().x, mark.getRightTrack().y,
+                        mark.getMarkSize(), mark.getMarkSize(), mark.getRotationDegrees(), shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+
+        if (effectsFull() && !dustPuffs.isEmpty() && !smokeFrameTextures.isEmpty()) {
+            smokeFrameTextures.getFirst().bind();
+            for (var puff : dustPuffs) {
+                shader.setUniform4f("u_tintColor", puff.getTint(), puff.getAlpha());
+                renderer.drawQuad(puff.getPosition().x, puff.getPosition().y,
+                        puff.getCurrentSize(), puff.getCurrentSize(), 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
+        // --- Render Power-Up Pickups ---
+        // PLACEHOLDER ART: tinted bullet sprite + pulsing glow until per-type icons
+        // exist (textures/powerups/<type>.png)
+        if (!powerUps.isEmpty() && bulletTexture != null) {
+            bulletTexture.bind();
+            long now = System.currentTimeMillis();
+
+            for (ClientPowerUp powerUp : powerUps.values()) {
+                if (!isObjectVisible(powerUp.position(), playerPos, renderRangeSq)) continue;
+
+                float age = (now - powerUp.spawnTime()) / 1000.0f;
+                float bobOffset = (float) Math.sin(age * 3.0f) * 3.0f;
+                float pulse = 0.3f + 0.15f * (float) Math.sin(age * 5.0f);
+                Vector3f color = powerUpCategoryColor(powerUp.type().getCategory());
+
+                // Soft glow under the icon
+                shader.setUniform4f("u_tintColor", color, pulse);
+                renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
+                        POWERUP_RENDER_SIZE * 2.0f, POWERUP_RENDER_SIZE * 2.0f, 0f, shader);
+
+                // Icon
+                shader.setUniform4f("u_tintColor", color, 1.0f);
+                renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
+                        POWERUP_RENDER_SIZE, POWERUP_RENDER_SIZE, 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
+        // --- Render Buff Auras (pulsing colored ring under buffed tanks) ---
+        if (!activeBuffsByPlayerId.isEmpty() && bulletTexture != null) {
+            bulletTexture.bind();
+            long now = System.currentTimeMillis();
+
+            for (var entry : activeBuffsByPlayerId.entrySet()) {
+                ClientTank tank = tanks.get(entry.getKey());
+                if (tank == null || tank.getAlpha() <= 0.02f || entry.getValue().isEmpty()) continue;
+                if (!isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) continue;
+
+                var firstBuff = entry.getValue().values().iterator().next();
+                Vector3f color = powerUpCategoryColor(firstBuff.type().getCategory());
+                float pulse = 0.2f + 0.1f * (float) Math.sin(now / 150.0);
+
+                shader.setUniform4f("u_tintColor", color, pulse);
+                renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
+                        TankData.SIZE * 1.7f, TankData.SIZE * 1.7f, 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
         tankTexture.bind(); // Bind tank texture once
 
         for (ClientTank tank : tanks.values()) {
-            if (isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) {
-                shader.setUniform3f("u_tintColor", tank.getColor());
+            if (tank.getAlpha() <= 0.02f) continue; // fully cloaked
 
+            if (isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) {
+                boolean isWreck = tank.getHitPoints() <= 0;
+                float shimmer = tank.getRespawnShimmerProgress(RESPAWN_SHIMMER_DURATION_MS);
+
+                Vector3f tint = tank.getColor();
+                if (isWreck) {
+                    // Destroyed tanks remain as darkened wrecks until they respawn
+                    tint = new Vector3f(tank.getColor()).mul(0.3f);
+                } else if (effectsAtLeastLow() && tank.isHitFlashing()) {
+                    // Hit-confirm flash: white for normal hits, gold for crits
+                    tint = tank.isHitFlashGold() ? new Vector3f(1.0f, 0.84f, 0.2f) : new Vector3f(1.0f, 1.0f, 1.0f);
+                }
+
+                float renderAlpha = tank.getAlpha() * (isWreck ? 1.0f : 0.3f + 0.7f * shimmer);
+                shader.setUniform4f("u_tintColor", tint, renderAlpha);
+
+                // MVP per-type visuals until dedicated hull sprites exist: scale by chassis
+                float typeScale = switch (tank.getTankType()) {
+                    case HEAVY -> 1.15f;
+                    case LIGHT -> 0.85f;
+                    default -> 1.0f;
+                };
+                // Respawn shimmer scales the tank in over ~0.5 s so spawns read clearly
+                float renderSize = TankData.SIZE * typeScale * (isWreck ? 1.0f : 0.6f + 0.4f * shimmer);
+
+                // Hull at hull rotation
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
-                        TankData.SIZE, TankData.SIZE,
+                        renderSize, renderSize,
                         tank.getRotation(), shader);
+
+                // Turret layered on top at its own rotation (wrecks keep hull only).
+                // PLACEHOLDER ART: a scaled-down tank sprite stands in for a dedicated
+                // turret texture (turret.png) over a barrel-less hull.
+                if (!isWreck) {
+                    renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
+                            renderSize * 0.65f, renderSize * 0.65f,
+                            tank.getTurretRotation(), shader);
+                }
             }
         }
 
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        // --- Render Muzzle Flashes ---
+        if (!muzzleFlashes.isEmpty()) {
+            for (var flash : muzzleFlashes) {
+                if (flash.isFinished()) continue;
+                Texture frame = flash.getCurrentFrameTexture();
+                if (frame == null) continue;
+                frame.bind();
+                shader.setUniform4f("u_tintColor", 1.0f, 0.95f, 0.7f, 1.0f);
+                renderer.drawQuad(flash.getPosition().x, flash.getPosition().y,
+                        flash.getRenderSize(), flash.getRenderSize(), flash.getRotationDegrees(), shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
 
         // Render Bullets
         bulletTexture.bind(); // Bind bullet texture once
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
 
         for (ClientBullet bullet : bullets) {
             if (isObjectVisible(bullet.getPosition(), playerPos, renderRangeSq) && !bullet.isDestroyed()) {
@@ -542,6 +934,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 logger.trace("Rendering Bullet: Pos=({}, {}), Vel=({}, {}), Rotation={}",
                         bulletPosition.x, bulletPosition.y, velocity.x, velocity.y, rotationDegrees);
 
+                // Tracer streak: a bright stretched quad trailing the bullet makes
+                // firefights readable at long range
+                if (effectsAtLeastLow() && velocity.lengthSquared() > 0.0001f) {
+                    float speed = velocity.length();
+                    float trailX = bullet.getPosition().x - velocity.x / speed * 12.0f;
+                    float trailY = bullet.getPosition().y - velocity.y / speed * 12.0f;
+                    shader.setUniform4f("u_tintColor", 1.0f, 0.9f, 0.5f, 0.55f);
+                    renderer.drawQuad(trailX, trailY, 4.0f, 22.0f, rotationDegrees, shader);
+                    shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+                }
+
                 // Draw the quad using the calculated rotation
                 renderer.drawQuad(bullet.getPosition().x, bullet.getPosition().y,
                         BulletData.SIZE, BulletData.SIZE,
@@ -552,7 +955,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- Render Explosions ---
         if (!activeExplosions.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Reset tint
 
             for (ExplosionEffect explosion : activeExplosions) {
                 if (explosion.isFinished()) continue;
@@ -583,7 +986,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- NEW: Render Flames ---
         if (!activeFlames.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint if needed
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Reset tint if needed
             for (FlameEffect flame : activeFlames) {
                 if (flame.isFinished()) continue; // Skip finished ones
 
@@ -605,9 +1008,48 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
         // -------------------------
 
+        // --- Render Hit Sparks ---
+        if (!hitSparks.isEmpty()) {
+            for (var spark : hitSparks) {
+                if (spark.isFinished()) continue;
+
+                Texture frame = spark.getCurrentFrameTexture();
+                if (frame == null) continue;
+
+                frame.bind();
+                // Crits flash gold, normal hits bright white
+                if (spark.isCritical()) {
+                    shader.setUniform4f("u_tintColor", 1.0f, 0.84f, 0.2f, 1.0f);
+                } else {
+                    shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+                }
+                Vector2f pos = spark.getPosition();
+                renderer.drawQuad(pos.x, pos.y, spark.getRenderSize(), spark.getRenderSize(), 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
+        // --- Render Tile Fires ---
+        if (!tileFireEffects.isEmpty()) {
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+            for (FlameEffect flame : tileFireEffects.values()) {
+                if (flame.isFinished()) continue;
+
+                Texture currentFrameTexture = flame.getCurrentFrameTexture();
+                if (currentFrameTexture == null) continue;
+
+                currentFrameTexture.bind();
+                Vector2f pos = flame.getPosition();
+                float size = flame.getRenderSize();
+                renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
+            }
+        }
+        // -------------------------
+
         // --- Render Smoke Effects ---
         if (!activeSmokeEffects.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Reset tint
 
             for (SmokeEffect smoke : activeSmokeEffects.values()) {
                 if (!smoke.isActive()) continue; // Skip rendering if stopped
@@ -638,6 +1080,26 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private void renderUI() {
         uiManager.startUIRendering(windowWidth, windowHeight);
 
+        // Damage vignette: pulse on taking a hit, slow heartbeat at critically low HP
+        if (effectsFull() && vignetteOverlay != null && localTank != null && !isSpectating) {
+            long now = System.currentTimeMillis();
+            float intensity = 0.0f;
+
+            long sinceHit = now - lastOwnHitTime;
+            if (lastOwnHitTime > 0 && sinceHit < OWN_HIT_VIGNETTE_MS) {
+                float pulse = 1.0f - sinceHit / (float) OWN_HIT_VIGNETTE_MS;
+                intensity = (lastOwnHitCrit ? 1.0f : 0.65f) * pulse;
+            }
+
+            int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+            if (localTank.getHitPoints() > 0 && localTank.getHitPoints() <= Math.max(1, maxHitPoints / 4)) {
+                float heartbeat = 0.25f + 0.2f * (float) Math.sin(now / 350.0);
+                intensity = Math.max(intensity, heartbeat);
+            }
+
+            vignetteOverlay.draw(uiManager.getProjectionMatrix(), windowWidth, windowHeight, intensity);
+        }
+
         // --- Top-Left UI Elements ---
         final float statusTextX = 10;
         float currentY = 10; // Starting Y position
@@ -647,12 +1109,24 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            // --- Render Health Bar ---
+            // --- Render Health Bar (max HP comes from the chassis type) ---
             if (healthBar != null) {
                 float healthBarWidth = 150;
-                float healthBarHeight = 15;
-                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), TankData.MAX_HIT_POINTS, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
+                float healthBarHeight = 22;
+                int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), maxHitPoints, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
                 currentY += healthBarHeight + lineSpacing;
+            }
+
+            uiManager.drawText("TANK: " + localTank.getTankType().name(), statusTextX, currentY, UI_TEXT_SCALE_NORMAL, Colors.WHITE);
+            currentY += uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + lineSpacing;
+
+            // --- Directional armor diagram beside the health bar ---
+            if (armorIndicator != null && localArmor[0] >= 0) {
+                var stats = localTank.getTankType().getDefaultStats();
+                int[] maxArmor = {stats.frontArmor(), stats.leftArmor(), stats.rightArmor(), stats.rearArmor()};
+                armorIndicator.draw(uiManager.getProjectionMatrix(), localArmor, maxArmor, armorHitFlashTimes,
+                        statusTextX + 170, 10, 54, uiManager);
             }
             // -------------------------
         } else if (isSpectating) {
@@ -707,10 +1181,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        // Render Kill Feed Messages (top-right)
+        // Render Kill Feed Messages (top-right); fresh messages pop with a brief scale bounce
+        long killFeedNow = System.currentTimeMillis();
         float currentKillFeedY = killFeedStartY;
         for (KillFeedMessage feedMessage : killFeedMessages) {
-            float textWidth = uiManager.getTextWidth(feedMessage.message(), UI_TEXT_SCALE_KILL_FEED);
+            long age = killFeedNow - (feedMessage.expiryTimeMillis() - KILL_FEED_DISPLAY_TIME_MS);
+            float bounce = (effectsAtLeastLow() && age >= 0 && age < 300)
+                    ? 1.0f + 0.35f * (1.0f - age / 300.0f) : 1.0f;
+            float scale = UI_TEXT_SCALE_KILL_FEED * bounce;
+
+            float textWidth = uiManager.getTextWidth(feedMessage.message(), scale);
             float x = windowWidth - textWidth - killFeedPaddingX;
             Vector3f textColor = switch (feedMessage.getStatusMessageKind()) {
                 case PlayerKilled -> Colors.RED;
@@ -718,15 +1198,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 case PlayerJoined -> Colors.WHITE;
                 default -> Colors.CYAN;
             };
-            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, UI_TEXT_SCALE_KILL_FEED, textColor);
+            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, scale, textColor);
             currentKillFeedY += killFeedLineHeight;
         }
 
         // --- Render Centered Messages ---
         final float centerMessageY = windowHeight * 0.4f;
+        boolean showSelectionScreen = selectionScreen != null
+                && (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN);
 
-        // Render Announcements
-        if (!announcements.isEmpty()) {
+        // Render Announcements (the selection screen shows them in its status line instead)
+        if (!announcements.isEmpty() && !showSelectionScreen) {
             String announcement = announcements.getFirst();
             float textWidth = uiManager.getTextWidth(announcement, UI_TEXT_SCALE_ANNOUNCEMENT);
             float x = (windowWidth - textWidth) / 2.0f;
@@ -744,13 +1226,121 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        if (!stateMessage.isEmpty()) {
+        if (!stateMessage.isEmpty() && !showSelectionScreen) {
             float textWidth = uiManager.getTextWidth(stateMessage, UI_TEXT_SCALE_ANNOUNCEMENT);
             float x = (windowWidth - textWidth) / 2.0f;
             uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
         }
 
+        // Active buff stack with countdowns (bottom-left)
+        var localBuffs = activeBuffsByPlayerId.get(localPlayerId);
+        if (localBuffs != null && !localBuffs.isEmpty()) {
+            long now = System.currentTimeMillis();
+            float buffY = windowHeight - 40.0f;
+
+            for (ActiveBuff buff : localBuffs.values()) {
+                long remainingMs = Math.max(0, buff.endTimeMillis() - now);
+                String line = buff.type().name() + " " + ((remainingMs + 999) / 1000) + "S";
+                uiManager.drawText(line, 10, buffY, UI_TEXT_SCALE_NORMAL,
+                        powerUpCategoryColor(buff.type().getCategory()));
+                buffY -= uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + 6.0f;
+            }
+        }
+
+        // Floating damage text above the player's tank (world -> screen projection)
+        if (!floatingTexts.isEmpty() && camera != null) {
+            float viewWidth = camera.getViewRight() - camera.getViewLeft();
+            float viewHeight = camera.getViewTop() - camera.getViewBottom();
+
+            for (var floatingText : floatingTexts) {
+                Vector2f world = floatingText.getCurrentWorldPosition();
+                float screenX = (world.x - camera.getViewLeft()) / viewWidth * windowWidth;
+                float screenY = (camera.getViewTop() - world.y) / viewHeight * windowHeight;
+
+                float alpha = floatingText.getAlpha();
+                Vector3f color = new Vector3f(floatingText.getColor()).mul(alpha);
+                float textWidth = uiManager.getTextWidth(floatingText.getText(), UI_TEXT_SCALE_NORMAL);
+                uiManager.drawText(floatingText.getText(), screenX - textWidth / 2.0f, screenY, UI_TEXT_SCALE_NORMAL, color);
+            }
+        }
+
+        // Full lobby tank selection screen: backdrop, portrait, stats, roster
+        if (showSelectionScreen) {
+            selectionScreen.drawBackdrop(uiManager.getProjectionMatrix(), windowWidth, windowHeight);
+            drawSelectionPortrait();
+
+            // Roster: every connected player with their ready state
+            var roster = new ArrayList<org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen.RosterEntry>();
+            for (ClientTank tank : tanks.values()) {
+                roster.add(new org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen.RosterEntry(
+                        tank.getName(),
+                        Boolean.TRUE.equals(lobbyReadyByPlayerId.get(tank.getPlayerId())),
+                        tank.getPlayerId() == localPlayerId));
+            }
+            roster.sort(java.util.Comparator.comparing(e -> !e.isLocal()));
+
+            selectionScreen.drawInfo(uiManager.getProjectionMatrix(), uiManager, windowWidth, windowHeight,
+                    selectedTankType, selectionConfirmed, roster);
+        }
+
+        // Big "GET READY" countdown centered on screen, popping in each second
+        if (currentGameState == GameState.COUNTDOWN && countdownEndTimeMillis > 0) {
+            long now = System.currentTimeMillis();
+            long secondsLeft = Math.max(1, (countdownEndTimeMillis - now + 999) / 1000);
+            if (secondsLeft != lastCountdownSecond) {
+                lastCountdownSecond = secondsLeft;
+                countdownTickTimeMillis = now;
+            }
+
+            float sinceTick = now - countdownTickTimeMillis;
+            float fadeIn = Math.min(1.0f, sinceTick / 120.0f);                      // quick fade-in
+            float pop = 1.0f + 0.5f * Math.max(0.0f, 1.0f - sinceTick / 250.0f);    // scale pop per second
+
+            Vector3f countdownColor = new Vector3f(1.0f, 0.8f, 0.1f).mul(0.35f + 0.65f * fadeIn);
+
+            String header = "GET READY";
+            float headerScale = 1.3f;
+            float headerWidth = uiManager.getTextWidth(header, headerScale);
+            uiManager.drawText(header, (windowWidth - headerWidth) / 2.0f, windowHeight * 0.40f, headerScale, countdownColor);
+
+            String number = String.valueOf(secondsLeft);
+            float numberScale = 3.2f * pop;
+            float numberWidth = uiManager.getTextWidth(number, numberScale);
+            uiManager.drawText(number, (windowWidth - numberWidth) / 2.0f, windowHeight * 0.46f, numberScale, countdownColor);
+        } else {
+            lastCountdownSecond = -1;
+        }
+
         uiManager.endUIRendering();
+    }
+
+    // Draws the selected tank's portrait inside the selection panel using the world
+    // quad shader with a temporary screen-space projection.
+    // PLACEHOLDER ART: the battlefield tank sprite stands in for per-type portraits.
+    private void drawSelectionPortrait() {
+        if (tankTexture == null || shader == null || renderer == null || selectionScreen == null) return;
+
+        Matrix4f screenProjection = new Matrix4f().setOrtho(0, windowWidth, windowHeight, 0, -1, 1);
+        shader.bind();
+        shader.setUniformMat4f("u_projection", screenProjection);
+        shader.setUniformMat4f("u_view", new Matrix4f());
+        tankTexture.bind();
+
+        float typeScale = switch (selectedTankType) {
+            case HEAVY -> 1.15f;
+            case LIGHT -> 0.85f;
+            default -> 1.0f;
+        };
+        float size = selectionScreen.portraitSize() * typeScale;
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        // 180-degree rotation compensates for the y-down screen projection
+        renderer.drawQuad(selectionScreen.portraitCenterX(windowWidth), selectionScreen.portraitCenterY(windowHeight),
+                size, size, 180.0f, shader);
+
+        // Restore the world projection for the next frame's world pass
+        if (camera != null) {
+            shader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
+        }
     }
 
 
@@ -764,6 +1354,43 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             return;
         }
 
+        // Lobby tank type selection: cycle with A/D, D-pad, or bumpers before the round starts
+        if (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN) {
+            int direction = 0;
+            if (inputHandler.isKeyPressed(GLFW_KEY_A) || inputHandler.isDpadLeftPressed()
+                    || inputHandler.isLeftBumperPressed()) direction = -1;
+            else if (inputHandler.isKeyPressed(GLFW_KEY_D) || inputHandler.isDpadRightPressed()
+                    || inputHandler.isRightBumperPressed()) direction = 1;
+
+            if (direction != 0) {
+                inputHandler.resetKey(GLFW_KEY_A);
+                inputHandler.resetKey(GLFW_KEY_D);
+
+                var types = org.chrisgruber.nettank.common.entities.TankType.values();
+                int index = (selectedTankType.ordinal() + direction + types.length) % types.length;
+                selectedTankType = types[index];
+
+                if (gameClient != null && gameClient.isConnected()) {
+                    gameClient.sendTankTypeSelection(selectedTankType.name());
+                    // Changing type revokes readiness (the server enforces this too)
+                    if (selectionConfirmed) {
+                        gameClient.sendReady(false);
+                    }
+                }
+                selectionConfirmed = false;
+                logger.info("Selected tank type: {}", selectedTankType);
+            }
+
+            // Space or gamepad A toggles ready; the round starts once everyone is ready
+            if (inputHandler.isShootPressed()) {
+                inputHandler.resetKey(GLFW_KEY_SPACE);
+                selectionConfirmed = !selectionConfirmed;
+                if (gameClient != null && gameClient.isConnected()) {
+                    gameClient.sendReady(selectionConfirmed);
+                }
+            }
+        }
+
         // Handle Game Controls only if playing
         if (localTank != null && !isSpectating && currentGameState == GameState.PLAYING) {
             // Use new unified input methods (supports both keyboard and gamepad)
@@ -772,13 +1399,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             boolean keyA = inputHandler.isRotateLeftPressed();
             boolean keyD = inputHandler.isRotateRightPressed();
             boolean keySpace = inputHandler.isShootPressed();
+            float turretTurn = inputHandler.getTurretRotationInput();
+
+            // Quantize to the 2 decimals sent on the wire so analog jitter doesn't spam sends
+            float quantizedTurretTurn = Math.round(turretTurn * 100.0f) / 100.0f;
 
             // Check if movement input state has changed
-            if (keyW != prevKeyW || keyS != prevKeyS || keyA != prevKeyA || keyD != prevKeyD) {
+            if (keyW != prevKeyW || keyS != prevKeyS || keyA != prevKeyA || keyD != prevKeyD
+                    || quantizedTurretTurn != prevTurretTurn) {
                 // Send only when input state changes
                 if (gameClient != null && gameClient.isConnected()) {
-                    logger.debug("Sending movement input: W:{} S:{} A:{} D:{}", keyW, keyS, keyA, keyD);
-                    gameClient.sendInput(keyW, keyS, keyA, keyD);
+                    logger.debug("Sending movement input: W:{} S:{} A:{} D:{} turret:{}", keyW, keyS, keyA, keyD, quantizedTurretTurn);
+                    gameClient.sendInput(keyW, keyS, keyA, keyD, quantizedTurretTurn);
                 }
 
                 // Update previous state
@@ -786,6 +1418,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 prevKeyS = keyS;
                 prevKeyA = keyA;
                 prevKeyD = keyD;
+                prevTurretTurn = quantizedTurretTurn;
             }
 
             // Handle shooting command
@@ -883,6 +1516,15 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             if (healthBar != null) {
                 healthBar.cleanup();
             }
+            if (armorIndicator != null) {
+                armorIndicator.cleanup();
+            }
+            if (vignetteOverlay != null) {
+                vignetteOverlay.cleanup();
+            }
+            if (selectionScreen != null) {
+                selectionScreen.cleanup();
+            }
         } catch (Exception e) {
             logger.error("Error cleaning up uiManager", e);
         }
@@ -905,11 +1547,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
-    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b) {
+    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, float turretRotation, String tankType) {
         ClientTank tank = tanks.get(id);
 
         TankData data = new TankData();
-        data.updateFromServer(id, name, x, y, rotation, r, g, b);
+        data.updateFromServer(id, name, x, y, rotation, r, g, b, turretRotation);
+        data.setTankType(org.chrisgruber.nettank.common.entities.TankType.fromString(tankType));
 
         if (tank == null) {
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
@@ -959,7 +1602,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     // Called when PLAYER_UPDATE is received
-    public void updateTankState(int id, float x, float y, float rotation, boolean isRespawn) {
+    public void updateTankState(int id, float x, float y, float rotation, float turretRotation, boolean isRespawn) {
         ClientTank tank = tanks.get(id);
 
         if (tank == null) {
@@ -967,7 +1610,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             return;
         }
 
-        if (tank.getPosition().x() == x && tank.getPosition().y() == y && tank.getRotation() == rotation) {
+        if (tank.getPosition().x() == x && tank.getPosition().y() == y
+                && tank.getRotation() == rotation && tank.getTurretRotation() == turretRotation) {
             // no change in state
             logger.trace("No state change for tank ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
             return;
@@ -982,11 +1626,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             } else {
                 logger.warn("No active smoke effect found for respawning player {}.", tank.getPlayerId());
             }
+
+            tank.setHitPoints(tank.getTankType().getDefaultStats().maxHitPoints());
+            tank.startRespawnShimmer();
         }
 
         logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());
 
-        tank.HandlerPlayerUpdateMessage(new Vector2f(x, y), rotation);
+        tank.HandlerPlayerUpdateMessage(new Vector2f(x, y), rotation, turretRotation);
 
         logger.trace("Updated tank state for player ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
     }
@@ -1001,31 +1648,162 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // TODO: Where is bullet rotation set and should it be here?
         float rotation = 0.0f;
 
-        // Create common BulletData
-        BulletData bulletData = new BulletData(bulletId, ownerId, position, velocity, rotation, spawnTime, false);
+        // Create common BulletData (damage is server-authoritative; client bullets are visual only)
+        BulletData bulletData = new BulletData(bulletId, ownerId, position, velocity, rotation, spawnTime, false, 0);
         // Create ClientBullet wrapper for rendering/prediction
         ClientBullet clientBullet = new ClientBullet(bulletData);
 
         bullets.add(clientBullet);
 
+        // Muzzle flash at the firing point, rotated to the shot direction
+        if (effectsAtLeastLow() && !explosionFrameTextures.isEmpty()) {
+            float flashRotation = (float) Math.toDegrees(Math.atan2(dirY, dirX)) - 90.0f;
+            muzzleFlashes.add(new org.chrisgruber.nettank.client.game.effects.MuzzleFlashEffect(
+                    position, flashRotation, MUZZLE_FLASH_DURATION_MS, explosionFrameTextures, 22.0f));
+        }
+
         logger.trace("Spawned bullet owned by {}", ownerId);
     }
 
     @Override
-    public void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage) {
-        // TODO: sprites, animations and UI updates
+    public void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage, String side, boolean critical) {
+        logger.debug("Player hit: Target={}, Shooter={}, BulletID={}, Damage={}, Side={}, Crit={}",
+                targetId, shooterId, bulletId, damage, side, critical);
 
-        logger.debug("Player hit: Target={}, Shooter={}, BulletID={}, Damage={}",
-                targetId, shooterId, bulletId, damage);
+        // Remove the impacting bullet
+        bullets.removeIf(bullet -> bullet.getId().equals(bulletId));
 
-        // Remove bullet directly using removeIf
-        boolean removed = bullets.removeIf(bullet -> {
-            if (bullet.getId().equals(bulletId)) {
-                logger.debug("Removing bullet with ID {}", bulletId);
-                return true;
+        // In-world impact flash at the struck hull side (rendered for every tank)
+        ClientTank hitTank = tanks.get(targetId);
+        if (hitTank != null) {
+            spawnHitSpark(hitTank, side, critical);
+
+            // Hit-confirm: when YOUR shot connects, the struck enemy flashes (gold on crit)
+            if (shooterId == localPlayerId && effectsAtLeastLow()) {
+                hitTank.triggerHitFlash(critical, critical ? 160 : 80);
             }
-            return false;
-        });
+        }
+
+        // Own tank: flash the matching HUD armor segment; HP/armor values arrive via ARM
+        if (targetId == localPlayerId) {
+            int sideIndex = org.chrisgruber.nettank.common.entities.ArmorSide.fromString(side).ordinal();
+            armorHitFlashTimes[sideIndex] = System.currentTimeMillis();
+            lastOwnHitTime = System.currentTimeMillis();
+            lastOwnHitCrit = critical;
+
+            if (critical && localTank != null) {
+                floatingTexts.add(new org.chrisgruber.nettank.client.game.effects.FloatingTextEffect(
+                        "CRIT!", aboveTank(localTank, 14.0f), new Vector3f(1.0f, 0.84f, 0.2f), FLOATING_TEXT_DURATION_MS));
+            }
+        }
+    }
+
+    @Override
+    public void updateArmorStatus(int front, int left, int right, int rear, int hitPoints) {
+        int[] newArmor = {front, left, right, rear};
+
+        if (localTank != null) {
+            // Spawn floating damage text from the diffs (skip the very first snapshot)
+            if (localArmor[0] >= 0 && currentGameState == GameState.PLAYING) {
+                String[] sideNames = {"FRONT", "LEFT", "RIGHT", "REAR"};
+                for (int i = 0; i < newArmor.length; i++) {
+                    int loss = localArmor[i] - newArmor[i];
+                    if (loss > 0) {
+                        floatingTexts.add(new org.chrisgruber.nettank.client.game.effects.FloatingTextEffect(
+                                "-" + loss + " ARMOR (" + sideNames[i] + ")", aboveTank(localTank, 0.0f),
+                                new Vector3f(1.0f, 1.0f, 0.3f), FLOATING_TEXT_DURATION_MS));
+                    }
+                }
+
+                int hpLoss = localTank.getHitPoints() - hitPoints;
+                if (hpLoss > 0) {
+                    floatingTexts.add(new org.chrisgruber.nettank.client.game.effects.FloatingTextEffect(
+                            "-" + hpLoss + " HP", aboveTank(localTank, 28.0f),
+                            new Vector3f(1.0f, 0.35f, 0.35f), FLOATING_TEXT_DURATION_MS));
+                }
+            }
+
+            // ARM is the authoritative HP source for the owning player
+            localTank.setHitPoints(hitPoints);
+        }
+
+        System.arraycopy(newArmor, 0, localArmor, 0, newArmor.length);
+        logger.debug("Armor status: F{} L{} R{} B{}, HP {}", front, left, right, rear, hitPoints);
+    }
+
+    // Track marks and terrain-themed dust behind moving tanks, plus a smoke trickle
+    // from the player's own hull below 50% HP. All gated behind FULL effects quality.
+    private void spawnGroundEffects() {
+        if (!effectsFull() || gameMap == null) return;
+
+        long now = System.currentTimeMillis();
+
+        for (ClientTank tank : tanks.values()) {
+            if (tank.getHitPoints() <= 0 || tank.getAlpha() <= 0.02f) continue;
+
+            Vector2f lastPosition = lastGroundEffectPosition.get(tank.getPlayerId());
+            if (lastPosition == null) {
+                lastGroundEffectPosition.put(tank.getPlayerId(), new Vector2f(tank.getPosition()));
+                continue;
+            }
+            if (tank.getPosition().distance(lastPosition) < GROUND_EFFECT_SPACING) continue;
+
+            lastPosition.set(tank.getPosition());
+
+            trackMarks.addLast(new org.chrisgruber.nettank.client.game.effects.TrackMarkEffect(
+                    tank.getPosition(), tank.getRotation(), TankData.SIZE * 0.6f, 5.0f, 0.35f));
+            while (trackMarks.size() > TRACK_MARK_CAP) {
+                trackMarks.pollFirst();
+            }
+
+            // Terrain-themed dust kick-up behind the tracks
+            var terrainType = gameMap.getEffectiveTypeAt(tank.getPosition().x, tank.getPosition().y);
+            Vector3f dustTint = switch (terrainType) {
+                case DIRT, SAND -> new Vector3f(0.82f, 0.72f, 0.5f);  // tan dust
+                case MUD -> new Vector3f(0.32f, 0.24f, 0.16f);        // dark mud splatter
+                case SHALLOW_WATER -> new Vector3f(0.65f, 0.8f, 0.95f); // water spray
+                default -> null;
+            };
+            if (dustTint != null && !smokeFrameTextures.isEmpty()) {
+                dustPuffs.add(new org.chrisgruber.nettank.client.game.effects.DustPuffEffect(
+                        tank.getPosition(), dustTint, 600, 14.0f));
+            }
+        }
+
+        // Damaged hull smoke trickle (own tank only: enemy HP is not public)
+        if (localTank != null && localTank.getHitPoints() > 0 && !smokeFrameTextures.isEmpty()) {
+            int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+            if (localTank.getHitPoints() <= maxHitPoints / 2 && now - lastHullSmokeTime >= 400) {
+                lastHullSmokeTime = now;
+                dustPuffs.add(new org.chrisgruber.nettank.client.game.effects.DustPuffEffect(
+                        localTank.getPosition(), new Vector3f(0.35f, 0.35f, 0.35f), 900, 12.0f));
+            }
+        }
+    }
+
+    private Vector2f aboveTank(ClientTank tank, float extraHeight) {
+        return new Vector2f(tank.getPosition().x, tank.getPosition().y + TankData.SIZE + extraHeight);
+    }
+
+    // Positions a brief spark burst at the hull edge of the struck side
+    private void spawnHitSpark(ClientTank tank, String sideName, boolean critical) {
+        if (explosionFrameTextures.isEmpty()) return;
+
+        float offsetDegrees = switch (org.chrisgruber.nettank.common.entities.ArmorSide.fromString(sideName)) {
+            case FRONT -> 0.0f;
+            case LEFT -> 90.0f;
+            case REAR -> 180.0f;
+            case RIGHT -> 270.0f;
+        };
+        float angleRad = (float) Math.toRadians(tank.getRotation() + offsetDegrees);
+        float half = TankData.SIZE / 2.0f;
+        Vector2f position = new Vector2f(
+                tank.getPosition().x - (float) Math.sin(angleRad) * half,
+                tank.getPosition().y + (float) Math.cos(angleRad) * half);
+
+        float size = critical ? HIT_SPARK_RENDER_SIZE * 1.5f : HIT_SPARK_RENDER_SIZE;
+        hitSparks.add(new org.chrisgruber.nettank.client.game.effects.HitSparkEffect(
+                position, HIT_SPARK_DURATION_MS, explosionFrameTextures, size, critical));
     }
 
     @Override
@@ -1043,6 +1821,23 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         ClientTank shooterTank = tanks.get(shooterId);
         ClientTank targetTank = tanks.get(targetId);
+
+        if (targetTank != null) {
+            targetTank.setHitPoints(0);
+
+            // Camera shake for nearby explosions and a persistent scorch mark
+            if (effectsAtLeastLow() && camera != null && localTank != null
+                    && localTank.getPosition().distance(targetTank.getPosition()) <= EXPLOSION_SHAKE_RANGE) {
+                camera.addShake(6.0f);
+            }
+            if (effectsFull()) {
+                scorchDecals.addLast(new org.chrisgruber.nettank.client.game.effects.ScorchDecal(
+                        targetTank.getPosition(), (float) (Math.random() * 360.0), 46.0f));
+                while (scorchDecals.size() > SCORCH_DECAL_CAP) {
+                    scorchDecals.pollFirst();
+                }
+            }
+        }
 
         // --- Spawn Explosion ---
         // Check if target exists AND if explosion textures were loaded successfully
@@ -1095,7 +1890,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
         // ------------------------
 
-        String shooterName = (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
+        // shooterId -1 means an environmental kill (burning terrain)
+        String shooterName = (shooterId == -1) ? "THE FIRE"
+                : (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
         String targetName = (targetTank != null) ? targetTank.getName() : ("Player " + targetId);
 
         // Construct the message
@@ -1144,8 +1941,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             lastAnnouncementTime = 0;
         }
 
+        if (state == GameState.COUNTDOWN) {
+            this.countdownEndTimeMillis = timeData; // server sends the countdown end time
+        } else {
+            this.countdownEndTimeMillis = 0;
+        }
+
         switch (state) {
             case PLAYING:
+                this.lobbyReadyByPlayerId.clear();
+                this.selectionConfirmed = false;
                 this.roundStartTimeMillis = timeData;
                 this.finalElapsedTimeMillis = -1;
                 // Clear bullets from previous round? Server should dictate respawn/reset.
@@ -1171,12 +1976,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 break;
             case WAITING:
             case COUNTDOWN:
-            case CONNECTING:
+                // Lobby / tank selection is its own mode, NOT spectating: the round
+                // simply hasn't started yet. Keep the normal HUD (health bar, armor
+                // diagram, type label) visible behind the selection screen.
                 this.roundStartTimeMillis = 0;
                 this.finalElapsedTimeMillis = -1;
                 bullets.clear(); // Clear bullets while not actively playing
-                isSpectating = true; // Spectate while waiting/connecting/counting
-                logger.info("Game state {}. Spectating forced.", state);
+                isSpectating = false;
+                logger.info("Game state {}. In lobby (not spectating).", state);
+                break;
+            case CONNECTING:
+                this.roundStartTimeMillis = 0;
+                this.finalElapsedTimeMillis = -1;
+                bullets.clear();
+                isSpectating = true; // No tank exists yet while connecting
+                logger.info("Game state CONNECTING. Spectating forced.");
                 break;
         }
     }

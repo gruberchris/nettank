@@ -15,20 +15,32 @@ public class ProceduralTerrainGenerator {
     
     private final long seed;
     private final FastNoiseLite noise;
-    
+    private final FastNoiseLite featureNoise;
+
+    // Fraction of the map covered by the hill/rock feature channel
+    private static final float HILL_PERCENT = 0.06f;
+    private static final float ROCKS_PERCENT = 0.02f;
+
     public ProceduralTerrainGenerator(long seed) {
         this.seed = seed;
         // Convert long seed to int by XOR'ing upper and lower 32 bits
         int intSeed = (int) seed ^ (int) (seed >> 32);
         this.noise = new FastNoiseLite(intSeed);
-        
+
         logger.debug("Creating ProceduralTerrainGenerator with long seed: {}, int seed: {}", seed, intSeed);
-        
+
         // Configure noise for natural terrain
         noise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
         noise.SetFrequency(0.05f);
         noise.SetFractalOctaves(3);
         noise.SetFractalType(FastNoiseLite.FractalType.FBm);
+
+        // Separate low-frequency channel for elevation features (hills, rock outcrops)
+        this.featureNoise = new FastNoiseLite(intSeed ^ 0x5EED1E55);
+        featureNoise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
+        featureNoise.SetFrequency(0.03f);
+        featureNoise.SetFractalOctaves(2);
+        featureNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
     }
     
     public void generateProceduralTerrain(GameMapData mapData, BaseTerrainProfile profile) {
@@ -48,7 +60,11 @@ public class ProceduralTerrainGenerator {
         // Step 3: Post-process to keep only the largest contiguous regions
         keepLargestContiguousOverlayRegion(mapData, profile.getLowType());
         keepLargestContiguousOverlayRegion(mapData, profile.getHighType());
-        
+
+        // Step 4: Elevation features from the second noise channel (hills + rock outcrops)
+        assignHillsAndRocks(mapData);
+        keepLargestContiguousOverlayRegion(mapData, TerrainType.HILL);
+
         // Log final distribution
         logTerrainDistribution(mapData);
         
@@ -62,10 +78,57 @@ public class ProceduralTerrainGenerator {
     private void fillAllWithBaseTerrain(GameMapData mapData, TerrainType baseType) {
         for (int y = 0; y < mapData.getHeightTiles(); y++) {
             for (int x = 0; x < mapData.getWidthTiles(); x++) {
-                mapData.getTile(x, y).setBaseType(baseType);
+                TerrainTile tile = mapData.getTile(x, y);
+                tile.setBaseType(baseType);
+                // Full reset: round regeneration reuses the same tile objects
+                tile.setOverlayType(null);
+                tile.setVisualOverlay(null);
+                tile.setCurrentState(org.chrisgruber.nettank.common.world.TerrainState.NORMAL);
+                tile.setStateChangeTime(0);
+                tile.setFireDuration(0);
             }
         }
         logger.debug("Filled entire map with base terrain: {}", baseType);
+    }
+
+    // Assigns HILL ridges (high feature noise) and ROCKS outcrops (low feature noise)
+    // onto tiles that have no overlay yet, so lakes/forests keep priority
+    private void assignHillsAndRocks(GameMapData mapData) {
+        int width = mapData.getWidthTiles();
+        int height = mapData.getHeightTiles();
+
+        float[] allValues = new float[width * height];
+        float[][] featureMap = new float[width][height];
+        int idx = 0;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                float value = (featureNoise.GetNoise(x, y) + 1.0f) / 2.0f;
+                featureMap[x][y] = value;
+                allValues[idx++] = value;
+            }
+        }
+        Arrays.sort(allValues);
+
+        float rocksThreshold = allValues[(int) (allValues.length * ROCKS_PERCENT)];
+        float hillThreshold = allValues[(int) (allValues.length * (1.0f - HILL_PERCENT))];
+
+        int hillCount = 0, rocksCount = 0;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+                if (tile.hasOverlay()) continue;
+
+                if (featureMap[x][y] >= hillThreshold) {
+                    tile.setOverlayType(TerrainType.HILL);
+                    hillCount++;
+                } else if (featureMap[x][y] <= rocksThreshold) {
+                    tile.setOverlayType(TerrainType.ROCKS);
+                    rocksCount++;
+                }
+            }
+        }
+
+        logger.info("Assigned {} HILL tiles and {} ROCKS tiles from feature noise channel", hillCount, rocksCount);
     }
     
     private float[][] generateNoiseMap(int width, int height) {
@@ -259,6 +322,10 @@ public class ProceduralTerrainGenerator {
                         symbol = 'W';
                     } else if (overlay == TerrainType.FOREST) {
                         symbol = 'T';
+                    } else if (overlay == TerrainType.HILL) {
+                        symbol = 'H';
+                    } else if (overlay == TerrainType.ROCKS) {
+                        symbol = 'R';
                     }
                 }
                 

@@ -18,6 +18,7 @@ public class GameClient implements Runnable {
     private final String serverIp;
     private final int serverPort;
     private final String playerName;
+    private final String tankTypeName;
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
@@ -36,9 +37,14 @@ public class GameClient implements Runnable {
     private long lastHeartbeatTime = 0;
 
     public GameClient(String serverIp, int serverPort, String playerName, NetworkCallbackHandler networkCallbackHandler) {
+        this(serverIp, serverPort, playerName, "STANDARD", networkCallbackHandler);
+    }
+
+    public GameClient(String serverIp, int serverPort, String playerName, String tankTypeName, NetworkCallbackHandler networkCallbackHandler) {
         this.serverIp = serverIp;
         this.serverPort = serverPort;
         this.playerName = playerName;
+        this.tankTypeName = tankTypeName;
         this.networkCallbackHandler = networkCallbackHandler;
         
         // Allow configuring a heartbeat interval via system property
@@ -78,8 +84,8 @@ public class GameClient implements Runnable {
             logger.info("Connected to server: {}:{}", serverIp, serverPort);
 
             if (localOut != null) {
-                sendMessage(NetworkProtocol.CONNECT + ";" + playerName);
-                logger.info("Sent initial connect message to server: {}", playerName);
+                sendMessage(NetworkProtocol.CONNECT + ";" + playerName + ";" + NetworkProtocol.PROTOCOL_VERSION + ";" + tankTypeName);
+                logger.info("Sent initial connect message to server: {} (protocol v{}, tank type {})", playerName, NetworkProtocol.PROTOCOL_VERSION, tankTypeName);
             }
 
             String serverMessage = null;
@@ -195,17 +201,34 @@ public class GameClient implements Runnable {
                         var msg = NetworkMessage.NewPlayer.parse(parts);
                         networkCallbackHandler.addOrUpdateTank(
                             msg.id(), msg.x(), msg.y(), msg.rotation(),
-                            msg.name(), msg.colorR(), msg.colorG(), msg.colorB()
+                            msg.name(), msg.colorR(), msg.colorG(), msg.colorB(),
+                            msg.turretRotation(), msg.tankType()
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed NEW_PLAYER message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.PLAYER_READY -> {
+                    try {
+                        var msg = NetworkMessage.PlayerReady.parse(parts);
+                        networkCallbackHandler.updatePlayerReady(msg.playerId(), msg.ready());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed PLAYER_READY message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.VISIBILITY -> {
+                    try {
+                        var msg = NetworkMessage.TankVisibility.parse(parts);
+                        networkCallbackHandler.updateTankVisibility(msg.playerId(), msg.visible());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed VISIBILITY message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.PLAYER_UPDATE -> {
                     try {
                         var msg = NetworkMessage.PlayerUpdate.parse(parts);
                         networkCallbackHandler.updateTankState(
-                            msg.id(), msg.x(), msg.y(), msg.rotation(), false
+                            msg.id(), msg.x(), msg.y(), msg.rotation(), msg.turretRotation(), false
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed PLAYER_UPDATE message: {}", e.getMessage());
@@ -235,10 +258,20 @@ public class GameClient implements Runnable {
                         var msg = NetworkMessage.Hit.parse(parts);
                         networkCallbackHandler.handlePlayerHit(
                             msg.targetId(), msg.shooterId(),
-                            msg.bulletId(), msg.damage()
+                            msg.bulletId(), msg.damage(), msg.side(), msg.critical()
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed HIT message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.ARMOR_STATUS -> {
+                    try {
+                        var msg = NetworkMessage.ArmorStatus.parse(parts);
+                        networkCallbackHandler.updateArmorStatus(
+                            msg.front(), msg.left(), msg.right(), msg.rear(), msg.hitPoints()
+                        );
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed ARMOR_STATUS message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.DESTROYED -> {
@@ -296,7 +329,7 @@ public class GameClient implements Runnable {
                         var msg = NetworkMessage.Respawn.parse(parts);
                         logger.debug("Received RESPAWN for player {}", msg.id());
                         networkCallbackHandler.updateTankState(
-                            msg.id(), msg.x(), msg.y(), msg.rotation(), true
+                            msg.id(), msg.x(), msg.y(), msg.rotation(), msg.turretRotation(), true
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed RESPAWN message: {}", e.getMessage());
@@ -356,6 +389,54 @@ public class GameClient implements Runnable {
                         logger.error("Malformed SHOOT_COOLDOWN message: {}", e.getMessage());
                     }
                 }
+                case NetworkProtocol.TERRAIN_STATE -> {
+                    try {
+                        var msg = NetworkMessage.TerrainStateChange.parse(parts);
+                        networkCallbackHandler.terrainStateChanged(msg.tileX(), msg.tileY(), msg.stateName());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed TERRAIN_STATE message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_SPAWN -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpSpawn.parse(parts);
+                        networkCallbackHandler.powerUpSpawned(msg.powerUpId(), msg.type(), msg.x(), msg.y());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_SPAWN message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_REMOVE -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpRemove.parse(parts);
+                        networkCallbackHandler.powerUpRemoved(msg.powerUpId(), msg.reason());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_REMOVE message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_ACTIVATED -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpActivated.parse(parts);
+                        networkCallbackHandler.powerUpActivated(msg.playerId(), msg.type(), msg.durationMs());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_ACTIVATED message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_ENDED -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpEnded.parse(parts);
+                        networkCallbackHandler.powerUpEnded(msg.playerId(), msg.type());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_ENDED message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.AMMO_COUNT -> {
+                    try {
+                        var msg = NetworkMessage.AmmoCount.parse(parts);
+                        networkCallbackHandler.updateAmmoCount(msg.playerId(), msg.ammoCount());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed AMMO_COUNT message: {}", e.getMessage());
+                    }
+                }
                 default -> logger.warn("Unknown message command from server: {}", command);
             }
         } catch (NumberFormatException e) {
@@ -391,12 +472,12 @@ public class GameClient implements Runnable {
         }
     }
 
-    // Send movement input state
-    public void sendInput(boolean w, boolean s, boolean a, boolean d) {
+    // Send movement input state (turretTurn is the analog turret rotation rate in [-1, 1])
+    public void sendInput(boolean w, boolean s, boolean a, boolean d, float turretTurn) {
         long now = System.currentTimeMillis();
 
         if (now - lastInputSendTime >= INPUT_SEND_INTERVAL_MS) {
-            sendMessage(String.format("%s;%b;%b;%b;%b", NetworkProtocol.INPUT, w, s, a, d));
+            sendMessage(String.format("%s;%b;%b;%b;%b;%.2f", NetworkProtocol.INPUT, w, s, a, d, turretTurn));
             lastInputSendTime = now;
         }
     }
@@ -404,6 +485,16 @@ public class GameClient implements Runnable {
     // Send shoot command
     public void sendShoot() {
         sendMessage(NetworkProtocol.SHOOT_CMD);
+    }
+
+    // Send lobby tank type selection
+    public void sendTankTypeSelection(String tankTypeName) {
+        sendMessage(NetworkProtocol.SELECT_TANK_TYPE + ";" + tankTypeName);
+    }
+
+    // Send lobby ready state (round starts when every player is ready)
+    public void sendReady(boolean ready) {
+        sendMessage(NetworkProtocol.READY + ";" + (ready ? 1 : 0));
     }
     
     // Send heartbeat to keep connection alive

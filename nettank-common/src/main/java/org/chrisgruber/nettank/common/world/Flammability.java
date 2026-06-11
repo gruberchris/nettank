@@ -4,7 +4,7 @@ public enum Flammability {
     NONE(0.0f, 0.0f),
     LOW(0.1f, 0.05f),
     MEDIUM(0.4f, 0.15f),
-    HIGH(0.8f, 0.35f),
+    HIGH(0.8f, 0.10f),
     EXTREME(1.0f, 0.5f);
 
     private final float ignitionChance;

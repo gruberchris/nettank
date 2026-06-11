@@ -150,7 +150,7 @@ public class Renderer {
 
         // Set uniforms
         shader.setUniformMat4f("u_model", modelMatrix);
-        shader.setUniform3f("u_tintColor", color); // Set the desired tint
+        shader.setUniform4f("u_tintColor", color, 1.0f); // Set the desired tint
 
         // Bind the quad VAO and draw
         glBindVertexArray(vaoId);
@@ -158,7 +158,7 @@ public class Renderer {
         glBindVertexArray(0);
 
         // Reset tint color to default white to avoid affecting subsequent draws
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
 

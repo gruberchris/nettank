@@ -17,50 +17,87 @@ public class InputConfig {
     private static final String CONFIG_DIR = ".nettank";
     private static final String CONFIG_FILE = "input-config.json";
     
+    // Bumped when defaults change incompatibly; load() migrates older files
+    public static final int CURRENT_CONFIG_VERSION = 2;
+
+    public int configVersion = 0; // 0 = pre-versioning file (or freshly deserialized without the field)
     public KeyboardConfig keyboard = new KeyboardConfig();
     public GamepadConfig gamepad = new GamepadConfig();
-    
+
     public static class KeyboardConfig {
         public String forward = "W";
         public String backward = "S";
         public String rotateLeft = "A";
         public String rotateRight = "D";
+        public String turretLeft = "Q";
+        public String turretRight = "E";
         public String shoot = "SPACE";
         public String exit = "ESCAPE";
     }
-    
+
     public static class GamepadConfig {
         public String forward = "RIGHT_TRIGGER";
         public String backward = "LEFT_TRIGGER";
-        public String rotateAxis = "RIGHT_STICK_X";
+        public String rotateAxis = "LEFT_STICK_X";
+        public String turretAxis = "RIGHT_STICK_X";
         public String shoot = "BUTTON_A";
         public float stickDeadzone = 0.2f;
         public float triggerThreshold = 0.1f;
         public float rotationSensitivity = 1.0f;
     }
-    
+
     /**
      * Load configuration from user's home directory, creating default if not exists
      */
     public static InputConfig load() {
         Path configPath = getConfigPath();
-        
+
         if (!Files.exists(configPath)) {
             logger.info("Config file not found, creating default at: {}", configPath);
             InputConfig defaultConfig = createDefault();
             defaultConfig.save();
             return defaultConfig;
         }
-        
+
         try (Reader reader = Files.newBufferedReader(configPath)) {
             Gson gson = new Gson();
             InputConfig config = gson.fromJson(reader, InputConfig.class);
             logger.info("Loaded input configuration from: {}", configPath);
-            return config;
+            return migrate(config);
         } catch (Exception e) {
             logger.error("Failed to load config file, using defaults", e);
             return createDefault();
         }
+    }
+
+    /**
+     * Migrates configs written before turret controls existed: hull rotation moved
+     * from RIGHT_STICK_X to LEFT_STICK_X so the right stick can drive the turret.
+     */
+    private static InputConfig migrate(InputConfig config) {
+        if (config.configVersion >= CURRENT_CONFIG_VERSION) {
+            return config;
+        }
+
+        logger.info("Migrating input config from version {} to {}", config.configVersion, CURRENT_CONFIG_VERSION);
+
+        if ("RIGHT_STICK_X".equalsIgnoreCase(config.gamepad.rotateAxis)) {
+            config.gamepad.rotateAxis = "LEFT_STICK_X";
+        }
+        if (config.gamepad.turretAxis == null) {
+            config.gamepad.turretAxis = "RIGHT_STICK_X";
+        }
+        if (config.keyboard.turretLeft == null) {
+            config.keyboard.turretLeft = "Q";
+        }
+        if (config.keyboard.turretRight == null) {
+            config.keyboard.turretRight = "E";
+        }
+
+        config.configVersion = CURRENT_CONFIG_VERSION;
+        config.save();
+
+        return config;
     }
     
     /**
@@ -89,7 +126,9 @@ public class InputConfig {
      * Create default configuration
      */
     private static InputConfig createDefault() {
-        return new InputConfig();
+        InputConfig config = new InputConfig();
+        config.configVersion = CURRENT_CONFIG_VERSION;
+        return config;
     }
     
     /**
