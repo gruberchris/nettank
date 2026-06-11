@@ -35,7 +35,7 @@
 
 ### Three-Layer Algorithm:
 
-```
+```text
 1. Fill entire map with BASE terrain (grass/sand/dirt)
    ↓
 2. Generate 2D Perlin noise (values 0.0 to 1.0)
@@ -55,7 +55,7 @@
    ↓
 8. Keep only LARGEST HIGH region, remove rest
    ↓
-9. Final Result: 
+9. Final Result:
    - Base terrain everywhere (85%)
    - Single contiguous low overlay (8%)
    - Single contiguous high overlay (7%)
@@ -63,7 +63,7 @@
 
 ### Visual Process:
 
-```
+```text
 Step 1-2: Generate Noise        Step 3-4: Find Regions
 GGWGGGFGGGGGWGGGG               [Region1: W tiles]
 GGGWGGGGFGGWWGGGG               [Region2: W tiles]
@@ -108,7 +108,7 @@ Seed: 12345      (fixed for now)
 ## Available Terrain Profiles
 
 ### 1. GRASSLAND (Currently Active)
-```
+```text
 Profile: Grassland
 Description: Large grassy plains with a lake and forest
 
@@ -121,7 +121,7 @@ Movement: Fast on grass, normal in water, slow in forest
 ```
 
 ### 2. DESERT
-```
+```text
 Profile: Desert
 Description: Vast sandy desert with oasis and mountains
 
@@ -135,7 +135,7 @@ Tactical: Oasis is valuable control point!
 ```
 
 ### 3. DIRT_PLAINS
-```
+```text
 Profile: Dirt Plains
 Description: Dirt terrain with muddy areas and rocky outcrops
 
@@ -149,7 +149,7 @@ Tactical: Avoid getting stuck in mud!
 ```
 
 ### 4. MUDLANDS
-```
+```text
 Profile: Swamp
 Description: Muddy swampland with deep water and trees
 
@@ -171,28 +171,28 @@ Edit `GameServer.java` in initialization and `regenerateTerrainForNewRound()`:
 ```java
 // Current (active):
 terrainGenerator.generateProceduralTerrain(
-    serverContext.gameMapData, 
+    serverContext.gameMapData,
     BaseTerrainProfile.GRASSLAND,
     serverContext.terrainSeed
 );
 
 // To switch to desert:
 terrainGenerator.generateProceduralTerrain(
-    serverContext.gameMapData, 
+    serverContext.gameMapData,
     BaseTerrainProfile.DESERT,
     serverContext.terrainSeed
 );
 
 // To switch to dirt plains:
 terrainGenerator.generateProceduralTerrain(
-    serverContext.gameMapData, 
+    serverContext.gameMapData,
     BaseTerrainProfile.DIRT_PLAINS,
     serverContext.terrainSeed
 );
 
 // To switch to swamp:
 terrainGenerator.generateProceduralTerrain(
-    serverContext.gameMapData, 
+    serverContext.gameMapData,
     BaseTerrainProfile.MUDLANDS,
     serverContext.terrainSeed
 );
@@ -229,7 +229,7 @@ gen.generateProceduralTerrain(serverContext.gameMapData, BaseTerrainProfile.GRAS
 
 // Server: Encode and transmit
 String encodedTerrain = TerrainEncoder.encode(serverContext.gameMapData);
-broadcast(String.format("%s;%d;%d;%s", 
+broadcast(String.format("%s;%d;%d;%s",
     NetworkProtocol.TERRAIN_DATA, width, height, encodedTerrain), -1);
 
 // Client: Receive and decode
@@ -271,7 +271,7 @@ Make sure these textures are present:
 
 ### Generation Speed:
 
-```
+```text
 Map Size: 100x100 tiles (10,000 tiles)
 Time: ~10-20ms total
 
@@ -285,7 +285,7 @@ Breakdown:
 
 ### Memory Usage:
 
-```
+```text
 Noise map: 100x100 floats = 40 KB
 Visited array: 100x100 bools = 10 KB
 Region lists: negligible
@@ -358,7 +358,7 @@ Fire bullets:
 **Solution:** Flood fill not running! Check logs for errors in `ProceduralTerrainGenerator.keepLargestContiguousOverlayRegion()`.
 
 ### Problem: Client shows all grass, no overlays
-**Solution:** 
+**Solution:**
 - Check that `TerrainEncoder` is encoding overlay data (look for `:` in encoded string)
 - Verify `TerrainDecoder` correctly parses overlay types
 - Check client terrain textures are registered for overlay types

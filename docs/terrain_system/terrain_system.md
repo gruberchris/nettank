@@ -29,7 +29,7 @@ public class TerrainTile {
     private TerrainType baseType;      // Base terrain (GRASS, DIRT, etc.)
     private TerrainType overlayType;   // Optional overlay (FOREST, WATER, etc.)
     private TerrainState currentState; // Dynamic state (NORMAL, BURNING, SCORCHED)
-    
+
     // Properties derived from effective type (overlay if present, else base)
     public float getEffectiveSpeedModifier();
     public boolean isPassable();
@@ -44,14 +44,14 @@ public class TerrainTile {
 
 | Type | Speed | Passable | Blocks Bullets | Blocks Vision | Destructible | Flammability | Burn Duration |
 |------|-------|----------|----------------|---------------|--------------|--------------|---------------|
-| GRASS | 100% | ✅ | ❌ | NONE | ❌ | HIGH (90%) | 5s |
+| GRASS | 100% | ✅ | ❌ | NONE | ❌ | MEDIUM (40%) | 5s |
 | DIRT | 95% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
 | MUD | 60% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
 | SAND | 85% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
 | STONE | 100% | ✅ | ❌ | NONE | ❌ | NONE | 0s |
 | SHALLOW_WATER | 40% | ❌ | ❌ | NONE | ❌ | NONE | 0s |
 | DEEP_WATER | 0% | ❌ | ❌ | NONE | ❌ | NONE | 0s |
-| FOREST | 70% | ❌ | ✅ | PARTIAL | ✅ | MEDIUM (70%) | 15s |
+| FOREST | 70% | ❌ | ✅ | PARTIAL | ✅ | HIGH (80%) | 15s |
 | MOUNTAIN | 0% | ❌ | ❌ | FULL | ❌ | NONE | 0s |
 
 ### Terrain States ✅
@@ -59,10 +59,10 @@ public class TerrainTile {
 Dynamic states that affect tiles (fully implemented):
 
 - **NORMAL**: Default state (100% speed modifier)
-- **IGNITING**: Just caught fire (0-2s, 85% speed modifier)
-- **BURNING**: Actively burning (85% speed modifier, visual fire effects)
-- **SMOLDERING**: Dying out (last 3s, 90% speed modifier)
-- **SCORCHED**: Permanently burned (100% speed, darkened texture overlay)
+- **IGNITING**: Just caught fire (0-2s, 100% speed modifier)
+- **BURNING**: Actively burning (70% speed modifier, visual fire effects)
+- **SMOLDERING**: Dying out (last 3s, 80% speed modifier)
+- **SCORCHED**: Permanently burned (90% speed, darkened texture overlay)
 - **FLOODED**: Wet terrain, cannot be ignited (prevents fire)
 
 ## Procedural Generation
@@ -88,19 +88,19 @@ public enum BaseTerrainProfile {
         TerrainType.SHALLOW_WATER, // Low: 8% (single lake)
         TerrainType.FOREST         // High: 7% (single forest)
     ),
-    
+
     DESERT(
         TerrainType.SAND,          // Base: 87% of map
         TerrainType.GRASS,         // Low: 5% (oasis)
         TerrainType.FOREST         // High: 8% (mountains)
     ),
-    
+
     DIRT_PLAINS(
         TerrainType.DIRT,          // Base: 85% of map
         TerrainType.MUD,           // Low: 10% (muddy region)
         TerrainType.FOREST         // High: 5% (rocky area)
     ),
-    
+
     MUDLANDS(
         TerrainType.MUD,           // Base: 83% of map
         TerrainType.SHALLOW_WATER, // Low: 12% (bog/swamp)
@@ -140,7 +140,7 @@ noise.SetFractalType(FastNoiseLite.FractalType.FBm);
 
 ### Rendering Order
 
-```
+```text
 Bottom to Top:
 1. Base terrain texture (opaque)
 2. Visual overlay texture (transparent, non-interactable)
@@ -152,7 +152,7 @@ Bottom to Top:
 
 ### Example: Forest on Grass
 
-```
+```text
 Base Layer:    GRASS texture (green)
 Visual Overlay: None (or tank tracks)
 Data Overlay:  FOREST (tree entity with collision)
@@ -216,8 +216,8 @@ When explosions occur:
    - SMOLDERING (last 3s): Fire dying out
    - SCORCHED (permanent): Burned terrain with darkened texture
 3. **Probabilistic Ignition**: Based on terrain Flammability enum
-   - GRASS: 90% chance (5s burn duration)
-   - FOREST: 70% chance (15s burn duration)
+   - GRASS: 40% chance (5s burn duration)
+   - FOREST: 80% chance (15s burn duration)
 4. **Speed Penalties**: Burning and smoldering states apply movement speed reductions
 5. **Water Protection**: FLOODED state prevents ignition
 
@@ -227,13 +227,13 @@ When explosions occur:
 public class FireManager {
     // Trigger fire on explosion
     public void onExplosion(Vector2f position, float radius);
-    
+
     // Update all burning tiles, handle state transitions
     public void update(long currentTime);
-    
+
     // Try to ignite a specific tile
     public boolean attemptIgnition(int tileX, int tileY, float chanceMultiplier);
-    
+
     // Get all currently burning tiles for network sync
     public List<TileStateChange> getBurningTiles();
 }
@@ -338,7 +338,7 @@ ProceduralTerrainGenerator generator = new ProceduralTerrainGenerator();
 
 // 2. Generate terrain with profile
 generator.generateProceduralTerrain(
-    gameMapData, 
+    gameMapData,
     BaseTerrainProfile.GRASSLAND
 );
 
@@ -354,7 +354,7 @@ fireManager.update(currentTime);
 ```java
 // 1. Generate matching terrain
 proceduralGenerator.generateProceduralTerrain(
-    gameMapData, 
+    gameMapData,
     BaseTerrainProfile.GRASSLAND
 );
 

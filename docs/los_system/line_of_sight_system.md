@@ -28,15 +28,15 @@ public enum VisionBlockingType {
     PARTIAL(true, 0.3f),            // Trees/bushes - partial blocking
     FULL(true, 1.0f),               // Mountains, tall buildings - complete blocking
     DESTROYABLE(true, 1.0f);        // Buildings that can be destroyed (opens LOS)
-    
+
     private final boolean blocksVision;
     private final float blockingStrength;  // 0.0 = transparent, 1.0 = opaque
-    
+
     VisionBlockingType(boolean blocksVision, float blockingStrength) {
         this.blocksVision = blocksVision;
         this.blockingStrength = blockingStrength;
     }
-    
+
     public boolean blocksVision() { return blocksVision; }
     public float getBlockingStrength() { return blockingStrength; }
 }
@@ -55,17 +55,17 @@ public enum TerrainType {
     STONE(1.0f, true, VisionBlockingType.NONE),
     FOREST(0.7f, true, VisionBlockingType.PARTIAL),      // New: Trees block vision
     MOUNTAIN(0.0f, false, VisionBlockingType.FULL);      // Blocks vision and movement
-    
+
     private final float speedModifier;
     private final boolean passable;
     private final VisionBlockingType visionBlocking;
-    
+
     TerrainType(float speedModifier, boolean passable, VisionBlockingType visionBlocking) {
         this.speedModifier = speedModifier;
         this.passable = passable;
         this.visionBlocking = visionBlocking;
     }
-    
+
     public VisionBlockingType getVisionBlocking() { return visionBlocking; }
 }
 ```
@@ -79,23 +79,23 @@ public abstract class Obstacle {
     protected Collider collider;
     protected ObstacleType type;
     protected VisionBlockingType visionBlocking;  // How much vision it blocks
-    
+
     public enum ObstacleType {
         ROCK(VisionBlockingType.FULL, 2.0f),          // Large boulder, blocks completely
         TREE(VisionBlockingType.PARTIAL, 1.5f),       // Tree, partial blocking
         BUSH(VisionBlockingType.NONE, 1.0f),          // Bush, no blocking
         HILL(VisionBlockingType.FULL, 3.0f),          // Hill, blocks completely
         TALL_GRASS(VisionBlockingType.NONE, 0.5f);    // Tall grass, no blocking
-        
+
         private final VisionBlockingType visionBlocking;
         private final float height;  // Used for shadow casting
-        
+
         ObstacleType(VisionBlockingType visionBlocking, float height) {
             this.visionBlocking = visionBlocking;
             this.height = height;
         }
     }
-    
+
     public boolean blocksLineOfSight(Vector2f from, Vector2f to) {
         if (!visionBlocking.blocksVision()) return false;
         // Check if line from->to intersects this obstacle's collider
@@ -112,7 +112,7 @@ public class Building extends Entity {
     private int currentHealth;
     private BuildingType type;
     private boolean destroyed;
-    
+
     public enum BuildingType {
         HOUSE(100, 2.5f, VisionBlockingType.FULL),
         TOWER(200, 4.0f, VisionBlockingType.FULL),      // Tall, always blocks
@@ -120,23 +120,23 @@ public class Building extends Entity {
         BARRACKS(300, 3.0f, VisionBlockingType.FULL),
         FENCE(50, 1.0f, VisionBlockingType.PARTIAL),    // Low, partial blocking
         RUINS(0, 0.5f, VisionBlockingType.NONE);        // Destroyed, no blocking
-        
+
         private final int health;
         private final float height;
         private final VisionBlockingType visionBlocking;
-        
+
         BuildingType(int health, float height, VisionBlockingType visionBlocking) {
             this.health = health;
             this.height = height;
             this.visionBlocking = visionBlocking;
         }
     }
-    
+
     public VisionBlockingType getVisionBlocking() {
         // Destroyed buildings don't block vision (become ruins)
         return destroyed ? VisionBlockingType.NONE : type.visionBlocking;
     }
-    
+
     public boolean blocksLineOfSight(Vector2f from, Vector2f to) {
         if (destroyed) return false;
         if (!type.visionBlocking.blocksVision()) return false;
@@ -153,12 +153,12 @@ Simple and works well for tile-based games.
 
 ```java
 public class LineOfSightCalculator {
-    
+
     private final GameMapData mapData;
     private final TerrainType[][] terrainGrid;
     private final List<Obstacle> obstacles;
     private final List<Building> buildings;
-    
+
     /**
      * Check if point 'to' is visible from point 'from'
      */
@@ -166,30 +166,30 @@ public class LineOfSightCalculator {
         float distance = from.distance(to);
         if (distance > maxRange) return false;
         if (distance < 0.1f) return true;  // Same position
-        
+
         // Cast ray from 'from' to 'to'
         Vector2f direction = new Vector2f(to).sub(from).normalize();
         float stepSize = mapData.getTileSize() / 2.0f;  // Half tile for accuracy
         int steps = (int) Math.ceil(distance / stepSize);
-        
+
         Vector2f currentPoint = new Vector2f(from);
-        
+
         for (int i = 0; i < steps; i++) {
             currentPoint.add(direction.x * stepSize, direction.y * stepSize);
-            
+
             // Check terrain blocking
             TerrainType terrain = getTerrainAt(currentPoint.x, currentPoint.y);
             if (terrain != null && terrain.getVisionBlocking() == VisionBlockingType.FULL) {
                 return false;  // Blocked by terrain
             }
-            
+
             // Check obstacle blocking
             for (Obstacle obstacle : obstacles) {
                 if (obstacle.blocksLineOfSight(from, currentPoint)) {
                     return false;  // Blocked by obstacle
                 }
             }
-            
+
             // Check building blocking
             for (Building building : buildings) {
                 if (building.blocksLineOfSight(from, currentPoint)) {
@@ -197,33 +197,33 @@ public class LineOfSightCalculator {
                 }
             }
         }
-        
+
         return true;  // Clear line of sight
     }
-    
+
     /**
      * Get fog/shadow strength at a position (0.0 = fully visible, 1.0 = fully dark)
      */
     public float getFogStrengthAt(Vector2f viewerPos, Vector2f targetPos, float viewRange) {
         float distance = viewerPos.distance(targetPos);
-        
+
         // Beyond range = full fog
         if (distance > viewRange) {
             return 1.0f;
         }
-        
+
         // Check line of sight
         if (!hasLineOfSight(viewerPos, targetPos, viewRange)) {
             return 0.85f;  // Blocked = mostly dark (not fully black for aesthetics)
         }
-        
+
         // Within range and visible = apply distance fade
         float fadeStart = viewRange - (3.5f * mapData.getTileSize());
         if (distance > fadeStart) {
             float fadeProgress = (distance - fadeStart) / (3.5f * mapData.getTileSize());
             return fadeProgress * 0.85f;  // Fade from visible to fog
         }
-        
+
         return 0.0f;  // Fully visible
     }
 }
@@ -235,71 +235,71 @@ Creates realistic shadows from obstacles. More CPU intensive but looks better.
 
 ```java
 public class ShadowCastingLOS {
-    
+
     /**
      * Calculate shadow regions cast by obstacles
      * Returns a set of "shadow tiles" that are blocked from view
      */
-    public Set<Vector2i> calculateShadowTiles(Vector2f viewerPos, 
+    public Set<Vector2i> calculateShadowTiles(Vector2f viewerPos,
                                                float viewRange,
                                                List<Obstacle> obstacles,
                                                List<Building> buildings) {
         Set<Vector2i> shadowTiles = new HashSet<>();
-        
+
         // For each blocking object
         for (Obstacle obstacle : obstacles) {
             if (!obstacle.getVisionBlocking().blocksVision()) continue;
-            
+
             // Calculate shadow polygon behind obstacle
             List<Vector2f> shadowPolygon = calculateShadowPolygon(
-                viewerPos, obstacle.getPosition(), obstacle.getWidth(), 
+                viewerPos, obstacle.getPosition(), obstacle.getWidth(),
                 obstacle.getHeight(), viewRange
             );
-            
+
             // Rasterize shadow polygon to tiles
             shadowTiles.addAll(rasterizePolygon(shadowPolygon));
         }
-        
+
         for (Building building : buildings) {
             if (!building.blocksLineOfSight(viewerPos, building.getPosition())) continue;
-            
+
             List<Vector2f> shadowPolygon = calculateShadowPolygon(
                 viewerPos, building.getPosition(), building.getWidth(),
                 building.getHeight(), viewRange
             );
-            
+
             shadowTiles.addAll(rasterizePolygon(shadowPolygon));
         }
-        
+
         return shadowTiles;
     }
-    
+
     private List<Vector2f> calculateShadowPolygon(Vector2f light, Vector2f objectPos,
                                                     float objectWidth, float objectHeight,
                                                     float maxDistance) {
         // Calculate the 4 corners of the object
         float halfW = objectWidth / 2.0f;
         float halfH = objectHeight / 2.0f;
-        
+
         Vector2f[] corners = {
             new Vector2f(objectPos.x - halfW, objectPos.y - halfH),
             new Vector2f(objectPos.x + halfW, objectPos.y - halfH),
             new Vector2f(objectPos.x + halfW, objectPos.y + halfH),
             new Vector2f(objectPos.x - halfW, objectPos.y + halfH)
         };
-        
+
         // Project each corner away from light source
         List<Vector2f> shadowPolygon = new ArrayList<>();
         for (Vector2f corner : corners) {
             Vector2f direction = new Vector2f(corner).sub(light).normalize();
             Vector2f farPoint = new Vector2f(corner).add(
-                direction.x * maxDistance, 
+                direction.x * maxDistance,
                 direction.y * maxDistance
             );
             shadowPolygon.add(corner);
             shadowPolygon.add(farPoint);
         }
-        
+
         return shadowPolygon;
     }
 }
@@ -313,7 +313,7 @@ Pre-compute visibility relationships, used in RTS games.
 public class VisibilityGraph {
     // Pre-computed for static obstacles
     private Map<Vector2i, Set<Vector2i>> visibilityMap;
-    
+
     /**
      * Build visibility graph for static obstacles
      * Call once during map initialization
@@ -322,14 +322,14 @@ public class VisibilityGraph {
         // Pre-compute which tiles can see which other tiles
         // Expensive one-time operation, but fast lookups during gameplay
     }
-    
+
     /**
      * Fast lookup: is tile A visible from tile B?
      */
     public boolean isVisible(Vector2i tileA, Vector2i tileB) {
         return visibilityMap.get(tileA).contains(tileB);
     }
-    
+
     /**
      * Update graph when buildings are destroyed (opens new LOS)
      */
@@ -344,26 +344,26 @@ public class VisibilityGraph {
 ### Enhanced ClientGameMap.render()
 
 ```java
-public void render(Renderer renderer, Shader shader, 
+public void render(Renderer renderer, Shader shader,
                    Texture grassTexture, Texture dirtTexture,
                    Camera camera, float viewRange, Vector2f fogCenter,
                    LineOfSightCalculator losCalculator) {  // New parameter
-    
+
     shader.bind();
-    
+
     final float tileSize = GameMapData.DEFAULT_TILE_SIZE;
     boolean isSpectating = (viewRange == Float.MAX_VALUE);
-    
+
     // ... camera bounds calculation ...
-    
+
     for (int y = startY; y < endY; y++) {
         for (int x = startX; x < endX; x++) {
             float tileCenterX = (x + 0.5f) * tileSize;
             float tileCenterY = (y + 0.5f) * tileSize;
             Vector2f tileCenter = new Vector2f(tileCenterX, tileCenterY);
-            
+
             float tint = 1.0f;
-            
+
             if (!isSpectating && fogCenter != null) {
                 if (losCalculator != null) {
                     // NEW: Use LOS-aware fog calculation
@@ -374,13 +374,13 @@ public void render(Renderer renderer, Shader shader,
                     if (dist > viewRange) {
                         tint = FOG_DARKNESS;
                     } else if (dist > viewRange - (FOG_FADE_DISTANCE * tileSize)) {
-                        float fadeProgress = (dist - (viewRange - FOG_FADE_DISTANCE * tileSize)) 
+                        float fadeProgress = (dist - (viewRange - FOG_FADE_DISTANCE * tileSize))
                                            / (FOG_FADE_DISTANCE * tileSize);
                         tint = 1.0f - (fadeProgress * (1.0f - FOG_DARKNESS));
                     }
                 }
             }
-            
+
             // Render tile with calculated tint
             TileType type = tiles[x][y];
             Texture texture = (type == TileType.GRASS) ? grassTexture : dirtTexture;
@@ -403,12 +403,12 @@ for (ClientTank tank : tanks.values()) {
         tank.render(renderer, shader, tankTexture);  // Always render local player
     } else {
         Vector2f tankPos = tank.getPosition();
-        
+
         // Check if tank is visible
-        boolean visible = isSpectating || 
-            (localTank != null && 
+        boolean visible = isSpectating ||
+            (localTank != null &&
              losCalculator.hasLineOfSight(localTank.getPosition(), tankPos, VIEW_RANGE));
-        
+
         if (visible) {
             tank.render(renderer, shader, tankTexture);
         }
@@ -442,7 +442,7 @@ for (ClientTank tank : tanks.values()) {
 
 ### Performance Targets
 
-```
+```text
 Map Size: 100x100 tiles
 Obstacles: 200
 Buildings: 50
@@ -469,7 +469,7 @@ Recommended: Ray casting with QuadTree spatial partitioning
 
 ### Visual Feedback
 
-```
+```text
 Fully Visible:      Tint = 1.0 (100% brightness)
 Partial Shadow:     Tint = 0.7 (70% brightness) - behind trees
 Blocked:            Tint = 0.15 (15% brightness) - behind mountains
@@ -511,7 +511,7 @@ Out of Range:       Tint = 0.15 (15% brightness) - standard fog
 
 ## Testing Scenarios
 
-```
+```text
 Scenario 1: Mountain Range
 GGGGGGMMMMMGGGGG
 GGGGMMMMMMMGGG    Player behind mountain
@@ -523,13 +523,13 @@ Scenario 2: Building Siege
 SSSSSSSSSSSS
 SBBBBSSGGGGG      Destroy building B
 SBBBBSSGGGGG       = Opens new sightlines
-SSSSSSSGGGGG      
+SSSSSSSGGGGG
 
 Scenario 3: Forest Ambush
 GGGGGTTTTTGG
 GGGGTTTTTTTG      Trees = partial vision
 GGTTTTTTTTTG       = Can barely see enemies
-GTTTTTTTGGGG      
+GTTTTTTTGGGG
 ```
 
 ## Recommended Approach for Your Game

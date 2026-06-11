@@ -77,7 +77,7 @@ The game client is a universal jar file that can be run on any platform with Jav
 ### Basic Launch (Quick Start)
 
 ```shell
-java -jar nettank-client.jar
+java -jar nettank-client/target/nettank-client-0.1.0-SNAPSHOT.jar
 ```
 
 ### Recommended Launch (Best Performance)
@@ -85,7 +85,7 @@ java -jar nettank-client.jar
 For optimal performance with modern Java features:
 
 ```shell
-java -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client.jar
+java -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client/target/nettank-client-0.1.0-SNAPSHOT.jar
 ```
 
 **Parameter Explanation:**
@@ -99,7 +99,7 @@ java -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client.
 macOS users need to add `-XstartOnFirstThread` for LWJGL/OpenGL compatibility:
 
 ```shell
-java -XstartOnFirstThread -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client.jar
+java -XstartOnFirstThread -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client/target/nettank-client-0.1.0-SNAPSHOT.jar
 ```
 
 ### Connecting to a Remote Server
@@ -107,17 +107,17 @@ java -XstartOnFirstThread -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m
 The game client connects to `localhost:5555` by default. To connect to a different server:
 
 ```shell
-java -jar nettank-client.jar <server_address> <server_port> <player_name>
+java -jar nettank-client/target/nettank-client-0.1.0-SNAPSHOT.jar <server_address> <server_port> <player_name>
 ```
 
 **Example:**
 ```shell
-java -jar nettank-client.jar 192.168.1.100 5555 MyTankName
+java -jar nettank-client/target/nettank-client-0.1.0-SNAPSHOT.jar 192.168.1.100 5555 MyTankName
 ```
 
 Or with performance parameters:
 ```shell
-java -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client.jar 192.168.1.100 5555 MyTankName
+java -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Xms256m -Xmx512m -jar nettank-client/target/nettank-client-0.1.0-SNAPSHOT.jar 192.168.1.100 5555 MyTankName
 ```
 
 ## Launching The Game Server
@@ -129,7 +129,7 @@ The game server can be run directly with Java or deployed using Docker.
 #### Basic Launch
 
 ```shell
-java -jar nettank-server.jar
+java -jar nettank-server/target/nettank-server-0.1.0-SNAPSHOT.jar
 ```
 
 #### Recommended Launch (Best Performance)
@@ -137,7 +137,7 @@ java -jar nettank-server.jar
 For production servers with optimal performance:
 
 ```shell
-java -server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms512m -Xmx1024m -jar nettank-server.jar
+java -server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms512m -Xmx1024m -jar nettank-server/target/nettank-server-0.1.0-SNAPSHOT.jar
 ```
 
 **Parameter Explanation:**
@@ -152,12 +152,12 @@ java -server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms512m -Xmx1024m -jar ne
 Specify port, map size, and network update rate:
 
 ```shell
-java -jar nettank-server.jar <port> <network_hz> <map_width> <map_height>
+java -jar nettank-server/target/nettank-server-0.1.0-SNAPSHOT.jar <port> <network_hz> <map_width> <map_height>
 ```
 
 **Example:**
 ```shell
-java -server -XX:+UseG1GC -Xms512m -Xmx1024m -jar nettank-server.jar 5555 30 50 50
+java -server -XX:+UseG1GC -Xms512m -Xmx1024m -jar nettank-server/target/nettank-server-0.1.0-SNAPSHOT.jar 5555 30 50 50
 ```
 
 **Parameters:**
@@ -197,11 +197,11 @@ docker run -d -p 7777:7777 --restart unless-stopped nettank-server
 For high-traffic servers (10+ concurrent players), consider increasing heap size:
 
 ```shell
-java -server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms1024m -Xmx2048m -jar nettank-server.jar
+java -server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms1024m -Xmx2048m -jar nettank-server/target/nettank-server-0.1.0-SNAPSHOT.jar
 ```
 
 For low-resource environments (2-4 players):
 
 ```shell
-java -server -XX:+UseG1GC -Xms256m -Xmx512m -jar nettank-server.jar
+java -server -XX:+UseG1GC -Xms256m -Xmx512m -jar nettank-server/target/nettank-server-0.1.0-SNAPSHOT.jar
 ```

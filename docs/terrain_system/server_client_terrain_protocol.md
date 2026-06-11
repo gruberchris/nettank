@@ -33,12 +33,12 @@ When the client receives `TERRAIN_DATA`:
 ## Network Protocol
 
 ### TERRAIN_DATA Message Format (Current Implementation ✅)
-```
+```text
 TRD;<width>;<height>;<encodedData>
 ```
 
 **Example:**
-```
+```text
 TRD;100;100;0,0,0:7,0,0,0:7,0,0,0,1,1,1,...
 ```
 
@@ -61,7 +61,7 @@ Where `B` and `O` are the ordinal values of `TerrainType` enum.
 - `0:5` = GRASS base + SHALLOW_WATER overlay
 
 ### Legacy TERRAIN_INIT Message (Deprecated)
-```
+```text
 TER;<seed>;<profileName>
 ```
 **Status:** This message format is **no longer used**. The protocol was changed to send full terrain data instead of generation parameters.
@@ -113,7 +113,7 @@ TER;<seed>;<profileName>
 // On player join
 public void sendInitialGameState(int playerId, ClientHandler handler) {
     // ... send MAP_INFO first ...
-    
+
     // Encode and send terrain data
     String encodedTerrain = TerrainEncoder.encode(serverContext.gameMapData);
     handler.sendMessage(String.format("%s;%d;%d;%s",
@@ -121,8 +121,8 @@ public void sendInitialGameState(int playerId, ClientHandler handler) {
         serverContext.gameMapData.getWidthTiles(),
         serverContext.gameMapData.getHeightTiles(),
         encodedTerrain));
-    
-    logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}", 
+
+    logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}",
         width, height, encodedTerrain.length(), playerId);
 }
 
@@ -135,7 +135,7 @@ public void regenerateTerrainForNewRound() {
         serverContext.gameMapData,
         BaseTerrainProfile.GRASSLAND
     );
-    
+
     // Broadcast to all connected clients
     String encodedTerrain = TerrainEncoder.encode(serverContext.gameMapData);
     broadcast(String.format("%s;%d;%d;%s",
@@ -153,14 +153,14 @@ public void regenerateTerrainForNewRound() {
 case NetworkProtocol.TERRAIN_DATA -> {
     var msg = NetworkMessage.TerrainData.parse(parts);
     networkCallbackHandler.receiveTerrainData(msg.width(), msg.height(), msg.encodedData());
-    logger.info("Received TERRAIN_DATA: {}x{} tiles, {} bytes", 
+    logger.info("Received TERRAIN_DATA: {}x{} tiles, {} bytes",
         msg.width(), msg.height(), msg.encodedData().length());
 }
 
 // In TankBattleGame.java
 @Override
 public void receiveTerrainData(int width, int height, String encodedData) {
-    logger.info("Received terrain data from server: {}x{} tiles, {} bytes", 
+    logger.info("Received terrain data from server: {}x{} tiles, {} bytes",
         width, height, encodedData.length());
     this.receivedTerrainData = encodedData;
     this.terrainInfoReceivedForProcessing = true;
@@ -170,13 +170,13 @@ public void receiveTerrainData(int width, int height, String encodedData) {
 private void initializeMapAndTextures() {
     // Create map data structure
     GameMapData mapData = new GameMapData(mapWidthTiles, mapHeightTiles, mapTileSize);
-    
+
     // Decode terrain from server
     TerrainEncoder.decode(mapData, receivedTerrainData);
-    
+
     // Create client wrapper
     clientGameMap = new ClientGameMap(mapData);
-    
+
     logger.info("Terrain decoded and initialized");
 }
 ```
@@ -205,7 +205,7 @@ The server generates terrain using procedural generation:
 long seed = System.currentTimeMillis();
 ProceduralTerrainGenerator terrainGen = new ProceduralTerrainGenerator(seed);
 terrainGen.generateProceduralTerrain(
-    serverContext.gameMapData, 
+    serverContext.gameMapData,
     BaseTerrainProfile.GRASSLAND
 );
 ```

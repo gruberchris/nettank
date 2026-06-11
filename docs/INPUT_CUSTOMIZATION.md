@@ -42,8 +42,8 @@ The file is automatically created with default settings when you first run the g
 
 ### Supported Keys
 
-**Letters**: A-Z  
-**Numbers**: 0-9  
+**Letters**: A-Z
+**Numbers**: 0-9
 **Special Keys**:
 - `SPACE`
 - `ESCAPE` or `ESC`

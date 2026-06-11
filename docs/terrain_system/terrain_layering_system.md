@@ -18,7 +18,7 @@ public class TerrainTile {
     private TerrainType baseType;      // Base layer (always present)
     private TerrainType overlayType;   // Overlay layer (optional, can be null)
     private TerrainState currentState; // State effects (scorched, etc.)
-    
+
     // Overlay management
     public boolean hasOverlay()        // Check if overlay exists
     public TerrainType getEffectiveType() // Returns overlay if exists, else base
@@ -27,7 +27,7 @@ public class TerrainTile {
 
 ### Rendering Order
 
-```
+```text
 Bottom → Top:
 1. Base Terrain (opaque)
 2. Overlay Terrain (transparent)
@@ -38,7 +38,7 @@ Bottom → Top:
 
 ### Algorithm
 
-```
+```text
 Step 1: Fill entire map with BASE terrain
    ┌─────────────────────────────┐
    │ GGGGGGGGGGGGGGGGGGGGGGGGGG │
@@ -71,7 +71,7 @@ Step 3: Flood fill - keep largest regions
 ### Visual Result
 
 When rendered:
-```
+```text
 Player sees:
 - Green grass texture everywhere (base layer)
 - Blue water texture in one contiguous region (overlay)
@@ -172,7 +172,7 @@ All textures should be **32x32 pixels** (or consistent size):
 - Use semi-transparency for natural blending
 
 **Example: Summer_Tree.png**
-```
+```text
 Should look like:
 ┌──────────┐
 │ ░▒▓█▓▒░  │  ← Tree sprite with transparent background
@@ -190,11 +190,11 @@ Should look like:
 public void generateProceduralTerrain(GameMapData mapData, BaseTerrainProfile profile) {
     // Step 1: Fill with base terrain
     fillAllWithBaseTerrain(mapData, profile.getBaseType());
-    
+
     // Step 2: Generate noise-based overlays
     float[][] noiseMap = generateNoiseMap(width, height);
     assignOverlaysFromNoise(mapData, noiseMap, profile);
-    
+
     // Step 3: Keep only largest contiguous overlay regions
     keepLargestContiguousOverlayRegion(mapData, profile.getLowType());
     keepLargestContiguousOverlayRegion(mapData, profile.getHighType());
@@ -209,20 +209,20 @@ private void fillAllWithBaseTerrain(GameMapData mapData, TerrainType baseType) {
     }
 }
 
-private void assignOverlaysFromNoise(GameMapData mapData, float[][] noiseMap, 
+private void assignOverlaysFromNoise(GameMapData mapData, float[][] noiseMap,
                                       BaseTerrainProfile profile) {
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             float value = noiseMap[x][y];
             TerrainType overlayType = null;
-            
+
             if (value < lowThreshold) {
                 overlayType = profile.getLowType();  // Water/oasis
             } else if (value > highThreshold) {
                 overlayType = profile.getHighType(); // Forest/mountains
             }
             // else: no overlay, base terrain shows through
-            
+
             mapData.getTile(x, y).setOverlayType(overlayType);
         }
     }
@@ -230,12 +230,12 @@ private void assignOverlaysFromNoise(GameMapData mapData, float[][] noiseMap,
 
 private void keepLargestContiguousOverlayRegion(GameMapData mapData, TerrainType targetType) {
     List<Region> regions = findAllOverlayRegions(mapData, targetType);
-    
+
     if (regions.isEmpty()) return;
-    
+
     // Sort by size, keep largest
     regions.sort((a, b) -> Integer.compare(b.size(), a.size()));
-    
+
     // Remove all smaller regions
     for (int i = 1; i < regions.size(); i++) {
         for (Point tile : regions.get(i).tiles) {
@@ -363,7 +363,7 @@ if (tile.getOverlayType() == TerrainType.FOREST) {
 ### Example Scenarios
 
 **Scenario 1: Tank drives over grass with tree**
-```
+```text
 Before: Base=GRASS, Overlay=FOREST → Slow movement
 Tank destroys tree
 After:  Base=GRASS, Overlay=null   → Normal movement
@@ -371,7 +371,7 @@ Visual: Tree disappears, grass remains
 ```
 
 **Scenario 2: Explosion in water**
-```
+```text
 Before: Base=GRASS, Overlay=SHALLOW_WATER
 Explosion hits
 After:  Base=GRASS, Overlay=null, State=SCORCHED
@@ -379,7 +379,7 @@ Visual: Water evaporates, reveals scorched grass
 ```
 
 **Scenario 3: Fire spreads through forest**
-```
+```text
 T=0: Base=GRASS, Overlay=FOREST → Green grass + trees
 T=1: Base=GRASS, Overlay=FOREST, State=BURNING → Fire!
 T=2: Base=GRASS, Overlay=null, State=SCORCHED → Burned field
