@@ -22,6 +22,7 @@ import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
 
+import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -82,6 +83,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private org.chrisgruber.nettank.common.entities.TankType selectedTankType = org.chrisgruber.nettank.common.entities.TankType.STANDARD;
     private static final float CLOAK_FADE_PER_SECOND = 2.5f; // ~0.4 s fade
     private static final float OWN_CLOAK_ALPHA = 0.5f;
+
+    // Lobby tank selection screen (Phase 9)
+    private org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen selectionScreen;
+    private boolean selectionConfirmed = false;
 
     // Directional armor HUD state (owner-only, fed by ARM messages); index = ArmorSide.ordinal()
     private org.chrisgruber.nettank.client.engine.ui.ArmorIndicator armorIndicator;
@@ -241,6 +246,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             healthBar = new HealthBar();
             armorIndicator = new org.chrisgruber.nettank.client.engine.ui.ArmorIndicator();
             vignetteOverlay = new org.chrisgruber.nettank.client.engine.ui.VignetteOverlay();
+            selectionScreen = new org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen();
 
             // Load game textures
             logger.debug("Loading textures...");
@@ -1181,9 +1187,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- Render Centered Messages ---
         final float centerMessageY = windowHeight * 0.4f;
+        boolean showSelectionScreen = selectionScreen != null
+                && (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN);
 
-        // Render Announcements
-        if (!announcements.isEmpty()) {
+        // Render Announcements (the selection screen shows them in its status line instead)
+        if (!announcements.isEmpty() && !showSelectionScreen) {
             String announcement = announcements.getFirst();
             float textWidth = uiManager.getTextWidth(announcement, UI_TEXT_SCALE_ANNOUNCEMENT);
             float x = (windowWidth - textWidth) / 2.0f;
@@ -1201,7 +1209,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        if (!stateMessage.isEmpty()) {
+        if (!stateMessage.isEmpty() && !showSelectionScreen) {
             float textWidth = uiManager.getTextWidth(stateMessage, UI_TEXT_SCALE_ANNOUNCEMENT);
             float x = (windowWidth - textWidth) / 2.0f;
             uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
@@ -1239,23 +1247,46 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        // Lobby tank type selection (minimal until the Phase 9 selection screen)
-        if (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN) {
-            var stats = selectedTankType.getDefaultStats();
-            String selectionLine = "< " + selectedTankType.name() + " >  (A/D TO CHANGE)";
-            String statsLine = String.format("HP %d   SPEED %.0f   DMG %d   RELOAD %.1fS",
-                    stats.maxHitPoints(), stats.moveSpeed(), stats.bulletDamage(), stats.shootCooldownMs() / 1000.0f);
+        // Full lobby tank selection screen: backdrop, portrait, stats, status line
+        if (showSelectionScreen) {
+            selectionScreen.drawBackdrop(uiManager.getProjectionMatrix(), windowWidth, windowHeight);
+            drawSelectionPortrait();
 
-            float selectionWidth = uiManager.getTextWidth(selectionLine, UI_TEXT_SCALE_STATUS);
-            uiManager.drawText(selectionLine, (windowWidth - selectionWidth) / 2.0f,
-                    centerMessageY + 60.0f, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
-
-            float statsWidth = uiManager.getTextWidth(statsLine, UI_TEXT_SCALE_NORMAL);
-            uiManager.drawText(statsLine, (windowWidth - statsWidth) / 2.0f,
-                    centerMessageY + 100.0f, UI_TEXT_SCALE_NORMAL, Colors.WHITE);
+            String statusLine = !announcements.isEmpty() ? announcements.getFirst() : stateMessage;
+            selectionScreen.drawInfo(uiManager.getProjectionMatrix(), uiManager, windowWidth, windowHeight,
+                    selectedTankType, selectionConfirmed, statusLine);
         }
 
         uiManager.endUIRendering();
+    }
+
+    // Draws the selected tank's portrait inside the selection panel using the world
+    // quad shader with a temporary screen-space projection.
+    // PLACEHOLDER ART: the battlefield tank sprite stands in for per-type portraits.
+    private void drawSelectionPortrait() {
+        if (tankTexture == null || shader == null || renderer == null || selectionScreen == null) return;
+
+        Matrix4f screenProjection = new Matrix4f().setOrtho(0, windowWidth, windowHeight, 0, -1, 1);
+        shader.bind();
+        shader.setUniformMat4f("u_projection", screenProjection);
+        shader.setUniformMat4f("u_view", new Matrix4f());
+        tankTexture.bind();
+
+        float typeScale = switch (selectedTankType) {
+            case HEAVY -> 1.15f;
+            case LIGHT -> 0.85f;
+            default -> 1.0f;
+        };
+        float size = selectionScreen.portraitSize() * typeScale;
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        // 180-degree rotation compensates for the y-down screen projection
+        renderer.drawQuad(selectionScreen.portraitCenterX(windowWidth), selectionScreen.portraitCenterY(windowHeight),
+                size, size, 180.0f, shader);
+
+        // Restore the world projection for the next frame's world pass
+        if (camera != null) {
+            shader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
+        }
     }
 
 
@@ -1269,11 +1300,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             return;
         }
 
-        // Lobby tank type selection: cycle with A/D or D-pad before the round starts
+        // Lobby tank type selection: cycle with A/D, D-pad, or bumpers before the round starts
         if (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN) {
             int direction = 0;
-            if (inputHandler.isKeyPressed(GLFW_KEY_A) || inputHandler.isDpadLeftPressed()) direction = -1;
-            else if (inputHandler.isKeyPressed(GLFW_KEY_D) || inputHandler.isDpadRightPressed()) direction = 1;
+            if (inputHandler.isKeyPressed(GLFW_KEY_A) || inputHandler.isDpadLeftPressed()
+                    || inputHandler.isLeftBumperPressed()) direction = -1;
+            else if (inputHandler.isKeyPressed(GLFW_KEY_D) || inputHandler.isDpadRightPressed()
+                    || inputHandler.isRightBumperPressed()) direction = 1;
 
             if (direction != 0) {
                 inputHandler.resetKey(GLFW_KEY_A);
@@ -1282,11 +1315,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 var types = org.chrisgruber.nettank.common.entities.TankType.values();
                 int index = (selectedTankType.ordinal() + direction + types.length) % types.length;
                 selectedTankType = types[index];
+                selectionConfirmed = false;
 
                 if (gameClient != null && gameClient.isConnected()) {
                     gameClient.sendTankTypeSelection(selectedTankType.name());
                 }
                 logger.info("Selected tank type: {}", selectedTankType);
+            }
+
+            // Confirm with Space or gamepad A (selection already applied live via SEL)
+            if (inputHandler.isShootPressed()) {
+                inputHandler.resetKey(GLFW_KEY_SPACE);
+                selectionConfirmed = true;
             }
         }
 
@@ -1420,6 +1460,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
             if (vignetteOverlay != null) {
                 vignetteOverlay.cleanup();
+            }
+            if (selectionScreen != null) {
+                selectionScreen.cleanup();
             }
         } catch (Exception e) {
             logger.error("Error cleaning up uiManager", e);

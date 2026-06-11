@@ -297,9 +297,27 @@ public class InputHandler {
         return isKeyDown(keyExit);
     }
 
-    // D-pad press detection (edge-triggered) for lobby navigation
+    // D-pad and bumper press detection (edge-triggered) for lobby navigation
     private boolean previousDpadLeft = false;
     private boolean previousDpadRight = false;
+    private boolean previousLeftBumper = false;
+    private boolean previousRightBumper = false;
+
+    public boolean isLeftBumperPressed() {
+        if (!gamepadConnected) return false;
+        boolean current = getGamepadButton(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER);
+        boolean pressed = current && !previousLeftBumper;
+        previousLeftBumper = current;
+        return pressed;
+    }
+
+    public boolean isRightBumperPressed() {
+        if (!gamepadConnected) return false;
+        boolean current = getGamepadButton(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER);
+        boolean pressed = current && !previousRightBumper;
+        previousRightBumper = current;
+        return pressed;
+    }
 
     public boolean isDpadLeftPressed() {
         if (!gamepadConnected) return false;
