@@ -114,7 +114,7 @@ public class TankSelectionScreen {
 
     /** Draws type name, blurb, stat bars, roster, and control hints. Call after the portrait. */
     public void drawInfo(Matrix4f projectionMatrix, UIManager uiManager, float screenWidth, float screenHeight,
-                         TankType selectedType, boolean confirmed, String statusLine,
+                         TankType selectedType, boolean confirmed,
                          java.util.List<RosterEntry> roster) {
         float x = panelX(screenWidth);
         float y = panelY(screenHeight);
@@ -132,32 +132,36 @@ public class TankSelectionScreen {
         uiManager.drawText(blurb, x + (panelWidth() - uiManager.getTextWidth(blurb, 0.45f)) / 2.0f, y + 92, 0.45f,
                 new Vector3f(0.8f, 0.8f, 0.8f));
 
-        // Stat bars on the right half of the panel (normalized to cross-type maxima)
-        float barX = x + 300;
+        // Stat bars on the right half of the panel, laid out clear of the portrait
+        // (portrait occupies roughly x+70 .. x+230)
+        float labelX = x + 250;
+        float barX = x + 360;
+        float barVisualWidth = 180;
+        float valueX = barX + barVisualWidth + 12;
         float barY = y + 130;
-        float barWidth = 300;
         float barHeight = 14;
         float barSpacing = 34;
 
         drawStatBar(projectionMatrix, uiManager, "HP", stats.maxHitPoints() / 6.0f,
-                String.valueOf(stats.maxHitPoints()), barX, barY, barWidth, barHeight, new Vector3f(0.3f, 0.9f, 0.3f));
+                String.valueOf(stats.maxHitPoints()), labelX, barX, barVisualWidth, valueX, barY, barHeight, new Vector3f(0.3f, 0.9f, 0.3f));
         drawStatBar(projectionMatrix, uiManager, "SPEED", stats.moveSpeed() / 140.0f,
-                String.format("%.0f", stats.moveSpeed()), barX, barY + barSpacing, barWidth, barHeight, new Vector3f(0.25f, 0.55f, 1.0f));
+                String.format("%.0f", stats.moveSpeed()), labelX, barX, barVisualWidth, valueX, barY + barSpacing, barHeight, new Vector3f(0.25f, 0.55f, 1.0f));
         drawStatBar(projectionMatrix, uiManager, "DAMAGE", stats.bulletDamage() / 2.0f,
-                String.valueOf(stats.bulletDamage()), barX, barY + barSpacing * 2, barWidth, barHeight, new Vector3f(1.0f, 0.25f, 0.2f));
+                String.valueOf(stats.bulletDamage()), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 2, barHeight, new Vector3f(1.0f, 0.25f, 0.2f));
         drawStatBar(projectionMatrix, uiManager, "RELOAD", 1400.0f / stats.shootCooldownMs(),
-                String.format("%.1fS", stats.shootCooldownMs() / 1000.0f), barX, barY + barSpacing * 3, barWidth, barHeight, new Vector3f(1.0f, 0.6f, 0.1f));
+                String.format("%.1fS", stats.shootCooldownMs() / 1000.0f), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 3, barHeight, new Vector3f(1.0f, 0.6f, 0.1f));
 
-        // Per-side armor distribution
-        uiManager.drawText("ARMOR", barX, barY + barSpacing * 4, 0.45f, new Vector3f(0.9f, 0.9f, 0.9f));
+        // Per-side armor distribution, aligned with the stat rows above
+        float armorY = barY + barSpacing * 4;
+        uiManager.drawText("ARMOR", labelX, armorY, 0.45f, new Vector3f(0.9f, 0.9f, 0.9f));
         String[] sideLabels = {"F", "L", "R", "B"};
         ArmorSide[] sides = {ArmorSide.FRONT, ArmorSide.LEFT, ArmorSide.RIGHT, ArmorSide.REAR};
         for (int i = 0; i < sides.length; i++) {
-            float sideBarX = barX + 70 + i * 60;
+            float sideBarX = barX + i * 55;
             int armor = stats.armorFor(sides[i]);
-            drawBar(projectionMatrix, sideBarX, barY + barSpacing * 4, 40, barHeight, armor / 3.0f,
+            drawBar(projectionMatrix, sideBarX, armorY, 40, barHeight, armor / 3.0f,
                     armor > 0 ? new Vector3f(0.75f, 0.75f, 0.8f) : new Vector3f(0.25f, 0.25f, 0.25f));
-            uiManager.drawText(sideLabels[i] + armor, sideBarX + 8, barY + barSpacing * 4 + 18, 0.35f,
+            uiManager.drawText(sideLabels[i] + armor, sideBarX + 8, armorY + 18, 0.35f,
                     new Vector3f(0.8f, 0.8f, 0.8f));
         }
 
@@ -180,7 +184,7 @@ public class TankSelectionScreen {
             uiManager.drawText(name, rosterX, rosterY, 0.38f,
                     entry.isLocal() ? new Vector3f(1.0f, 0.85f, 0.3f) : new Vector3f(0.85f, 0.85f, 0.85f));
 
-            String state = entry.ready() ? "READY" : "PICKING...";
+            String state = entry.ready() ? "READY" : "SELECTING...";
             uiManager.drawText(state, rosterX + 170, rosterY, 0.38f,
                     entry.ready() ? new Vector3f(0.3f, 1.0f, 0.3f) : new Vector3f(0.95f, 0.55f, 0.2f));
 
@@ -198,17 +202,14 @@ public class TankSelectionScreen {
         uiManager.drawText(controls, x + (panelWidth() - uiManager.getTextWidth(controls, 0.4f)) / 2.0f,
                 y + panelHeight() - 40, 0.4f, new Vector3f(0.65f, 0.65f, 0.65f));
 
-        if (statusLine != null && !statusLine.isEmpty()) {
-            uiManager.drawText(statusLine, x + (panelWidth() - uiManager.getTextWidth(statusLine, 0.6f)) / 2.0f,
-                    y + panelHeight() + 14, 0.6f, new Vector3f(1.0f, 0.4f, 0.4f));
-        }
     }
 
     private void drawStatBar(Matrix4f projectionMatrix, UIManager uiManager, String label, float fraction,
-                             String valueText, float x, float y, float width, float height, Vector3f color) {
-        uiManager.drawText(label, x - 110, y, 0.45f, new Vector3f(0.9f, 0.9f, 0.9f));
-        drawBar(projectionMatrix, x, y, width - 60, height, fraction, color);
-        uiManager.drawText(valueText, x + width - 50, y, 0.45f, new Vector3f(1.0f, 1.0f, 1.0f));
+                             String valueText, float labelX, float barX, float barWidth, float valueX,
+                             float y, float height, Vector3f color) {
+        uiManager.drawText(label, labelX, y, 0.45f, new Vector3f(0.9f, 0.9f, 0.9f));
+        drawBar(projectionMatrix, barX, y, barWidth, height, fraction, color);
+        uiManager.drawText(valueText, valueX, y, 0.45f, new Vector3f(1.0f, 1.0f, 1.0f));
     }
 
     private void drawBar(Matrix4f projectionMatrix, float x, float y, float width, float height,

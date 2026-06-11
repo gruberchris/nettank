@@ -92,7 +92,7 @@ public class HealthBar {
 
         // --- 3. Draw the Text ---
         String healthText = String.format("%d / %d", (int)currentHealth, (int)maxHealth);
-        float textScale = 0.35f; // A smaller scale suitable for the bar
+        float textScale = Math.max(0.35f, height * 0.026f); // text grows with the bar
         float textWidth = uiManager.getTextWidth(healthText, textScale);
         float textHeight = uiManager.getTextHeight(textScale);
 

@@ -90,6 +90,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Lobby readiness: the round starts only when every player is ready
     private final Map<Integer, Boolean> lobbyReadyByPlayerId = new ConcurrentHashMap<>();
     private volatile long countdownEndTimeMillis = 0;
+    private long lastCountdownSecond = -1;
+    private long countdownTickTimeMillis = 0;
 
     // Directional armor HUD state (owner-only, fed by ARM messages); index = ArmorSide.ordinal()
     private org.chrisgruber.nettank.client.engine.ui.ArmorIndicator armorIndicator;
@@ -1110,7 +1112,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // --- Render Health Bar (max HP comes from the chassis type) ---
             if (healthBar != null) {
                 float healthBarWidth = 150;
-                float healthBarHeight = 15;
+                float healthBarHeight = 22;
                 int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
                 healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), maxHitPoints, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
                 currentY += healthBarHeight + lineSpacing;
@@ -1262,20 +1264,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        // Full lobby tank selection screen: backdrop, portrait, stats, roster, status line
+        // Full lobby tank selection screen: backdrop, portrait, stats, roster
         if (showSelectionScreen) {
             selectionScreen.drawBackdrop(uiManager.getProjectionMatrix(), windowWidth, windowHeight);
             drawSelectionPortrait();
-
-            String statusLine;
-            if (currentGameState == GameState.COUNTDOWN && countdownEndTimeMillis > 0) {
-                long secondsLeft = Math.max(1, (countdownEndTimeMillis - System.currentTimeMillis() + 999) / 1000);
-                statusLine = "GET READY: " + secondsLeft;
-            } else if (!announcements.isEmpty()) {
-                statusLine = announcements.getFirst();
-            } else {
-                statusLine = "WAITING FOR ALL PLAYERS TO READY UP (" + tanks.size() + ")";
-            }
 
             // Roster: every connected player with their ready state
             var roster = new ArrayList<org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen.RosterEntry>();
@@ -1288,7 +1280,35 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             roster.sort(java.util.Comparator.comparing(e -> !e.isLocal()));
 
             selectionScreen.drawInfo(uiManager.getProjectionMatrix(), uiManager, windowWidth, windowHeight,
-                    selectedTankType, selectionConfirmed, statusLine, roster);
+                    selectedTankType, selectionConfirmed, roster);
+        }
+
+        // Big "GET READY" countdown centered on screen, popping in each second
+        if (currentGameState == GameState.COUNTDOWN && countdownEndTimeMillis > 0) {
+            long now = System.currentTimeMillis();
+            long secondsLeft = Math.max(1, (countdownEndTimeMillis - now + 999) / 1000);
+            if (secondsLeft != lastCountdownSecond) {
+                lastCountdownSecond = secondsLeft;
+                countdownTickTimeMillis = now;
+            }
+
+            float sinceTick = now - countdownTickTimeMillis;
+            float fadeIn = Math.min(1.0f, sinceTick / 120.0f);                      // quick fade-in
+            float pop = 1.0f + 0.5f * Math.max(0.0f, 1.0f - sinceTick / 250.0f);    // scale pop per second
+
+            Vector3f countdownColor = new Vector3f(1.0f, 0.8f, 0.1f).mul(0.35f + 0.65f * fadeIn);
+
+            String header = "GET READY";
+            float headerScale = 1.3f;
+            float headerWidth = uiManager.getTextWidth(header, headerScale);
+            uiManager.drawText(header, (windowWidth - headerWidth) / 2.0f, windowHeight * 0.40f, headerScale, countdownColor);
+
+            String number = String.valueOf(secondsLeft);
+            float numberScale = 3.2f * pop;
+            float numberWidth = uiManager.getTextWidth(number, numberScale);
+            uiManager.drawText(number, (windowWidth - numberWidth) / 2.0f, windowHeight * 0.46f, numberScale, countdownColor);
+        } else {
+            lastCountdownSecond = -1;
         }
 
         uiManager.endUIRendering();

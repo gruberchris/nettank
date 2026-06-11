@@ -111,7 +111,9 @@ public class ClientTank extends ClientEntity {
             this.rotation = updatedTankData.getRotation();
             this.turretRotation = updatedTankData.getTurretRotation();
             this.tankType = updatedTankData.getTankType();
-            this.hitPoints = updatedTankData.getHitPoints();
+            // hitPoints intentionally NOT copied: NEW messages carry no HP, so the
+            // freshly-parsed TankData holds only the placeholder default. Authoritative
+            // HP arrives via ARM (own tank), DES (zero), and respawn (per-type max).
             this.color = updatedTankData.getColor();
             this.isDestroyed = updatedTankData.isDestroyed();
             this.name = updatedTankData.getPlayerName();
