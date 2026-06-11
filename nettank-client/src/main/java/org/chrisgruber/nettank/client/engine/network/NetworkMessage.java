@@ -370,6 +370,21 @@ public sealed interface NetworkMessage {
         }
     }
     
+    record AmmoCount(
+        int playerId,
+        int ammoCount
+    ) implements NetworkMessage {
+        public static AmmoCount parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid AmmoCount message: insufficient parts");
+            }
+            return new AmmoCount(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2])
+            );
+        }
+    }
+
     record ErrorMessage(
         String errorText
     ) implements NetworkMessage {

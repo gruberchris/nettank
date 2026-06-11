@@ -1,10 +1,12 @@
 package org.chrisgruber.nettank.server.gamemode;
 
 import org.chrisgruber.nettank.common.entities.TankData;
+import org.chrisgruber.nettank.common.entities.TankStats;
 import org.chrisgruber.nettank.common.gamemode.GameModeRule;
 import org.chrisgruber.nettank.common.gamemode.GameStartCondition;
 import org.chrisgruber.nettank.common.gamemode.GameWinCondition;
 import org.chrisgruber.nettank.common.util.GameState;
+import org.chrisgruber.nettank.server.entities.GameModePlayerState;
 import org.chrisgruber.nettank.server.state.ServerContext;
 
 import java.util.Random;
@@ -60,6 +62,41 @@ public abstract class GameMode {
     public abstract void handlePlayerDeath(ServerContext serverContext, int playerId, TankData tankData);
     public abstract int getRemainingRespawnsForPlayer(int playerId);
     public abstract void handlePlayerRespawn(ServerContext serverContext, int playerId, TankData tankData);
+    protected abstract GameModePlayerState getGameModePlayerState(int playerId);
+
+    // Base combat stats for tanks in this mode. Modes may override to rebalance.
+    public TankStats getBaseStats() { return TankStats.STANDARD; }
+
+    // Consumes one round of main weapon ammo. Returns false if the player is out of ammo.
+    // Modes with unlimited ammo (startingMainWeaponAmmoCount < 0) always allow the shot.
+    public boolean tryConsumeMainWeaponAmmo(int playerId) {
+        synchronized (stateLock) {
+            if (startingMainWeaponAmmoCount < 0) return true;
+
+            GameModePlayerState playerState = getGameModePlayerState(playerId);
+
+            if (playerState == null) return false;
+
+            int ammo = playerState.getMainWeaponAmmoCount();
+
+            if (ammo <= 0) return false;
+
+            playerState.setMainWeaponAmmoCount(ammo - 1);
+
+            return true;
+        }
+    }
+
+    // Remaining main weapon ammo for the player, or -1 when the mode has unlimited ammo.
+    public int getMainWeaponAmmoForPlayer(int playerId) {
+        synchronized (stateLock) {
+            if (startingMainWeaponAmmoCount < 0) return -1;
+
+            GameModePlayerState playerState = getGameModePlayerState(playerId);
+
+            return playerState == null ? 0 : playerState.getMainWeaponAmmoCount();
+        }
+    }
 
     // Implementations for implementing conditions to transition between game states
     public abstract GameState shouldTransitionFromWaiting(ServerContext serverContext, long currentTime);

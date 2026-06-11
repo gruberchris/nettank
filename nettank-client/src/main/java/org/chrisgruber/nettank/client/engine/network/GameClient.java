@@ -78,8 +78,9 @@ public class GameClient implements Runnable {
             logger.info("Connected to server: {}:{}", serverIp, serverPort);
 
             if (localOut != null) {
-                sendMessage(NetworkProtocol.CONNECT + ";" + playerName);
-                logger.info("Sent initial connect message to server: {}", playerName);
+                // Tank type is fixed to STANDARD until the in-lobby selection screen ships (Phase 4)
+                sendMessage(NetworkProtocol.CONNECT + ";" + playerName + ";" + NetworkProtocol.PROTOCOL_VERSION + ";STANDARD");
+                logger.info("Sent initial connect message to server: {} (protocol v{})", playerName, NetworkProtocol.PROTOCOL_VERSION);
             }
 
             String serverMessage = null;
@@ -354,6 +355,14 @@ public class GameClient implements Runnable {
                         networkCallbackHandler.updateShootCooldown(msg.cooldownMs());
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed SHOOT_COOLDOWN message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.AMMO_COUNT -> {
+                    try {
+                        var msg = NetworkMessage.AmmoCount.parse(parts);
+                        networkCallbackHandler.updateAmmoCount(msg.playerId(), msg.ammoCount());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed AMMO_COUNT message: {}", e.getMessage());
                     }
                 }
                 default -> logger.warn("Unknown message command from server: {}", command);

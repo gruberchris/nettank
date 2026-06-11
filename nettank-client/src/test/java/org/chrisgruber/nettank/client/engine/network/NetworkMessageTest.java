@@ -316,6 +316,24 @@ class NetworkMessageTest {
         assertEquals("Connection failed", msg.errorText());
     }
     
+    // ========== AmmoCount Tests ==========
+
+    @Test
+    void testAmmoCountParse_Valid() {
+        String[] parts = {"AMO", "3", "12"};
+        var msg = NetworkMessage.AmmoCount.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertEquals(12, msg.ammoCount());
+    }
+
+    @Test
+    void testAmmoCountParse_InsufficientParts() {
+        String[] parts = {"AMO", "3"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.AmmoCount.parse(parts));
+    }
+
     // ========== Parameterized Tests for Number Parsing ==========
     
     @ParameterizedTest

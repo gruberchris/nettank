@@ -189,6 +189,13 @@ public class FreeForAll extends GameMode {
     }
 
     @Override
+    protected org.chrisgruber.nettank.server.entities.GameModePlayerState getGameModePlayerState(int playerId) {
+        synchronized (stateLock) {
+            return playerStatesByPlayerId.get(playerId);
+        }
+    }
+
+    @Override
     public int getRemainingRespawnsForPlayer(int playerId) {
         FreeForAllPlayerState playerState;
 

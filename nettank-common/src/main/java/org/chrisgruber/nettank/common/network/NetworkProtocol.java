@@ -3,8 +3,12 @@ package org.chrisgruber.nettank.common.network;
 // Define constants for network messages
 public class NetworkProtocol {
 
+    // Protocol version. Client and server ship from one repo in lockstep; this check
+    // exists only to fail fast on stale builds. Bump once per protocol-touching change set.
+    public static final int PROTOCOL_VERSION = 1;
+
     // Client to Server Messages
-    public static final String CONNECT = "CON";      // CON;<playerName>
+    public static final String CONNECT = "CON";      // CON;<playerName>;<protocolVersion>;<tankType>
     public static final String INPUT = "INP";        // INP;<W_down>;<S_down>;<A_down>;<D_down>
     public static final String SHOOT_CMD = "SHT";    // SHT (Command to shoot)
     public static final String PING = "PIN";         // PIN (Optional)
@@ -31,4 +35,5 @@ public class NetworkProtocol {
     public static final String TERRAIN_INIT = "TER"; // TER;<seed>;<profileName>
     public static final String TERRAIN_DATA = "TRD"; // TRD;<width>;<height>;<compressedData>
     public static final String SHOOT_COOLDOWN = "SHT_CDN";     // SHT_CDN;<cooldownRemainingMs>
+    public static final String AMMO_COUNT = "AMO";   // AMO;<playerId>;<ammoCount> (sent to the owning player only)
 }

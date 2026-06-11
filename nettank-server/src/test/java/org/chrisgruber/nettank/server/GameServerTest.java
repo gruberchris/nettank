@@ -1,6 +1,7 @@
 package org.chrisgruber.nettank.server;
 
 import org.chrisgruber.nettank.common.entities.TankData;
+import org.chrisgruber.nettank.common.entities.TankStats;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
 import org.chrisgruber.nettank.common.util.GameState;
 import org.chrisgruber.nettank.server.gamemode.FreeForAll;
@@ -313,6 +314,113 @@ class GameServerTest {
         assertEquals(350.0f, GameServer.BULLET_SPEED);
         assertEquals(2000L, GameServer.BULLET_LIFETIME_MS);
         assertEquals(2000L, GameServer.TANK_SHOOT_COOLDOWN_MS);
+    }
+
+    @Test
+    void testEffectiveStatsMatchLegacyConstants() {
+        TankData tank = new TankData(0, new org.joml.Vector2f(0, 0), new org.joml.Vector2f(0, 0), 0f,
+                new org.joml.Vector3f(1, 1, 1), "TestPlayer");
+
+        TankStats stats = gameServer.getEffectiveStats(tank);
+
+        assertEquals(TankData.MAX_HIT_POINTS, stats.maxHitPoints());
+        assertEquals(GameServer.TANK_MOVE_SPEED, stats.moveSpeed());
+        assertEquals(GameServer.TANK_TURN_SPEED, stats.turnSpeed());
+        assertEquals(0.7f, stats.backwardSpeedFactor());
+        assertEquals(GameServer.BULLET_SPEED, stats.bulletSpeed());
+        assertEquals(GameServer.BULLET_LIFETIME_MS, stats.bulletLifetimeMs());
+        assertEquals(1, stats.bulletDamage());
+        assertEquals(GameServer.TANK_SHOOT_COOLDOWN_MS, stats.shootCooldownMs());
+    }
+
+    @Test
+    void testHandleHitUsesBulletDamage() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+        int initialHitPoints = tank.getHitPoints();
+
+        var bullet = new org.chrisgruber.nettank.common.entities.BulletData(
+                java.util.UUID.randomUUID(), 99, new org.joml.Vector2f(0, 0), new org.joml.Vector2f(0, 0),
+                0f, System.currentTimeMillis(), false, 2);
+
+        gameServer.handleHit(tank, bullet);
+
+        assertEquals(initialHitPoints - 2, tank.getHitPoints());
+    }
+
+    @Test
+    void testAmmoIsDecrementedAndEnforcedForFiniteAmmoMode() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        // Anonymous mode variant with 2 rounds of finite ammo
+        context.gameMode = new FreeForAll() {
+            { this.startingMainWeaponAmmoCount = 2; }
+        };
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        int playerId = 0;
+        TankData tank = context.tanks.get(playerId);
+
+        gameServer.handlePlayerShootMainWeaponInput(playerId);
+        assertEquals(1, context.bullets.size());
+        assertEquals(1, context.gameMode.getMainWeaponAmmoForPlayer(playerId));
+
+        tank.setLastShotTime(0); // bypass cooldown
+        gameServer.handlePlayerShootMainWeaponInput(playerId);
+        assertEquals(2, context.bullets.size());
+        assertEquals(0, context.gameMode.getMainWeaponAmmoForPlayer(playerId));
+
+        tank.setLastShotTime(0);
+        gameServer.handlePlayerShootMainWeaponInput(playerId);
+        assertEquals(2, context.bullets.size()); // refused: out of ammo
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockClientHandler, atLeastOnce()).sendMessage(messageCaptor.capture());
+        assertTrue(messageCaptor.getAllValues().stream()
+                .anyMatch(msg -> msg.startsWith(NetworkProtocol.AMMO_COUNT + ";" + playerId + ";")));
+    }
+
+    @Test
+    void testUnlimitedAmmoModeSendsNoAmmoMessages() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        int playerId = 0;
+
+        gameServer.handlePlayerShootMainWeaponInput(playerId);
+        assertEquals(1, context.bullets.size());
+        assertEquals(-1, context.gameMode.getMainWeaponAmmoForPlayer(playerId));
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockClientHandler, atLeastOnce()).sendMessage(messageCaptor.capture());
+        assertTrue(messageCaptor.getAllValues().stream()
+                .noneMatch(msg -> msg.startsWith(NetworkProtocol.AMMO_COUNT + ";")));
     }
 
     @Test

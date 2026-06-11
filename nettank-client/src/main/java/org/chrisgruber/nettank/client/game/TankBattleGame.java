@@ -78,6 +78,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Player specific
     private int localPlayerId = -1;
     private ClientTank localTank = null;
+    private int localAmmoCount = -1; // -1 = unlimited (mode never sends AMO)
     private final String playerName;
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
@@ -409,6 +410,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         logger.info("Received terrain data from server: {}x{} tiles, {} bytes", width, height, encodedData.length());
         this.receivedTerrainData = encodedData;
         this.terrainInfoReceivedForProcessing = true; // Signal the main thread
+    }
+
+    @Override
+    public void updateAmmoCount(int playerId, int ammoCount) {
+        if (playerId == localPlayerId) {
+            this.localAmmoCount = ammoCount;
+            logger.debug("Updated local ammo count: {}", ammoCount);
+        }
     }
 
     @Override
@@ -1001,8 +1010,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // TODO: Where is bullet rotation set and should it be here?
         float rotation = 0.0f;
 
-        // Create common BulletData
-        BulletData bulletData = new BulletData(bulletId, ownerId, position, velocity, rotation, spawnTime, false);
+        // Create common BulletData (damage is server-authoritative; client bullets are visual only)
+        BulletData bulletData = new BulletData(bulletId, ownerId, position, velocity, rotation, spawnTime, false, 0);
         // Create ClientBullet wrapper for rendering/prediction
         ClientBullet clientBullet = new ClientBullet(bulletData);
 

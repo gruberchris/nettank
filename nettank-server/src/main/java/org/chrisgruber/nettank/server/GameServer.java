@@ -2,6 +2,7 @@ package org.chrisgruber.nettank.server;
 
 import org.chrisgruber.nettank.common.entities.BulletData;
 import org.chrisgruber.nettank.common.entities.TankData;
+import org.chrisgruber.nettank.common.entities.TankStats;
 import org.chrisgruber.nettank.common.network.NetworkProtocol;
 import org.chrisgruber.nettank.common.world.GameMapData;
 import org.chrisgruber.nettank.common.world.TerrainTile;
@@ -32,7 +33,8 @@ public class GameServer {
     private ServerSocket serverSocket;
     private Thread gameLoopThread;
 
-    // Server-specific Constants
+    // Legacy flat combat constants. Gameplay now reads per-tank stats via getEffectiveStats();
+    // these remain as the reference values mirrored by TankStats.STANDARD.
     public static final float TANK_MOVE_SPEED = 100.0f;
     public static final float TANK_TURN_SPEED = 50.0f;
     public static final float BULLET_SPEED = 350.0f;
@@ -471,10 +473,12 @@ public class GameServer {
         for (TankData tankData : serverContext.tanks.values()) {
             if (tankData.isDestroyed()) continue;  // No need to update destroyed tanks
 
+            TankStats stats = getEffectiveStats(tankData);
+
             // Movement Logic
             float turnAmount = 0;
-            if (tankData.isTurningLeft()) turnAmount += TANK_TURN_SPEED * deltaTime;
-            if (tankData.isTurningRight()) turnAmount -= TANK_TURN_SPEED * deltaTime;
+            if (tankData.isTurningLeft()) turnAmount += stats.turnSpeed() * deltaTime;
+            if (tankData.isTurningRight()) turnAmount -= stats.turnSpeed() * deltaTime;
 
             if (turnAmount != 0) {
                 tankData.setRotation(tankData.getRotation() + turnAmount);
@@ -486,8 +490,8 @@ public class GameServer {
             }
 
             float moveAmount = 0;
-            if (tankData.isMovingForward()) moveAmount = TANK_MOVE_SPEED * deltaTime;
-            else if (tankData.isMovingBackward()) moveAmount = -TANK_MOVE_SPEED * deltaTime * 0.7f;
+            if (tankData.isMovingForward()) moveAmount = stats.moveSpeed() * deltaTime;
+            else if (tankData.isMovingBackward()) moveAmount = -stats.moveSpeed() * deltaTime * stats.backwardSpeedFactor();
 
             if (moveAmount != 0) {
                 float angleRad = (float) Math.toRadians(tankData.getRotation());
@@ -536,7 +540,7 @@ public class GameServer {
                 bulletData.getCollider().setPosition(bulletData.getPosition());
             }
             
-            boolean expired = (currentTime - bulletData.getSpawnTime()) >= BULLET_LIFETIME_MS;
+            boolean expired = (currentTime - bulletData.getSpawnTime()) >= getEffectiveStatsForBulletOwner(bulletData).bulletLifetimeMs();
             
             if (hitTerrain) {
                 TerrainTile tile = serverContext.gameMapData.getTileAt(newX, newY);
@@ -600,7 +604,7 @@ public class GameServer {
         return stateChangedThisTick;
     }
 
-    private synchronized void handleHit(TankData target, BulletData bulletData) {
+    synchronized void handleHit(TankData target, BulletData bulletData) {
         TankData shooter = serverContext.tanks.get(bulletData.getPlayerId());
         String shooterName = (shooter != null) ? shooter.getPlayerName() : "Unknown";
         String targetName = target.getPlayerName();
@@ -611,7 +615,7 @@ public class GameServer {
             return;
         }
 
-        int weaponDamage = 1;
+        int weaponDamage = bulletData.getDamage();
         target.takeHit(weaponDamage);
 
         if (target.isDestroyed()) {
@@ -670,6 +674,18 @@ public class GameServer {
         logger.debug("Spectate permanently message sent to playerId: {}", playerId);
     }
 
+    // Resolves the combat stats currently in effect for a tank. Single layering point:
+    // later phases fold tank-type stats and power-up modifiers in here.
+    public synchronized TankStats getEffectiveStats(TankData tankData) {
+        return serverContext.gameMode.getBaseStats();
+    }
+
+    // Stats for an in-flight bullet's owner; falls back to mode base stats if the owner left.
+    private TankStats getEffectiveStatsForBulletOwner(BulletData bulletData) {
+        TankData owner = serverContext.tanks.get(bulletData.getPlayerId());
+        return owner != null ? getEffectiveStats(owner) : serverContext.gameMode.getBaseStats();
+    }
+
     // Process player movement input and set the tank's movement state
     public synchronized void handlePlayerMovementInput(int playerId, boolean w, boolean s, boolean a, boolean d) {
         if (serverContext.currentGameState != GameState.PLAYING) {
@@ -714,20 +730,26 @@ public class GameServer {
         }
 
         long currentTime = System.currentTimeMillis();
+        TankStats stats = getEffectiveStats(tankData);
 
         // Check main weapon cooldown to see if the tank can shoot
-        boolean hasCooledDown = currentTime - tankData.getLastShotTime() >= TANK_SHOOT_COOLDOWN_MS;
+        boolean hasCooledDown = currentTime - tankData.getLastShotTime() >= stats.shootCooldownMs();
 
         if (!hasCooledDown) {
-            var cooldownTimeRemainingInMilliseconds = TANK_SHOOT_COOLDOWN_MS - (currentTime - tankData.getLastShotTime());
+            var cooldownTimeRemainingInMilliseconds = stats.shootCooldownMs() - (currentTime - tankData.getLastShotTime());
             var timeSinceLastShotInMilliseconds = currentTime - tankData.getLastShotTime();
             logger.debug("PlayerId: {} attempted to shoot but the weapon is still cooling down. Time since last shot: {}ms. Cooldown time remaining: {}ms", playerId, timeSinceLastShotInMilliseconds, cooldownTimeRemainingInMilliseconds);
-            
+
             // Send cooldown remaining time to the player
             ClientHandler handler = serverContext.clients.get(playerId);
             if (handler != null) {
                 handler.sendMessage(String.format("%s;%d", NetworkProtocol.SHOOT_COOLDOWN, cooldownTimeRemainingInMilliseconds));
             }
+            return;
+        }
+
+        if (!serverContext.gameMode.tryConsumeMainWeaponAmmo(playerId)) {
+            logger.debug("PlayerId: {} attempted to shoot but is out of main weapon ammo.", playerId);
             return;
         }
 
@@ -742,14 +764,22 @@ public class GameServer {
         float startY = tankData.getY() + dirY * spawnDist;
 
         Vector2f position = new Vector2f(startX, startY);
-        Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(BULLET_SPEED);
+        Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(stats.bulletSpeed());
 
         float rotation = tankData.getRotation();
         UUID bulletId = UUID.randomUUID();
 
         // Create BulletData object
-        BulletData bullet = new BulletData(bulletId, playerId, position, velocity, rotation, currentTime, false);
+        BulletData bullet = new BulletData(bulletId, playerId, position, velocity, rotation, currentTime, false, stats.bulletDamage());
         serverContext.bullets.add(bullet);
+
+        int remainingAmmo = serverContext.gameMode.getMainWeaponAmmoForPlayer(playerId);
+        if (remainingAmmo >= 0) {
+            ClientHandler handler = serverContext.clients.get(playerId);
+            if (handler != null) {
+                handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.AMMO_COUNT, playerId, remainingAmmo));
+            }
+        }
 
         logger.debug("PlayerId: {} shot a bullet at position ({}, {}) with direction ({}, {})", playerId, startX, startY, dirX, dirY);
 

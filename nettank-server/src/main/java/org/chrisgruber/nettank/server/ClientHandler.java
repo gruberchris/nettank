@@ -401,6 +401,26 @@ public class ClientHandler implements Runnable {
             return;
         }
 
+        // Protocol version check: fail fast on stale builds (client and server ship in lockstep)
+        int clientProtocolVersion = -1;
+        if (parts.length >= 3) {
+            try {
+                clientProtocolVersion = Integer.parseInt(parts[2]);
+            } catch (NumberFormatException e) {
+                logger.warn("Non-numeric protocol version received from client: '{}'", parts[2]);
+            }
+        }
+
+        if (clientProtocolVersion != NetworkProtocol.PROTOCOL_VERSION) {
+            logger.warn("Protocol version mismatch from client '{}': client={}, server={}",
+                    name, clientProtocolVersion, NetworkProtocol.PROTOCOL_VERSION);
+            sendMessage(NetworkProtocol.ERROR_MSG + ";Protocol mismatch");
+            closeConnection("Protocol mismatch");
+            return;
+        }
+
+        // parts[3] is the requested tank type; ignored until tank types ship (Phase 4)
+
         logger.info("Registration request from client: {}", name);
         server.registerPlayer(this, name);
     }

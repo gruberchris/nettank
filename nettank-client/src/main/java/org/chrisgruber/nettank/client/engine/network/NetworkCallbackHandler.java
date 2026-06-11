@@ -23,4 +23,5 @@ public interface NetworkCallbackHandler {
     void storeMapInfo(int widthTiles, int heightTiles, float tileSize);
     void receiveTerrainData(int width, int height, String encodedData);
     void updateShootCooldown(long cooldownRemainingMs);
+    void updateAmmoCount(int playerId, int ammoCount);
 }
