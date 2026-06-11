@@ -19,7 +19,8 @@ public interface NetworkCallbackHandler {
     void removeTank(int id);
     void updatePlayerLives(int playerId, int lives);
     void spawnBullet(UUID bulletId, int ownerId, float x, float y, float dirX, float dirY);
-    void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage);
+    void handlePlayerHit(int targetId, int shooterId, UUID bulletId, int damage, String side, boolean critical);
+    void updateArmorStatus(int front, int left, int right, int rear, int hitPoints);
     void handlePlayerDestroyed(int targetId, int shooterId);
     void storeMapInfo(int widthTiles, int heightTiles, float tileSize);
     void receiveTerrainData(int width, int height, String encodedData);

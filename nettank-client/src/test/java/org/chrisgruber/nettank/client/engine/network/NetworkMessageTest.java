@@ -264,13 +264,34 @@ class NetworkMessageTest {
     @Test
     void testHitParse_Valid() {
         UUID bulletId = UUID.randomUUID();
-        String[] parts = {"HIT", "10", "20", bulletId.toString(), "25"};
+        String[] parts = {"HIT", "10", "20", bulletId.toString(), "25", "REAR", "1"};
         var msg = NetworkMessage.Hit.parse(parts);
         
         assertEquals(10, msg.targetId());
         assertEquals(20, msg.shooterId());
         assertEquals(bulletId, msg.bulletId());
         assertEquals(25, msg.damage());
+        assertEquals("REAR", msg.side());
+        assertTrue(msg.critical());
+    }
+
+    @Test
+    void testArmorStatusParse_Valid() {
+        String[] parts = {"ARM", "2", "1", "1", "0", "3"};
+        var msg = NetworkMessage.ArmorStatus.parse(parts);
+
+        assertEquals(2, msg.front());
+        assertEquals(1, msg.left());
+        assertEquals(1, msg.right());
+        assertEquals(0, msg.rear());
+        assertEquals(3, msg.hitPoints());
+    }
+
+    @Test
+    void testArmorStatusParse_InsufficientParts() {
+        String[] parts = {"ARM", "2", "1"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.ArmorStatus.parse(parts));
     }
     
     // ========== Destroyed Tests ==========

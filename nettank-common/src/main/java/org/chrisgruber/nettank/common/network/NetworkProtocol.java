@@ -5,7 +5,7 @@ public class NetworkProtocol {
 
     // Protocol version. Client and server ship from one repo in lockstep; this check
     // exists only to fail fast on stale builds. Bump once per protocol-touching change set.
-    public static final int PROTOCOL_VERSION = 3;
+    public static final int PROTOCOL_VERSION = 4;
 
     // Client to Server Messages
     public static final String CONNECT = "CON";      // CON;<playerName>;<protocolVersion>;<tankType>
@@ -21,7 +21,8 @@ public class NetworkProtocol {
     public static final String PLAYER_UPDATE = "UPD"; // UPD;<id>;<x>;<y>;<rot>;<turretRot>
     public static final String PLAYER_LEFT = "LEF";  // LEF;<id>
     public static final String SHOOT = "SHO";        // SHO;<bulletId>;<ownerId>;<x>;<y>;<dirX>;<dirY>
-    public static final String HIT = "HIT";          // HIT;<targetId>;<shooterId>;<bulletId>;<damage>
+    public static final String HIT = "HIT";          // HIT;<targetId>;<shooterId>;<bulletId>;<damage>;<side>;<crit 0|1>
+    public static final String ARMOR_STATUS = "ARM"; // ARM;<front>;<left>;<right>;<rear>;<hp> (sent to the owning player only)
     public static final String DESTROYED = "DES";    // DES;<targetId>;<shooterId>
     public static final String RESPAWN = "RSP";      // RSP;<id>;<x>;<y>;<rotation>;<turretRot>
     public static final String PLAYER_LIVES = "LIV"; // LIV;<id>;<lives>

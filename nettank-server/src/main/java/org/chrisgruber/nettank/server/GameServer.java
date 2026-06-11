@@ -61,6 +61,11 @@ public class GameServer {
     private static final int FIRE_TICK_DAMAGE = 1;
     private final java.util.Map<Integer, Long> lastFireDamageTimeByPlayerId = new java.util.HashMap<>();
 
+    // Critical hits: rear hits always crit; front/side hits crit with this probability.
+    // Random is injectable so tests can drive damage resolution deterministically.
+    private static final float SIDE_CRIT_CHANCE = 0.10f;
+    java.util.Random critRandom = new java.util.Random(); // package-private for tests
+
     // Stealth cloak: idle delay before cloaking in the open; concealing terrain cloaks instantly
     private static final long CLOAK_IDLE_DELAY_MS = 2000;
     final java.util.Set<Integer> cloakedPlayerIds = new java.util.HashSet<>(); // package-private for tests
@@ -360,6 +365,8 @@ public class GameServer {
 
         serverContext.gameMode.handleNewPlayerJoin(serverContext, playerId, playerName, newTankData);
 
+        sendArmorStatus(newTankData);
+
         var totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
 
         // Send all tanks and their lives to new player
@@ -401,8 +408,11 @@ public class GameServer {
         }
 
         var tankType = org.chrisgruber.nettank.common.entities.TankType.fromString(typeName);
+        TankStats stats = serverContext.gameMode.getTankStats(tankType);
         tankData.setTankType(tankType);
-        tankData.setHitPoints(serverContext.gameMode.getTankStats(tankType).maxHitPoints());
+        tankData.setHitPoints(stats.maxHitPoints());
+        tankData.setArmorFromStats(stats);
+        sendArmorStatus(tankData);
 
         logger.info("PlayerId {} selected tank type {}", playerId, tankType);
 
@@ -688,6 +698,7 @@ public class GameServer {
                     broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), respawnsRemaining), -1);
 
                     sendSpectatorEndMessage(tankData.getPlayerId());
+                    sendArmorStatus(tankData);
 
                     stateChangedThisTick = true;
                 }
@@ -705,29 +716,72 @@ public class GameServer {
         TankData shooter = serverContext.tanks.get(bulletData.getPlayerId());
         String shooterName = (shooter != null) ? shooter.getPlayerName() : "Unknown";
         String targetName = target.getPlayerName();
-        logger.info("Hit registered: {} -> {}", shooterName, targetName);
 
         if (target.isDestroyed()) {
             logger.debug("Hit ignored: {} is already destroyed.", targetName);
             return;
         }
 
+        // Directional damage: struck side from the impact bearing relative to the hull
+        org.chrisgruber.nettank.common.entities.ArmorSide side = computeHitSide(target, bulletData.getPosition());
+        boolean critical = side == org.chrisgruber.nettank.common.entities.ArmorSide.REAR
+                || critRandom.nextFloat() < SIDE_CRIT_CHANCE;
+
         int weaponDamage = bulletData.getDamage();
-        target.takeHit(weaponDamage);
+        target.applyDirectionalDamage(side, weaponDamage, critical);
+
+        logger.info("Hit registered: {} -> {} ({} side, {} damage{})",
+                shooterName, targetName, side, weaponDamage, critical ? ", CRIT" : "");
+
+        // Side and crit are public so all clients can render directional impact effects;
+        // armor values stay hidden (only the owner gets them, via ARM)
+        broadcast(String.format("%s;%d;%d;%s;%d;%s;%d", NetworkProtocol.HIT,
+                target.getPlayerId(), bulletData.getPlayerId(), bulletData.getId(),
+                weaponDamage, side.name(), critical ? 1 : 0), -1);
+        sendArmorStatus(target);
 
         if (target.isDestroyed()) {
-            handleTankDestruction(target, bulletData.getPlayerId(), bulletData.getId(), weaponDamage);
+            handleTankDestruction(target, bulletData.getPlayerId());
         }
     }
 
+    // Maps an impact position to the struck hull side. Bearing convention matches
+    // movement: rotation r faces direction (-sin r, cos r) with positive r = CCW,
+    // so a +90 degree relative bearing is the hull's LEFT side.
+    static org.chrisgruber.nettank.common.entities.ArmorSide computeHitSide(TankData target, Vector2f impactPosition) {
+        float dx = impactPosition.x - target.getX();
+        float dy = impactPosition.y - target.getY();
+
+        float bearing = (float) Math.toDegrees(Math.atan2(-dx, dy));
+        float relative = bearing - target.getRotation();
+        relative = ((relative % 360.0f) + 360.0f) % 360.0f;
+
+        if (relative >= 315.0f || relative < 45.0f) return org.chrisgruber.nettank.common.entities.ArmorSide.FRONT;
+        if (relative < 135.0f) return org.chrisgruber.nettank.common.entities.ArmorSide.LEFT;
+        if (relative < 225.0f) return org.chrisgruber.nettank.common.entities.ArmorSide.REAR;
+        return org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT;
+    }
+
+    // Sends the player's authoritative armor + HP snapshot to them (and only them)
+    private void sendArmorStatus(TankData tankData) {
+        ClientHandler handler = serverContext.clients.get(tankData.getPlayerId());
+        if (handler == null) return;
+
+        handler.sendMessage(String.format("%s;%d;%d;%d;%d;%d", NetworkProtocol.ARMOR_STATUS,
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT),
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.LEFT),
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT),
+                tankData.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.REAR),
+                tankData.getHitPoints()));
+    }
+
     // Shared destruction flow for bullet kills and environmental (fire) kills.
-    // killerPlayerId is -1 for environmental deaths; causeId identifies the bullet if any.
-    private synchronized void handleTankDestruction(TankData target, int killerPlayerId, UUID causeId, int damage) {
+    // killerPlayerId is -1 for environmental deaths.
+    private synchronized void handleTankDestruction(TankData target, int killerPlayerId) {
         String targetName = target.getPlayerName();
 
         target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
         int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
-        broadcast(String.format("%s;%d;%d;%s;%d", NetworkProtocol.HIT, target.getPlayerId(), killerPlayerId, causeId, damage), -1);
         broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
         broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), killerPlayerId), -1);
         sendSpectatorStartMessage(target.getPlayerId(), target);
@@ -795,7 +849,9 @@ public class GameServer {
             if (currentTime - lastDamageTime < FIRE_DAMAGE_INTERVAL_MS) continue;
 
             lastFireDamageTimeByPlayerId.put(tankData.getPlayerId(), currentTime);
+            // Fire damage bypasses armor entirely and reduces hitpoints directly
             tankData.takeHit(FIRE_TICK_DAMAGE);
+            sendArmorStatus(tankData);
             stateChanged = true;
 
             logger.debug("Tank for playerId {} took {} fire damage standing on a burning tile, remaining HP: {}",
@@ -803,7 +859,7 @@ public class GameServer {
 
             if (tankData.isDestroyed()) {
                 logger.info("{} was destroyed by fire.", tankData.getPlayerName());
-                handleTankDestruction(tankData, -1, UUID.randomUUID(), FIRE_TICK_DAMAGE);
+                handleTankDestruction(tankData, -1);
             }
         }
 
@@ -1127,6 +1183,7 @@ public class GameServer {
             serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
             broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(), tankData.getTurretRotation()), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed), -1);
+            sendArmorStatus(tankData);
         }
     }
 

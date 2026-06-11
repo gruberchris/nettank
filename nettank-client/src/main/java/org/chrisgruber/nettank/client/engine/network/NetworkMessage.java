@@ -325,17 +325,42 @@ public sealed interface NetworkMessage {
         int targetId,
         int shooterId,
         java.util.UUID bulletId,
-        int damage
+        int damage,
+        String side,
+        boolean critical
     ) implements NetworkMessage {
         public static Hit parse(String[] parts) {
-            if (parts.length < 5) {
+            if (parts.length < 7) {
                 throw new IllegalArgumentException("Invalid Hit message: insufficient parts");
             }
             return new Hit(
                 Integer.parseInt(parts[1]),
                 Integer.parseInt(parts[2]),
                 java.util.UUID.fromString(parts[3]),
-                Integer.parseInt(parts[4])
+                Integer.parseInt(parts[4]),
+                parts[5],
+                "1".equals(parts[6])
+            );
+        }
+    }
+
+    record ArmorStatus(
+        int front,
+        int left,
+        int right,
+        int rear,
+        int hitPoints
+    ) implements NetworkMessage {
+        public static ArmorStatus parse(String[] parts) {
+            if (parts.length < 6) {
+                throw new IllegalArgumentException("Invalid ArmorStatus message: insufficient parts");
+            }
+            return new ArmorStatus(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]),
+                Integer.parseInt(parts[3]),
+                Integer.parseInt(parts[4]),
+                Integer.parseInt(parts[5])
             );
         }
     }

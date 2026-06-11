@@ -120,13 +120,24 @@ class GameClientTest {
     @Test
     void testParseMessage_Hit() throws Exception {
         UUID bulletId = UUID.randomUUID();
-        String message = "HIT;10;20;" + bulletId + ";25";
+        String message = "HIT;10;20;" + bulletId + ";25;REAR;1";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         method.invoke(gameClient, message);
         
-        verify(mockHandler).handlePlayerHit(10, 20, bulletId, 25);
+        verify(mockHandler).handlePlayerHit(10, 20, bulletId, 25, "REAR", true);
+    }
+
+    @Test
+    void testParseMessage_ArmorStatus() throws Exception {
+        String message = "ARM;2;1;1;0;3";
+
+        var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
+        method.setAccessible(true);
+        method.invoke(gameClient, message);
+
+        verify(mockHandler).updateArmorStatus(2, 1, 1, 0, 3);
     }
 
     @Test

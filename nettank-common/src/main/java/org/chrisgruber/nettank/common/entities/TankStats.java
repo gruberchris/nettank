@@ -10,7 +10,11 @@ public record TankStats(
         long bulletLifetimeMs,
         int bulletDamage,
         long shootCooldownMs,
-        float turretTurnSpeed
+        float turretTurnSpeed,
+        int frontArmor,
+        int leftArmor,
+        int rightArmor,
+        int rearArmor
 ) {
     // Matches the legacy flat combat constants so introducing stats changes no behavior.
     public static final TankStats STANDARD = new TankStats(
@@ -22,6 +26,16 @@ public record TankStats(
             2000L,  // bulletLifetimeMs
             1,      // bulletDamage
             2000L,  // shootCooldownMs
-            90.0f   // turretTurnSpeed (deg/s)
+            90.0f,  // turretTurnSpeed (deg/s)
+            2, 1, 1, 1 // front/left/right/rear armor
     );
+
+    public int armorFor(ArmorSide side) {
+        return switch (side) {
+            case FRONT -> frontArmor;
+            case LEFT -> leftArmor;
+            case RIGHT -> rightArmor;
+            case REAR -> rearArmor;
+        };
+    }
 }

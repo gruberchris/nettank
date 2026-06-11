@@ -65,6 +65,7 @@ public class FreeForAll extends GameMode {
                     0, // Death time
                     0  // Last shot time
             );
+            tankData.setArmorFromStats(getTankStats(tankData.getTankType()));
         }
     }
 
@@ -84,6 +85,7 @@ public class FreeForAll extends GameMode {
                     0, // Death time
                     0  // Last shot time
             );
+            tankData.setArmorFromStats(getTankStats(tankData.getTankType()));
         }
     }
 
@@ -233,6 +235,7 @@ public class FreeForAll extends GameMode {
                     0, // Reset death time
                     0  // Reset last shot time
             );
+            tankData.setArmorFromStats(getTankStats(tankData.getTankType()));
 
             tankData.setInputState(false, false, false, false);
 

@@ -250,10 +250,20 @@ public class GameClient implements Runnable {
                         var msg = NetworkMessage.Hit.parse(parts);
                         networkCallbackHandler.handlePlayerHit(
                             msg.targetId(), msg.shooterId(),
-                            msg.bulletId(), msg.damage()
+                            msg.bulletId(), msg.damage(), msg.side(), msg.critical()
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed HIT message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.ARMOR_STATUS -> {
+                    try {
+                        var msg = NetworkMessage.ArmorStatus.parse(parts);
+                        networkCallbackHandler.updateArmorStatus(
+                            msg.front(), msg.left(), msg.right(), msg.rear(), msg.hitPoints()
+                        );
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed ARMOR_STATUS message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.DESTROYED -> {

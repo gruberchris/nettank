@@ -25,6 +25,9 @@ public class TankData extends Entity {
     // Selected chassis type; stats are resolved server-side via the game mode
     protected TankType tankType = TankType.STANDARD;
 
+    // Runtime directional armor points, indexed by ArmorSide.ordinal()
+    protected final int[] armorBySide = new int[ArmorSide.values().length];
+
     // Movement input state
     protected volatile boolean movingForward = false;
     protected volatile boolean movingBackward = false;
@@ -80,6 +83,40 @@ public class TankData extends Entity {
     public void setHitPoints(int hitPoints) { this.hitPoints = hitPoints; }
     public void setDeathTimeMillis(long deathTimeMillis) { this.deathTimeMillis = deathTimeMillis; }
     public void setLastShotTime(long lastShotTime) { this.lastShotTime = lastShotTime; }
+
+    public int getArmor(ArmorSide side) { return armorBySide[side.ordinal()]; }
+
+    public void setArmor(ArmorSide side, int value) { armorBySide[side.ordinal()] = Math.max(0, value); }
+
+    // Initializes runtime armor from per-type stats (called on spawn/respawn/type change)
+    public void setArmorFromStats(TankStats stats) {
+        for (ArmorSide side : ArmorSide.values()) {
+            armorBySide[side.ordinal()] = stats.armorFor(side);
+        }
+    }
+
+    /**
+     * Applies a main-gun hit to the given hull side.
+     * Normal hits deplete the side's armor first; any remainder spills into hitpoints.
+     * Critical hits apply the full damage to BOTH the side's armor (floored at 0) and hitpoints.
+     */
+    public void applyDirectionalDamage(ArmorSide side, int damage, boolean critical) {
+        int armor = armorBySide[side.ordinal()];
+
+        if (critical) {
+            armorBySide[side.ordinal()] = Math.max(0, armor - damage);
+            takeHit(damage);
+            return;
+        }
+
+        int absorbed = Math.min(armor, damage);
+        armorBySide[side.ordinal()] = armor - absorbed;
+
+        int remainder = damage - absorbed;
+        if (remainder > 0) {
+            takeHit(remainder);
+        }
+    }
 
     public TankType getTankType() { return tankType; }
 

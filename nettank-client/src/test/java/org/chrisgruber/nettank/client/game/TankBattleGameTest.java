@@ -129,7 +129,7 @@ class TankBattleGameTest {
         game.spawnBullet(bulletId, 1, 100.0f, 200.0f, 5.0f, 3.0f);
         
         // Handle hit
-        game.handlePlayerHit(2, 1, bulletId, 25);
+        game.handlePlayerHit(2, 1, bulletId, 25, "FRONT", false);
         
         Field bulletsField = TankBattleGame.class.getDeclaredField("bullets");
         bulletsField.setAccessible(true);
@@ -318,7 +318,7 @@ class TankBattleGameTest {
         UUID bulletId = UUID.randomUUID();
         
         // Try to handle hit with a bullet that doesn't exist
-        assertDoesNotThrow(() -> game.handlePlayerHit(2, 1, bulletId, 25));
+        assertDoesNotThrow(() -> game.handlePlayerHit(2, 1, bulletId, 25, "FRONT", false));
     }
 
     @Test

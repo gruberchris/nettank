@@ -347,15 +347,185 @@ class GameServerTest {
 
         gameServer.registerPlayer(mockClientHandler, "TestPlayer");
         TankData tank = context.tanks.get(0);
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        tank.setRotation(0f);
         int initialHitPoints = tank.getHitPoints();
 
+        // Impact from directly behind (rear hits always crit, so full damage reaches HP)
         var bullet = new org.chrisgruber.nettank.common.entities.BulletData(
-                java.util.UUID.randomUUID(), 99, new org.joml.Vector2f(0, 0), new org.joml.Vector2f(0, 0),
+                java.util.UUID.randomUUID(), 99, new org.joml.Vector2f(800, 750), new org.joml.Vector2f(0, 0),
                 0f, System.currentTimeMillis(), false, 2);
 
         gameServer.handleHit(tank, bullet);
 
         assertEquals(initialHitPoints - 2, tank.getHitPoints());
+    }
+
+    @Test
+    void testComputeHitSideMapsQuadrantsAcrossRotations() {
+        TankData tank = new TankData(0, new org.joml.Vector2f(0, 0), new org.joml.Vector2f(0, 0), 0f,
+                new org.joml.Vector3f(1, 1, 1), "T");
+
+        // Hull facing +Y (rotation 0): direction convention is (-sin r, cos r)
+        tank.setRotation(0f);
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT, GameServer.computeHitSide(tank, new org.joml.Vector2f(0, 10)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.REAR, GameServer.computeHitSide(tank, new org.joml.Vector2f(0, -10)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.LEFT, GameServer.computeHitSide(tank, new org.joml.Vector2f(-10, 0)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT, GameServer.computeHitSide(tank, new org.joml.Vector2f(10, 0)));
+
+        // Hull rotated 90 degrees CCW (facing -X)
+        tank.setRotation(90f);
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT, GameServer.computeHitSide(tank, new org.joml.Vector2f(-10, 0)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.REAR, GameServer.computeHitSide(tank, new org.joml.Vector2f(10, 0)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.LEFT, GameServer.computeHitSide(tank, new org.joml.Vector2f(0, -10)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT, GameServer.computeHitSide(tank, new org.joml.Vector2f(0, 10)));
+
+        // Hull rotated 180 degrees (facing -Y)
+        tank.setRotation(180f);
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT, GameServer.computeHitSide(tank, new org.joml.Vector2f(0, -10)));
+        assertEquals(org.chrisgruber.nettank.common.entities.ArmorSide.REAR, GameServer.computeHitSide(tank, new org.joml.Vector2f(0, 10)));
+    }
+
+    @Test
+    void testNormalHitDepletesArmorBeforeHitPoints() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.critRandom = new java.util.Random() {
+            @Override public float nextFloat() { return 0.99f; } // never crit on non-rear sides
+        };
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        tank.setRotation(0f);
+
+        int initialHitPoints = tank.getHitPoints();
+        var front = org.chrisgruber.nettank.common.entities.ArmorSide.FRONT;
+        assertEquals(2, tank.getArmor(front)); // STANDARD front armor
+
+        // Frontal hit for 1: absorbed entirely by armor
+        var bullet1 = new org.chrisgruber.nettank.common.entities.BulletData(
+                java.util.UUID.randomUUID(), 99, new org.joml.Vector2f(800, 850), new org.joml.Vector2f(0, 0),
+                0f, System.currentTimeMillis(), false, 1);
+        gameServer.handleHit(tank, bullet1);
+        assertEquals(1, tank.getArmor(front));
+        assertEquals(initialHitPoints, tank.getHitPoints());
+
+        // Frontal hit for 3: 1 absorbed by remaining armor, 2 spill into HP
+        var bullet2 = new org.chrisgruber.nettank.common.entities.BulletData(
+                java.util.UUID.randomUUID(), 99, new org.joml.Vector2f(800, 850), new org.joml.Vector2f(0, 0),
+                0f, System.currentTimeMillis(), false, 3);
+        gameServer.handleHit(tank, bullet2);
+        assertEquals(0, tank.getArmor(front));
+        assertEquals(initialHitPoints - 2, tank.getHitPoints());
+    }
+
+    @Test
+    void testCriticalHitDamagesArmorAndHitPoints() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.critRandom = new java.util.Random() {
+            @Override public float nextFloat() { return 0.05f; } // always crit (below 10%)
+        };
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        tank.setRotation(0f);
+        int initialHitPoints = tank.getHitPoints();
+
+        // Frontal crit for 1: armor loses 1 AND hitpoints lose 1
+        var bullet = new org.chrisgruber.nettank.common.entities.BulletData(
+                java.util.UUID.randomUUID(), 99, new org.joml.Vector2f(800, 850), new org.joml.Vector2f(0, 0),
+                0f, System.currentTimeMillis(), false, 1);
+        gameServer.handleHit(tank, bullet);
+
+        assertEquals(1, tank.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT));
+        assertEquals(initialHitPoints - 1, tank.getHitPoints());
+    }
+
+    @Test
+    void testArmorStatusSentOnlyToOwner() throws Exception {
+        ClientHandler handler1 = mock(ClientHandler.class);
+        ClientHandler handler2 = mock(ClientHandler.class);
+
+        when(handler1.getSocket()).thenReturn(mock(Socket.class));
+        when(handler2.getSocket()).thenReturn(mock(Socket.class));
+        when(handler1.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler2.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler1.getPlayerId()).thenReturn(0);
+        when(handler2.getPlayerId()).thenReturn(1);
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(handler1, "Target");
+        gameServer.registerPlayer(handler2, "Shooter");
+        TankData target = context.tanks.get(0);
+        target.setPosition(new org.joml.Vector2f(800, 800));
+        target.setRotation(0f);
+
+        // Both players got their own ARM at registration; only post-hit traffic matters here
+        clearInvocations(handler1, handler2);
+
+        var bullet = new org.chrisgruber.nettank.common.entities.BulletData(
+                java.util.UUID.randomUUID(), 1, new org.joml.Vector2f(800, 850), new org.joml.Vector2f(0, 0),
+                0f, System.currentTimeMillis(), false, 1);
+        gameServer.handleHit(target, bullet);
+
+        ArgumentCaptor<String> captor1 = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> captor2 = ArgumentCaptor.forClass(String.class);
+        verify(handler1, atLeastOnce()).sendMessage(captor1.capture());
+        verify(handler2, atLeastOnce()).sendMessage(captor2.capture());
+
+        assertTrue(captor1.getAllValues().stream().anyMatch(m -> m.startsWith(NetworkProtocol.ARMOR_STATUS + ";")));
+        assertTrue(captor2.getAllValues().stream().noneMatch(m -> m.startsWith(NetworkProtocol.ARMOR_STATUS + ";")));
+        // Both clients see the public HIT with side and crit fields
+        assertTrue(captor2.getAllValues().stream().anyMatch(m -> m.startsWith(NetworkProtocol.HIT + ";0;1;")));
+    }
+
+    @Test
+    void testRespawnRestoresPerTypeArmor() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(mockClientHandler, "HeavyPlayer", org.chrisgruber.nettank.common.entities.TankType.HEAVY);
+        TankData tank = context.tanks.get(0);
+
+        tank.setArmor(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT, 0);
+        tank.setArmor(org.chrisgruber.nettank.common.entities.ArmorSide.REAR, 0);
+
+        context.gameMode.handlePlayerRespawn(context, 0, tank);
+
+        assertEquals(3, tank.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.FRONT));
+        assertEquals(2, tank.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.LEFT));
+        assertEquals(2, tank.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.RIGHT));
+        assertEquals(1, tank.getArmor(org.chrisgruber.nettank.common.entities.ArmorSide.REAR));
+        assertEquals(6, tank.getHitPoints());
     }
 
     @Test
