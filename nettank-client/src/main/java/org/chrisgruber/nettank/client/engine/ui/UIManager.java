@@ -50,6 +50,14 @@ public class UIManager {
     private final Matrix4f identityMatrix;     // Simple identity matrix for view (no camera)
     private final Matrix4f uiModelMatrix;      // Reusable matrix for positioning individual UI elements
 
+    /**
+     * Returns a copy of the current orthographic projection matrix.
+     * Use this to set projection on other renderers without mutating internal state.
+     */
+    public Matrix4f getProjectionMatrix() {
+        return new Matrix4f(uiProjectionMatrix);
+    }
+
     // Vertex data for a standard quad, using top-left UV origin (0,0).
     // This matches the Renderer's setup and works correctly with textures
     // that have been flipped vertically on load via STB.
@@ -302,6 +310,19 @@ public class UIManager {
         float charBaseWidth = (float)fontTexture.getWidth() / FONT_COLS;
         float charScreenWidth = charBaseWidth * scale;
         return text.length() * charScreenWidth; // Total width is length * char width
+    }
+
+    /**
+     * Calculates the screen height of a single line of text based on the font texture
+     * and a given scale.
+     *
+     * @param scale The scaling factor.
+     * @return The height in pixels, or 0 if the font texture is not loaded.
+     */
+    public float getTextHeight(float scale) {
+        if (fontTexture == null || FONT_ROWS <= 0) return 0;
+        float charBaseHeight = (float)fontTexture.getHeight() / FONT_ROWS;
+        return charBaseHeight * scale;
     }
 
     /**

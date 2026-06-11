@@ -11,10 +11,11 @@ public class TankData extends Entity {
     private static final Logger logger = LoggerFactory.getLogger(TankData.class);
     public static final float SIZE = 30.0f;
     public static final float COLLISION_RADIUS = SIZE * 0.45f;
+    public static final int MAX_HIT_POINTS = 4;
 
     protected String playerName;
     protected Vector3f color = new Vector3f(1f, 1f, 1f);
-    protected int hitPoints = 1;
+    protected int hitPoints = MAX_HIT_POINTS;
     protected long lastShotTime = 0;
     protected long deathTimeMillis = 0;
 

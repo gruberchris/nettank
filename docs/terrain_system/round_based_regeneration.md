@@ -7,7 +7,7 @@ The terrain system supports automatic regeneration when starting new rounds, ens
 
 ### 1. Round Lifecycle
 The game follows this state flow:
-```
+```text
 WAITING → COUNTDOWN (terrain regenerates here) → PLAYING → ROUND_OVER → WAITING → ...
 ```
 
@@ -49,30 +49,30 @@ if (previousState == GameState.WAITING && newState == GameState.COUNTDOWN) {
 // Regeneration method
 private void regenerateTerrainForNewRound() {
     logger.info("Regenerating terrain for new round.");
-    
+
     // Generate new unique seed
     serverContext.terrainSeed = System.currentTimeMillis() ^ (mapWidth * 31L + mapHeight * 17L);
-    
+
     // Create terrain generator with new seed
     TerrainGenerator terrainGenerator = new TerrainGenerator(serverContext.terrainSeed);
-    
+
     // Regenerate terrain (delegates to ProceduralTerrainGenerator)
     terrainGenerator.generateProceduralTerrain(
-        serverContext.gameMapData, 
+        serverContext.gameMapData,
         BaseTerrainProfile.GRASSLAND,
         serverContext.terrainSeed
     );
-    
+
     // Encode terrain data
     String encodedTerrain = TerrainEncoder.encode(serverContext.gameMapData);
-    
+
     // Broadcast to all connected clients
     broadcast(String.format("%s;%d;%d;%s",
         NetworkProtocol.TERRAIN_DATA,
         serverContext.gameMapData.getWidthTiles(),
         serverContext.gameMapData.getHeightTiles(),
         encodedTerrain), -1);
-    
+
     logger.info("Broadcasted new terrain data to all clients ({} bytes)", encodedTerrain.length());
 }
 ```
@@ -120,7 +120,7 @@ private void initializeMapAndTextures() {
 Edit `GameServer.java` in both initialization and `regenerateTerrainForNewRound()`:
 ```java
 terrainGenerator.generateProceduralTerrain(
-    serverContext.gameMapData, 
+    serverContext.gameMapData,
     BaseTerrainProfile.GRASSLAND,  // Change to DESERT, DIRT_PLAINS, or MUDLANDS
     serverContext.terrainSeed
 );
@@ -163,13 +163,13 @@ To verify regeneration is working:
 1. **Start server** - New terrain generated with unique seed
 2. **First player joins** - Triggers WAITING → COUNTDOWN transition
 3. **Check server logs** for:
-   ```
+   ```text
    Regenerating terrain for new round.
    Terrain regeneration complete (new seed: 1731187245123, profile: GRASSLAND)
    Broadcasted new terrain data to all clients (22458 bytes)
    ```
 4. **Client receives terrain** - Check client logs:
-   ```
+   ```text
    Received TERRAIN_DATA: 100x100 tiles, 22458 bytes
    Terrain decoded and initialized
    ```

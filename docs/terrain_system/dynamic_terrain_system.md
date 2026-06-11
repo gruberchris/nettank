@@ -24,7 +24,7 @@ public class TerrainTile {
     private TerrainState currentState;   // Current state: NORMAL, BURNING, SCORCHED
     private long stateChangeTime;        // When state changed (for animations/spread)
     private float fireDuration;          // How long it burns
-    
+
     public TerrainTile(TerrainType baseType) {
         this.baseType = baseType;
         this.currentState = TerrainState.NORMAL;
@@ -45,15 +45,15 @@ public enum TerrainState {
     SCORCHED(0.9f, false),         // Burned out, permanent change
     FLOODED(0.5f, false),          // Wet, can't catch fire
     FROZEN(0.8f, false);           // Future: ice/snow mechanics
-    
+
     private final float speedModifier;    // How it affects movement
     private final boolean hasVisualEffect;  // Show fire/smoke particles
-    
+
     TerrainState(float speedModifier, boolean hasVisualEffect) {
         this.speedModifier = speedModifier;
         this.hasVisualEffect = hasVisualEffect;
     }
-    
+
     public float getSpeedModifier() { return speedModifier; }
     public boolean hasVisualEffect() { return hasVisualEffect; }
 }
@@ -64,30 +64,30 @@ public enum TerrainState {
 ```java
 public enum TerrainType {
     // Add flammability properties
-    GRASS(1.0f, true, VisionBlockingType.NONE, 
+    GRASS(1.0f, true, VisionBlockingType.NONE,
           Flammability.MEDIUM, 5000L),     // Burns for 5 seconds
-    
-    FOREST(0.7f, true, VisionBlockingType.PARTIAL, 
+
+    FOREST(0.7f, true, VisionBlockingType.PARTIAL,
            Flammability.HIGH, 15000L),     // Burns for 15 seconds
-    
-    DIRT(0.95f, true, VisionBlockingType.NONE, 
+
+    DIRT(0.95f, true, VisionBlockingType.NONE,
          Flammability.NONE, 0L),           // Can't burn
-    
-    MUD(0.6f, true, VisionBlockingType.NONE, 
+
+    MUD(0.6f, true, VisionBlockingType.NONE,
         Flammability.NONE, 0L),            // Can't burn (wet)
-    
-    STONE(1.0f, true, VisionBlockingType.NONE, 
+
+    STONE(1.0f, true, VisionBlockingType.NONE,
           Flammability.NONE, 0L),          // Can't burn
-    
-    SAND(0.85f, true, VisionBlockingType.NONE, 
+
+    SAND(0.85f, true, VisionBlockingType.NONE,
          Flammability.NONE, 0L);           // Can't burn
-    
+
     private final float speedModifier;
     private final boolean passable;
     private final VisionBlockingType visionBlocking;
     private final Flammability flammability;
     private final long burnDuration;  // Milliseconds it burns when ignited
-    
+
     // Constructor and getters...
 }
 
@@ -97,10 +97,10 @@ public enum Flammability {
     MEDIUM(0.4f, 0.15f),       // Normal grass
     HIGH(0.8f, 0.35f),         // Dry grass, forests
     EXTREME(1.0f, 0.5f);       // Future: oil spills, etc.
-    
+
     private final float ignitionChance;     // Chance to catch fire from nearby fire
     private final float spreadChance;       // Chance to spread to adjacent tiles
-    
+
     Flammability(float ignitionChance, float spreadChance) {
         this.ignitionChance = ignitionChance;
         this.spreadChance = spreadChance;
@@ -118,87 +118,87 @@ public class FireManager {
     private final Set<Vector2i> burningTiles;  // Currently burning tile coordinates
     private final Map<Vector2i, Long> ignitionTimes;  // When each tile caught fire
     private final Random random = new Random();
-    
+
     // Configuration
     private static final long FIRE_UPDATE_INTERVAL_MS = 500;  // Check spread every 0.5s
     private static final int FIRE_SPREAD_RADIUS = 1;          // Spreads to adjacent tiles
     private static final float EXPLOSION_IGNITION_RADIUS = 2.5f;  // Tiles affected by explosion
-    
+
     /**
      * Called when an explosion occurs - ignite nearby flammable terrain
      */
     public void onExplosion(Vector2f position, float radius) {
         int tileX = (int) (position.x / gameMap.getTileSize());
         int tileY = (int) (position.y / gameMap.getTileSize());
-        
+
         int radiusTiles = (int) Math.ceil(radius / gameMap.getTileSize());
-        
+
         // Check all tiles in explosion radius
         for (int y = tileY - radiusTiles; y <= tileY + radiusTiles; y++) {
             for (int x = tileX - radiusTiles; x <= tileX + radiusTiles; x++) {
                 if (!gameMap.isValidTile(x, y)) continue;
-                
+
                 float tileCenterX = (x + 0.5f) * gameMap.getTileSize();
                 float tileCenterY = (y + 0.5f) * gameMap.getTileSize();
                 float distToExplosion = position.distance(tileCenterX, tileCenterY);
-                
+
                 if (distToExplosion <= radius) {
                     attemptIgnition(x, y, 1.0f);  // 100% chance from direct explosion
                 }
             }
         }
     }
-    
+
     /**
      * Attempt to ignite a tile
      */
     public boolean attemptIgnition(int tileX, int tileY, float chanceMultiplier) {
         TerrainTile tile = gameMap.getTile(tileX, tileY);
-        
+
         // Already burning or not flammable
-        if (tile.getCurrentState().hasVisualEffect() || 
+        if (tile.getCurrentState().hasVisualEffect() ||
             tile.getBaseType().getFlammability() == Flammability.NONE) {
             return false;
         }
-        
+
         // Wet/flooded tiles can't burn
         if (tile.getCurrentState() == TerrainState.FLOODED) {
             return false;
         }
-        
+
         // Check ignition chance
         float ignitionChance = tile.getBaseType().getFlammability().getIgnitionChance();
         if (random.nextFloat() > ignitionChance * chanceMultiplier) {
             return false;  // Failed to ignite
         }
-        
+
         // Ignite!
         tile.setCurrentState(TerrainState.IGNITING);
         tile.setStateChangeTime(System.currentTimeMillis());
         tile.setFireDuration(tile.getBaseType().getBurnDuration());
-        
+
         burningTiles.add(new Vector2i(tileX, tileY));
         ignitionTimes.put(new Vector2i(tileX, tileY), System.currentTimeMillis());
-        
+
         // Network: Notify clients
         broadcastTerrainStateChange(tileX, tileY, TerrainState.IGNITING);
-        
+
         return true;
     }
-    
+
     /**
      * Update fire spread and burning tiles (call every frame or on a timer)
      */
     public void update(long currentTime) {
         Iterator<Vector2i> iterator = burningTiles.iterator();
-        
+
         while (iterator.hasNext()) {
             Vector2i tilePos = iterator.next();
             TerrainTile tile = gameMap.getTile(tilePos.x, tilePos.y);
-            
+
             long timeBurning = currentTime - tile.getStateChangeTime();
             long burnDuration = tile.getFireDuration();
-            
+
             // Update burning state
             if (timeBurning < 2000) {
                 // First 2 seconds: IGNITING
@@ -212,7 +212,7 @@ public class FireManager {
                     tile.setCurrentState(TerrainState.BURNING);
                     broadcastTerrainStateChange(tilePos.x, tilePos.y, TerrainState.BURNING);
                 }
-                
+
                 // Attempt to spread fire
                 if (timeBurning % FIRE_UPDATE_INTERVAL_MS < 50) {  // Check periodically
                     attemptFireSpread(tilePos.x, tilePos.y);
@@ -227,42 +227,42 @@ public class FireManager {
                 // Fire burned out - leave scorched earth
                 tile.setCurrentState(TerrainState.SCORCHED);
                 broadcastTerrainStateChange(tilePos.x, tilePos.y, TerrainState.SCORCHED);
-                
+
                 // Optionally: Change base terrain type
                 if (tile.getBaseType() == TerrainType.FOREST) {
                     tile.setBaseType(TerrainType.DIRT);  // Forest → cleared land
                 }
-                
+
                 iterator.remove();  // No longer actively burning
             }
         }
     }
-    
+
     /**
      * Attempt to spread fire to adjacent tiles
      */
     private void attemptFireSpread(int centerX, int centerY) {
         TerrainTile centerTile = gameMap.getTile(centerX, centerY);
         float spreadChance = centerTile.getBaseType().getFlammability().getSpreadChance();
-        
+
         // Check 8 adjacent tiles (or 4 for cardinal only)
         for (int dy = -1; dy <= 1; dy++) {
             for (int dx = -1; dx <= 1; dx++) {
                 if (dx == 0 && dy == 0) continue;  // Skip center
-                
+
                 int targetX = centerX + dx;
                 int targetY = centerY + dy;
-                
+
                 if (!gameMap.isValidTile(targetX, targetY)) continue;
-                
+
                 // Diagonal spread is slightly less likely
                 float distanceMultiplier = (Math.abs(dx) + Math.abs(dy) == 2) ? 0.7f : 1.0f;
-                
+
                 attemptIgnition(targetX, targetY, spreadChance * distanceMultiplier);
             }
         }
     }
-    
+
     /**
      * Network synchronization - send state change to all clients
      */
@@ -281,27 +281,27 @@ public class ClientGameMap {
     private final Map<TerrainType, Texture> baseTextures;
     private final Map<TerrainState, Texture> stateOverlayTextures;
     private final List<TerrainFireEffect> fireEffects;  // Per-tile fire animations
-    
+
     /**
      * Render terrain with state overlays
      */
     public void renderTerrain(Renderer renderer, Shader shader, Camera camera) {
         // ... culling setup ...
-        
+
         for (int y = startY; y < endY; y++) {
             for (int x = startX; x < endX; x++) {
                 TerrainTile tile = terrainGrid[x][y];
-                
+
                 float tileCenterX = (x + 0.5f) * tileSize;
                 float tileCenterY = (y + 0.5f) * tileSize;
-                
+
                 // 1. Render base terrain
                 Texture baseTexture = getBaseTexture(tile);
                 if (baseTexture != null) {
                     baseTexture.bind();
                     renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                 }
-                
+
                 // 2. Render state overlay (scorched marks, etc.)
                 if (tile.getCurrentState() == TerrainState.SCORCHED) {
                     Texture scorchedTexture = stateOverlayTextures.get(TerrainState.SCORCHED);
@@ -313,12 +313,12 @@ public class ClientGameMap {
                         shader.setUniform1f("u_alpha", 1.0f);
                     }
                 }
-                
+
                 // 3. Fire effects rendered separately in renderFireEffects()
             }
         }
     }
-    
+
     /**
      * Render fire effects on burning tiles
      */
@@ -326,19 +326,19 @@ public class ClientGameMap {
         for (int y = 0; y < mapData.getHeightTiles(); y++) {
             for (int x = 0; x < mapData.getWidthTiles(); x++) {
                 TerrainTile tile = terrainGrid[x][y];
-                
+
                 if (tile.getCurrentState().hasVisualEffect()) {
                     float tileCenterX = (x + 0.5f) * tileSize;
                     float tileCenterY = (y + 0.5f) * tileSize;
-                    
+
                     // Render fire animation
-                    renderFireForTile(x, y, tileCenterX, tileCenterY, 
+                    renderFireForTile(x, y, tileCenterX, tileCenterY,
                                      tile.getCurrentState(), renderer, shader);
                 }
             }
         }
     }
-    
+
     /**
      * Render animated fire for a specific burning tile
      */
@@ -346,11 +346,11 @@ public class ClientGameMap {
                                    TerrainState state, Renderer renderer, Shader shader) {
         // Reuse your existing FlameEffect system
         TerrainFireEffect fireEffect = getOrCreateFireEffect(x, y);
-        
+
         if (fireEffect != null && !fireEffect.isFinished()) {
             Texture currentFrame = fireEffect.getCurrentFrameTexture();
             currentFrame.bind();
-            
+
             // Vary intensity based on state
             float alpha = switch(state) {
                 case IGNITING -> 0.5f;
@@ -358,23 +358,23 @@ public class ClientGameMap {
                 case SMOLDERING -> 0.3f;
                 default -> 0.0f;
             };
-            
+
             shader.setUniform1f("u_alpha", alpha);
             renderer.drawQuad(worldX, worldY, tileSize, tileSize, 0, shader);
             shader.setUniform1f("u_alpha", 1.0f);
         }
     }
-    
+
     /**
      * Handle terrain state change from server
      */
     public void onTerrainStateChanged(int x, int y, TerrainState newState) {
         if (!isValidTile(x, y)) return;
-        
+
         TerrainTile tile = terrainGrid[x][y];
         tile.setCurrentState(newState);
         tile.setStateChangeTime(System.currentTimeMillis());
-        
+
         // Create fire effect if starting to burn
         if (newState.hasVisualEffect() && newState == TerrainState.IGNITING) {
             createFireEffect(x, y);
@@ -390,10 +390,10 @@ public class ClientGameMap {
 // In movement physics code
 public float getMovementSpeedAt(float x, float y) {
     TerrainTile tile = gameMap.getTileAt(x, y);
-    
+
     float baseSpeed = tile.getBaseType().getSpeedModifier();
     float stateSpeed = tile.getCurrentState().getSpeedModifier();
-    
+
     return baseSpeed * stateSpeed;  // Both affect movement
 }
 
@@ -406,16 +406,16 @@ public float getMovementSpeedAt(float x, float y) {
 ### Damage from Fire
 ```java
 public class ServerGameMap {
-    
+
     /**
      * Check if entity is in fire and apply damage
      */
     public void applyFireDamage(Entity entity, long deltaTime) {
         int tileX = (int) (entity.getX() / getTileSize());
         int tileY = (int) (entity.getY() / getTileSize());
-        
+
         TerrainTile tile = getTile(tileX, tileY);
-        
+
         if (tile.getCurrentState() == TerrainState.BURNING) {
             // Apply damage over time
             float damagePerSecond = 5.0f;  // 5 HP per second in fire
@@ -449,7 +449,7 @@ public class TerrainStateChangeMessage {
 // Optional: Batch multiple changes
 public class BatchTerrainStateChangeMessage {
     private List<TileStateChange> changes;
-    
+
     public static class TileStateChange {
         int x, y;
         TerrainState state;
@@ -466,7 +466,7 @@ public class BatchTerrainStateChangeMessage {
 
 ## Visual Effects Hierarchy
 
-```
+```text
 Rendering Order (bottom to top):
 1. Base terrain texture (grass, dirt, stone)
 2. Scorched overlay (permanent darkening)
@@ -486,14 +486,14 @@ public class FireConfig {
     public static final long GRASS_BURN_DURATION = 5000L;      // 5 seconds
     public static final long FOREST_BURN_DURATION = 15000L;    // 15 seconds
     public static final long DRY_GRASS_BURN_DURATION = 3000L;  // 3 seconds
-    
+
     // Spread rates
     public static final float GRASS_SPREAD_CHANCE = 0.15f;     // 15% per tick
     public static final float FOREST_SPREAD_CHANCE = 0.35f;    // 35% per tick
-    
+
     // Damage
     public static final float FIRE_DAMAGE_PER_SECOND = 5.0f;
-    
+
     // Explosion ignition
     public static final float EXPLOSION_IGNITION_RADIUS = 2.5f; // Tiles
 }
@@ -543,7 +543,7 @@ public class FireConfig {
 ## Example Scenarios
 
 ### Scenario 1: Grassland Explosion
-```
+```text
 Before:            After 5 sec:       After 15 sec:
 GGGGGGGGG          GGGGGGGGG          GGGGGGGGG
 GGGGGGGGG          GGFBFGGGG          GGBBBGGGG
@@ -555,7 +555,7 @@ G=Grass, X=Explosion, F=Igniting, B=Burning, S=Scorched
 ```
 
 ### Scenario 2: Forest Fire
-```
+```text
 Before:            After 10 sec:       After 30 sec:
 TTTTTTTTTT         TTTTTTTTTT          DDDDDDDDDD
 TTTTTTTTTT         TTFBBFTTTT          DDBSSBDDDD
@@ -567,11 +567,11 @@ T=Trees, X=Explosion, F=Igniting, B=Burning, S=Scorched, D=Dirt (cleared land)
 ```
 
 ### Scenario 3: Mixed Terrain (Fire Containment)
-```
+```text
 GGGGGGWWWWW
 GGGGGWWWWWW     Fire spreads through grass
 GGGGXWWWWWW  →  but stops at water
-GGGGGWWWWWW     
+GGGGGWWWWWW
 GGGGGGWWWWW
 
 G=Grass, W=Water, X=Explosion

@@ -1,5 +1,5 @@
-# Build stage - Using OpenJDK 21 (Java 21)
-FROM maven:3.9-eclipse-temurin-21 AS build
+# Build stage - Using OpenJDK 25 (Java 25)
+FROM maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /app
 
 # Create a minimal multi-module structure with just the modules we need
@@ -22,8 +22,8 @@ COPY nettank-server/src ./nettank-server/src
 # Build the application
 RUN mvn clean package -DskipTests
 
-# Runtime stage - Using OpenJDK 21 (Java 21) JRE
-FROM eclipse-temurin:21-jre
+# Runtime stage - Using OpenJDK 25 (Java 25) JRE
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 
 # Create a non-root user and group
