@@ -63,7 +63,7 @@ class GameClientTest {
 
     @Test
     void testParseMessage_NewPlayer() throws Exception {
-        String message = "NEW;42;100.5;200.3;1.57;Player1;1.0;0.5;0.0";
+        String message = "NEW;42;100.5;200.3;1.57;Player1;1.0;0.5;0.0;0.79";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
@@ -77,19 +77,20 @@ class GameClientTest {
             eq("Player1"),
             eq(1.0f),
             eq(0.5f),
-            eq(0.0f)
+            eq(0.0f),
+            eq(0.79f)
         );
     }
 
     @Test
     void testParseMessage_PlayerUpdate() throws Exception {
-        String message = "UPD;42;150.5;200.3;1.57";
+        String message = "UPD;42;150.5;200.3;1.57;0.79";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         method.invoke(gameClient, message);
         
-        verify(mockHandler).updateTankState(42, 150.5f, 200.3f, 1.57f, false);
+        verify(mockHandler).updateTankState(42, 150.5f, 200.3f, 1.57f, 0.79f, false);
     }
 
     @Test
@@ -173,13 +174,13 @@ class GameClientTest {
 
     @Test
     void testParseMessage_Respawn() throws Exception {
-        String message = "RSP;42;100.5;200.3;1.57";
+        String message = "RSP;42;100.5;200.3;1.57;2.5";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         method.invoke(gameClient, message);
         
-        verify(mockHandler).updateTankState(42, 100.5f, 200.3f, 1.57f, true);
+        verify(mockHandler).updateTankState(42, 100.5f, 200.3f, 1.57f, 2.5f, true);
     }
 
     @Test
@@ -225,20 +226,20 @@ class GameClientTest {
         method.setAccessible(true);
         
         assertDoesNotThrow(() -> method.invoke(gameClient, message));
-        verify(mockHandler, never()).addOrUpdateTank(anyInt(), anyFloat(), anyFloat(), 
-            anyFloat(), anyString(), anyFloat(), anyFloat(), anyFloat());
+        verify(mockHandler, never()).addOrUpdateTank(anyInt(), anyFloat(), anyFloat(),
+            anyFloat(), anyString(), anyFloat(), anyFloat(), anyFloat(), anyFloat());
     }
 
     @Test
     void testParseMessage_InvalidNumberFormat() throws Exception {
-        String message = "UPD;not-a-number;150.5;200.3;1.57";
+        String message = "UPD;not-a-number;150.5;200.3;1.57;0.0";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         
         // Should not throw, just log error
         assertDoesNotThrow(() -> method.invoke(gameClient, message));
-        verify(mockHandler, never()).updateTankState(anyInt(), anyFloat(), anyFloat(), anyFloat(), anyBoolean());
+        verify(mockHandler, never()).updateTankState(anyInt(), anyFloat(), anyFloat(), anyFloat(), anyFloat(), anyBoolean());
     }
 
     @Test
@@ -352,14 +353,14 @@ class GameClientTest {
 
     @Test
     void testParseMessage_MultipleDelimiters() throws Exception {
-        String message = "UPD;42;150.5;200.3;1.57;;extra";
+        String message = "UPD;42;150.5;200.3;1.57;0.79;extra";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         
         // Should parse successfully (extra parts ignored)
         assertDoesNotThrow(() -> method.invoke(gameClient, message));
-        verify(mockHandler).updateTankState(42, 150.5f, 200.3f, 1.57f, false);
+        verify(mockHandler).updateTankState(42, 150.5f, 200.3f, 1.57f, 0.79f, false);
     }
 
     @Test
@@ -376,24 +377,24 @@ class GameClientTest {
 
     @Test
     void testParseMessage_NegativeValues() throws Exception {
-        String message = "UPD;-1;-150.5;-200.3;-1.57";
+        String message = "UPD;-1;-150.5;-200.3;-1.57;-0.5";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         method.invoke(gameClient, message);
         
-        verify(mockHandler).updateTankState(-1, -150.5f, -200.3f, -1.57f, false);
+        verify(mockHandler).updateTankState(-1, -150.5f, -200.3f, -1.57f, -0.5f, false);
     }
 
     @Test
     void testParseMessage_ZeroValues() throws Exception {
-        String message = "UPD;0;0.0;0.0;0.0";
+        String message = "UPD;0;0.0;0.0;0.0;0.0";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
         method.invoke(gameClient, message);
         
-        verify(mockHandler).updateTankState(0, 0.0f, 0.0f, 0.0f, false);
+        verify(mockHandler).updateTankState(0, 0.0f, 0.0f, 0.0f, 0.0f, false);
     }
 
     @Test

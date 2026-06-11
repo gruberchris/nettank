@@ -355,18 +355,18 @@ public class GameServer {
         // Send all tanks and their lives to new player
         for (TankData tankData : serverContext.tanks.values()) {
             var tankColor = tankData.getColor();
-            handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
+            handler.sendMessage(String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f;%f",
                     NetworkProtocol.NEW_PLAYER, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(),
-                    tankData.getPlayerName(), tankColor.x(), tankColor.y(), tankColor.z()));
+                    tankData.getPlayerName(), tankColor.x(), tankColor.y(), tankColor.z(), tankData.getTurretRotation()));
             handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed));
         }
 
         logger.info("Sent existing player's tanks to new player ID {}: {}", playerId, handler.getSocket().getInetAddress().getHostAddress());
 
         // Inform others about new player and lives
-        String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f",
+        String newPlayerMsg = String.format("%s;%d;%f;%f;%f;%s;%f;%f;%f;%f",
                 NetworkProtocol.NEW_PLAYER, newTankData.getPlayerId(), newTankData.getX(), newTankData.getY(), newTankData.getRotation(),
-                newTankData.getPlayerName(), newTankData.getColor().x(), newTankData.getColor().y(), newTankData.getColor().z());
+                newTankData.getPlayerName(), newTankData.getColor().x(), newTankData.getColor().y(), newTankData.getColor().z(), newTankData.getTurretRotation());
         String livesMsg = String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, newTankData.getPlayerId(), totalRespawnsAllowed);
         broadcast(newPlayerMsg, playerId);
         broadcast(livesMsg, playerId);
@@ -513,6 +513,13 @@ public class GameServer {
                 }
             }
 
+            // Turret rotates independently of the hull (positive input = clockwise/right)
+            float turretTurnInput = tankData.getTurretTurnInput();
+            if (turretTurnInput != 0) {
+                tankData.setTurretRotation(tankData.getTurretRotation() - turretTurnInput * stats.turretTurnSpeed() * deltaTime);
+                stateChangedThisTick = true;
+            }
+
             float moveAmount = 0;
             if (tankData.isMovingForward()) moveAmount = stats.moveSpeed() * terrainSpeedModifier * deltaTime;
             else if (tankData.isMovingBackward()) moveAmount = -stats.moveSpeed() * terrainSpeedModifier * deltaTime * stats.backwardSpeedFactor();
@@ -629,7 +636,7 @@ public class GameServer {
                     serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
 
                     Vector2f spawnPos = tankData.getPosition();
-                    broadcast(String.format("%s;%d;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y, tankData.getRotation()), -1);
+                    broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), spawnPos.x, spawnPos.y, tankData.getRotation(), tankData.getTurretRotation()), -1);
 
                     int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(tankData.getPlayerId());
                     broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), respawnsRemaining), -1);
@@ -770,6 +777,10 @@ public class GameServer {
 
     // Process player movement input and set the tank's movement state
     public synchronized void handlePlayerMovementInput(int playerId, boolean w, boolean s, boolean a, boolean d) {
+        handlePlayerMovementInput(playerId, w, s, a, d, 0.0f);
+    }
+
+    public synchronized void handlePlayerMovementInput(int playerId, boolean w, boolean s, boolean a, boolean d, float turretTurn) {
         if (serverContext.currentGameState != GameState.PLAYING) {
             logger.warn("Unable to process tank movement input for playerId: {} because the game is not in PLAYING state.", playerId);
             return;
@@ -787,9 +798,9 @@ public class GameServer {
             return;
         }
 
-        tankData.setInputState(w, s, a, d);
+        tankData.setInputState(w, s, a, d, turretTurn);
 
-        logger.debug("Processed movement input for PlayerId: {} input controls state was -> w:{}, s:{}, a:{}, d:{}", playerId, w, s, a, d);
+        logger.debug("Processed movement input for PlayerId: {} input controls state was -> w:{}, s:{}, a:{}, d:{}, turretTurn:{}", playerId, w, s, a, d, turretTurn);
     }
 
     // Process player main weapon shoot input and shoot a bullet if possible
@@ -837,7 +848,8 @@ public class GameServer {
 
         tankData.recordShot(currentTime);
 
-        float angleRad = (float) Math.toRadians(tankData.getRotation());
+        // Shots fire along the turret, not the hull
+        float angleRad = (float) Math.toRadians(tankData.getTurretRotation());
         float dirX = (float) -Math.sin(angleRad);
         float dirY = (float) Math.cos(angleRad);
 
@@ -848,7 +860,7 @@ public class GameServer {
         Vector2f position = new Vector2f(startX, startY);
         Vector2f velocity = new Vector2f(dirX, dirY).normalize().mul(stats.bulletSpeed());
 
-        float rotation = tankData.getRotation();
+        float rotation = tankData.getTurretRotation();
         UUID bulletId = UUID.randomUUID();
 
         // Create BulletData object
@@ -1026,7 +1038,7 @@ public class GameServer {
 
         for(TankData tankData : serverContext.tanks.values()) {
             serverContext.gameMode.handlePlayerRespawn(serverContext, tankData.getPlayerId(), tankData);
-            broadcast(String.format("%s;%d;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
+            broadcast(String.format("%s;%d;%f;%f;%f;%f", NetworkProtocol.RESPAWN, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(), tankData.getTurretRotation()), -1);
             broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, tankData.getPlayerId(), totalRespawnsAllowed), -1);
         }
     }
@@ -1107,8 +1119,8 @@ public class GameServer {
                 continue;
             }
 
-            broadcast(String.format("%s;%d;%f;%f;%f",
-                    NetworkProtocol.PLAYER_UPDATE, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation()), -1);
+            broadcast(String.format("%s;%d;%f;%f;%f;%f",
+                    NetworkProtocol.PLAYER_UPDATE, tankData.getPlayerId(), tankData.getX(), tankData.getY(), tankData.getRotation(), tankData.getTurretRotation()), -1);
         }
     }
 

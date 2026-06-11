@@ -9,6 +9,7 @@ public class ClientTank extends ClientEntity {
     protected String name;
     protected Vector3f color;
     protected int hitPoints;
+    protected float turretRotation;
     protected long cooldownRemainingMs = 0;
     protected long cooldownReceivedTime = 0;
 
@@ -17,6 +18,7 @@ public class ClientTank extends ClientEntity {
         this.name = data.getPlayerName();
         this.color = data.getColor();
         this.hitPoints = data.getHitPoints();
+        this.turretRotation = data.getTurretRotation();
     }
 
     public String getName() { return this.name; }
@@ -24,6 +26,8 @@ public class ClientTank extends ClientEntity {
     public int getHitPoints() { return this.hitPoints; }
     public void setHitPoints(int hitPoints) { this.hitPoints = hitPoints; }
     public void applyDamage(int damage) { this.hitPoints = Math.max(0, this.hitPoints - damage); }
+    public float getTurretRotation() { return this.turretRotation; }
+    public void setTurretRotation(float turretRotation) { this.turretRotation = turretRotation; }
     
     public void setCooldown(long cooldownMs) {
         this.cooldownRemainingMs = cooldownMs;
@@ -38,10 +42,11 @@ public class ClientTank extends ClientEntity {
     }
 
     // TODO: re-evaluate if this is really necessary or if there is a better way to update state on PLAYER_UPDATE
-    public void HandlerPlayerUpdateMessage(Vector2f position, float rotation)
+    public void HandlerPlayerUpdateMessage(Vector2f position, float rotation, float turretRotation)
     {
         this.position.set(position);
         this.rotation = rotation;
+        this.turretRotation = turretRotation;
     }
 
     @Override
@@ -61,6 +66,7 @@ public class ClientTank extends ClientEntity {
             this.position = updatedTankData.getPosition();
             this.velocity = updatedTankData.getVelocity();
             this.rotation = updatedTankData.getRotation();
+            this.turretRotation = updatedTankData.getTurretRotation();
             this.hitPoints = updatedTankData.getHitPoints();
             this.color = updatedTankData.getColor();
             this.isDestroyed = updatedTankData.isDestroyed();

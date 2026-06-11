@@ -431,7 +431,7 @@ public class ClientHandler implements Runnable {
     }
 
     private void handleInputMessage(String[] parts) {
-        if (parts.length < 5) {
+        if (parts.length < 6) {
             logger.warn("Malformed INPUT message from client {}: missing parts", playerId);
             return;
         }
@@ -441,7 +441,8 @@ public class ClientHandler implements Runnable {
             boolean s = Boolean.parseBoolean(parts[2]);
             boolean a = Boolean.parseBoolean(parts[3]);
             boolean d = Boolean.parseBoolean(parts[4]);
-            server.handlePlayerMovementInput(playerId, w, s, a, d);
+            float turretTurn = Float.parseFloat(parts[5]);
+            server.handlePlayerMovementInput(playerId, w, s, a, d, turretTurn);
         } catch (Exception e) {
             logger.error("Error parsing INPUT parameters from client {}", playerId, e);
         }

@@ -13,8 +13,8 @@ public interface NetworkCallbackHandler {
     void setGameState(GameState state, long timeData);
     void addAnnouncement(String message);
     // Entity/World Updates
-    void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b);
-    void updateTankState(int id, float x, float y, float rotation, boolean isRespawn);
+    void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, float turretRotation);
+    void updateTankState(int id, float x, float y, float rotation, float turretRotation, boolean isRespawn);
     void removeTank(int id);
     void updatePlayerLives(int playerId, int lives);
     void spawnBullet(UUID bulletId, int ownerId, float x, float y, float dirX, float dirY);

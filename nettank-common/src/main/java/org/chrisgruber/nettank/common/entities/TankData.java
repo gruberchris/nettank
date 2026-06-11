@@ -19,11 +19,16 @@ public class TankData extends Entity {
     protected long lastShotTime = 0;
     protected long deathTimeMillis = 0;
 
+    // Turret aims independently of the hull
+    protected float turretRotation = 0.0f;
+
     // Movement input state
     protected volatile boolean movingForward = false;
     protected volatile boolean movingBackward = false;
     protected volatile boolean turningLeft = false;
     protected volatile boolean turningRight = false;
+    // Rate-based turret rotation input in [-1.0, 1.0]; positive turns right (clockwise)
+    protected volatile float turretTurnInput = 0.0f;
 
     public TankData() {
         super(0, new Vector2f(), SIZE, SIZE, new Vector2f(), 0.0f, new CapsuleCollider(new Vector2f(), SIZE, COLLISION_RADIUS, 0.0f));
@@ -73,12 +78,29 @@ public class TankData extends Entity {
     public void setDeathTimeMillis(long deathTimeMillis) { this.deathTimeMillis = deathTimeMillis; }
     public void setLastShotTime(long lastShotTime) { this.lastShotTime = lastShotTime; }
 
+    public float getTurretRotation() { return turretRotation; }
+
+    public void setTurretRotation(float turretRotation) {
+        this.turretRotation = normalizeRotationInDegrees(turretRotation);
+    }
+
+    public float getTurretTurnInput() { return turretTurnInput; }
+
+    public void setTurretTurnInput(float turretTurnInput) {
+        this.turretTurnInput = Math.max(-1.0f, Math.min(1.0f, turretTurnInput));
+    }
+
     // Set input flags (called by ClientHandler thread)
     public void setInputState(boolean forward, boolean backward, boolean left, boolean right) {
+        setInputState(forward, backward, left, right, 0.0f);
+    }
+
+    public void setInputState(boolean forward, boolean backward, boolean left, boolean right, float turretTurn) {
         this.movingForward = forward;
         this.movingBackward = backward;
         this.turningLeft = left;
         this.turningRight = right;
+        setTurretTurnInput(turretTurn);
     }
 
     // Record shot time (called by GameServer)
@@ -89,19 +111,22 @@ public class TankData extends Entity {
     // --- Methods used BY CLIENT NETWORK to update state from messages ---
 
     // Update state based on NEW_PLAYER or full update (lives included)
-    public void updateFromServer(int id, String playerName, float x, float y, float rot, float r, float g, float b) {
+    public void updateFromServer(int id, String playerName, float x, float y, float rot, float r, float g, float b, float turretRot) {
         this.playerId = id;
         this.playerName = playerName;
         this.setPosition(new Vector2f(x, y));
         float rotation = normalizeRotationInDegrees(rot);
         this.setRotation(rotation);
         this.color.set(r, g, b);
+        this.turretRotation = normalizeRotationInDegrees(turretRot);
     }
 
     public void setForSpawn(Vector2f spawnPoint, float rotation, int hitPoints, long deathTimeMillis, long lastShotTime) {
         this.setPosition(spawnPoint);
         this.setRotation(rotation);
         this.collider.setPosition(spawnPoint);
+        this.turretRotation = this.rotation; // turret starts aligned with the hull
+        this.turretTurnInput = 0.0f;
         this.hitPoints = hitPoints;
         this.deathTimeMillis = deathTimeMillis;
         this.lastShotTime = lastShotTime;

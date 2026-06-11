@@ -196,7 +196,8 @@ public class GameClient implements Runnable {
                         var msg = NetworkMessage.NewPlayer.parse(parts);
                         networkCallbackHandler.addOrUpdateTank(
                             msg.id(), msg.x(), msg.y(), msg.rotation(),
-                            msg.name(), msg.colorR(), msg.colorG(), msg.colorB()
+                            msg.name(), msg.colorR(), msg.colorG(), msg.colorB(),
+                            msg.turretRotation()
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed NEW_PLAYER message: {}", e.getMessage());
@@ -206,7 +207,7 @@ public class GameClient implements Runnable {
                     try {
                         var msg = NetworkMessage.PlayerUpdate.parse(parts);
                         networkCallbackHandler.updateTankState(
-                            msg.id(), msg.x(), msg.y(), msg.rotation(), false
+                            msg.id(), msg.x(), msg.y(), msg.rotation(), msg.turretRotation(), false
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed PLAYER_UPDATE message: {}", e.getMessage());
@@ -297,7 +298,7 @@ public class GameClient implements Runnable {
                         var msg = NetworkMessage.Respawn.parse(parts);
                         logger.debug("Received RESPAWN for player {}", msg.id());
                         networkCallbackHandler.updateTankState(
-                            msg.id(), msg.x(), msg.y(), msg.rotation(), true
+                            msg.id(), msg.x(), msg.y(), msg.rotation(), msg.turretRotation(), true
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed RESPAWN message: {}", e.getMessage());
@@ -408,12 +409,12 @@ public class GameClient implements Runnable {
         }
     }
 
-    // Send movement input state
-    public void sendInput(boolean w, boolean s, boolean a, boolean d) {
+    // Send movement input state (turretTurn is the analog turret rotation rate in [-1, 1])
+    public void sendInput(boolean w, boolean s, boolean a, boolean d, float turretTurn) {
         long now = System.currentTimeMillis();
 
         if (now - lastInputSendTime >= INPUT_SEND_INTERVAL_MS) {
-            sendMessage(String.format("%s;%b;%b;%b;%b", NetworkProtocol.INPUT, w, s, a, d));
+            sendMessage(String.format("%s;%b;%b;%b;%b;%.2f", NetworkProtocol.INPUT, w, s, a, d, turretTurn));
             lastInputSendTime = now;
         }
     }

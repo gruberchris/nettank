@@ -25,6 +25,8 @@ public class InputHandler {
     private int keyBackward;
     private int keyRotateLeft;
     private int keyRotateRight;
+    private int keyTurretLeft;
+    private int keyTurretRight;
     private int keyShoot;
     private int keyExit;
     
@@ -37,6 +39,7 @@ public class InputHandler {
     private int gamepadForwardAxis;
     private int gamepadBackwardAxis;
     private int gamepadRotateAxis;
+    private int gamepadTurretAxis;
     private int gamepadShootButton;
     private float stickDeadzone;
     private float triggerThreshold;
@@ -63,13 +66,16 @@ public class InputHandler {
         keyBackward = InputConfig.stringToKeyCode(config.keyboard.backward);
         keyRotateLeft = InputConfig.stringToKeyCode(config.keyboard.rotateLeft);
         keyRotateRight = InputConfig.stringToKeyCode(config.keyboard.rotateRight);
+        keyTurretLeft = InputConfig.stringToKeyCode(config.keyboard.turretLeft);
+        keyTurretRight = InputConfig.stringToKeyCode(config.keyboard.turretRight);
         keyShoot = InputConfig.stringToKeyCode(config.keyboard.shoot);
         keyExit = InputConfig.stringToKeyCode(config.keyboard.exit);
-        
+
         // Map gamepad controls
         gamepadForwardAxis = InputConfig.stringToGamepadAxis(config.gamepad.forward);
         gamepadBackwardAxis = InputConfig.stringToGamepadAxis(config.gamepad.backward);
         gamepadRotateAxis = InputConfig.stringToGamepadAxis(config.gamepad.rotateAxis);
+        gamepadTurretAxis = InputConfig.stringToGamepadAxis(config.gamepad.turretAxis);
         gamepadShootButton = InputConfig.stringToGamepadButton(config.gamepad.shoot);
         
         // Load gamepad sensitivity settings
@@ -236,6 +242,31 @@ public class InputHandler {
         return 0.0f;
     }
     
+    /**
+     * Returns the turret rotation input in [-1.0, 1.0] (positive = turn right/clockwise).
+     * Keyboard turret keys give digital values; gamepad turret axis gives analog values.
+     */
+    public float getTurretRotationInput() {
+        // Keyboard digital input
+        if (isKeyDown(keyTurretLeft) || isKeyDown(keyTurretRight)) {
+            if (isKeyDown(keyTurretLeft)) return -1.0f;
+            return 1.0f;
+        }
+
+        // Gamepad analog input
+        if (gamepadConnected) {
+            float stickValue = getGamepadAxis(gamepadTurretAxis);
+
+            if (Math.abs(stickValue) < stickDeadzone) {
+                return 0.0f;
+            }
+
+            return Math.max(-1.0f, Math.min(1.0f, stickValue * rotationSensitivity));
+        }
+
+        return 0.0f;
+    }
+
     /**
      * Returns true if shoot input is pressed (configured key or button)
      */

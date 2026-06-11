@@ -190,7 +190,7 @@ class NetworkMessageTest {
     
     @Test
     void testNewPlayerParse_Valid() {
-        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "Player1", "1.0", "0.5", "0.0"};
+        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "Player1", "1.0", "0.5", "0.0", "0.79"};
         var msg = NetworkMessage.NewPlayer.parse(parts);
         
         assertEquals(42, msg.id());
@@ -201,6 +201,7 @@ class NetworkMessageTest {
         assertEquals(1.0f, msg.colorR(), 0.001f);
         assertEquals(0.5f, msg.colorG(), 0.001f);
         assertEquals(0.0f, msg.colorB(), 0.001f);
+        assertEquals(0.79f, msg.turretRotation(), 0.001f);
     }
     
     @Test
@@ -214,13 +215,14 @@ class NetworkMessageTest {
     
     @Test
     void testPlayerUpdateParse_Valid() {
-        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57"};
+        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57", "0.79"};
         var msg = NetworkMessage.PlayerUpdate.parse(parts);
         
         assertEquals(42, msg.id());
         assertEquals(150.5f, msg.x(), 0.001f);
         assertEquals(200.3f, msg.y(), 0.001f);
         assertEquals(1.57f, msg.rotation(), 0.001f);
+        assertEquals(0.79f, msg.turretRotation(), 0.001f);
     }
     
     // ========== PlayerLeft Tests ==========
@@ -285,13 +287,14 @@ class NetworkMessageTest {
     
     @Test
     void testRespawnParse_Valid() {
-        String[] parts = {"RSP", "42", "100.5", "200.3", "1.57"};
+        String[] parts = {"RSP", "42", "100.5", "200.3", "1.57", "2.5"};
         var msg = NetworkMessage.Respawn.parse(parts);
         
         assertEquals(42, msg.id());
         assertEquals(100.5f, msg.x(), 0.001f);
         assertEquals(200.3f, msg.y(), 0.001f);
         assertEquals(1.57f, msg.rotation(), 0.001f);
+        assertEquals(2.5f, msg.turretRotation(), 0.001f);
     }
     
     // ========== RoundOver Tests ==========
@@ -369,7 +372,7 @@ class NetworkMessageTest {
     
     private static Stream<Arguments> provideInvalidNumberFormats() {
         return Stream.of(
-            Arguments.of(new String[]{"UPD", "not-a-number", "150.5", "200.3", "1.57"}, 
+            Arguments.of(new String[]{"UPD", "not-a-number", "150.5", "200.3", "1.57", "0.0"}, 
                         NetworkMessage.PlayerUpdate.class),
             Arguments.of(new String[]{"LIV", "42", "not-a-number"}, 
                         NetworkMessage.PlayerLives.class)
@@ -380,7 +383,7 @@ class NetworkMessageTest {
     
     @Test
     void testRecordsAreImmutable() {
-        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57"};
+        String[] parts = {"UPD", "42", "150.5", "200.3", "1.57", "0.79"};
         var msg1 = NetworkMessage.PlayerUpdate.parse(parts);
         var msg2 = NetworkMessage.PlayerUpdate.parse(parts);
         
@@ -403,7 +406,7 @@ class NetworkMessageTest {
     
     @Test
     void testNegativeNumbers() {
-        String[] parts = {"UPD", "-1", "-150.5", "-200.3", "-1.57"};
+        String[] parts = {"UPD", "-1", "-150.5", "-200.3", "-1.57", "-0.5"};
         var msg = NetworkMessage.PlayerUpdate.parse(parts);
         
         assertEquals(-1, msg.id());
@@ -414,7 +417,7 @@ class NetworkMessageTest {
     
     @Test
     void testZeroValues() {
-        String[] parts = {"UPD", "0", "0.0", "0.0", "0.0"};
+        String[] parts = {"UPD", "0", "0.0", "0.0", "0.0", "0.0"};
         var msg = NetworkMessage.PlayerUpdate.parse(parts);
         
         assertEquals(0, msg.id());
@@ -434,7 +437,7 @@ class NetworkMessageTest {
     
     @Test
     void testEmptyStringInMessage() {
-        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "", "1.0", "0.5", "0.0"};
+        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "", "1.0", "0.5", "0.0", "0.0"};
         var msg = NetworkMessage.NewPlayer.parse(parts);
         
         assertEquals("", msg.name());

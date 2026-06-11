@@ -102,6 +102,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean prevKeyS = false;
     private boolean prevKeyA = false;
     private boolean prevKeyD = false;
+    private float prevTurretTurn = 0.0f;
 
     // Config
     public static final float VIEW_RANGE = 400.0f;
@@ -587,9 +588,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             if (isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) {
                 shader.setUniform3f("u_tintColor", tank.getColor());
 
+                // Hull at hull rotation
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
                         TankData.SIZE, TankData.SIZE,
                         tank.getRotation(), shader);
+
+                // Turret layered on top at its own rotation.
+                // PLACEHOLDER ART: a scaled-down tank sprite stands in for a dedicated
+                // turret texture (turret.png) over a barrel-less hull.
+                renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
+                        TankData.SIZE * 0.65f, TankData.SIZE * 0.65f,
+                        tank.getTurretRotation(), shader);
             }
         }
 
@@ -874,13 +883,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             boolean keyA = inputHandler.isRotateLeftPressed();
             boolean keyD = inputHandler.isRotateRightPressed();
             boolean keySpace = inputHandler.isShootPressed();
+            float turretTurn = inputHandler.getTurretRotationInput();
+
+            // Quantize to the 2 decimals sent on the wire so analog jitter doesn't spam sends
+            float quantizedTurretTurn = Math.round(turretTurn * 100.0f) / 100.0f;
 
             // Check if movement input state has changed
-            if (keyW != prevKeyW || keyS != prevKeyS || keyA != prevKeyA || keyD != prevKeyD) {
+            if (keyW != prevKeyW || keyS != prevKeyS || keyA != prevKeyA || keyD != prevKeyD
+                    || quantizedTurretTurn != prevTurretTurn) {
                 // Send only when input state changes
                 if (gameClient != null && gameClient.isConnected()) {
-                    logger.debug("Sending movement input: W:{} S:{} A:{} D:{}", keyW, keyS, keyA, keyD);
-                    gameClient.sendInput(keyW, keyS, keyA, keyD);
+                    logger.debug("Sending movement input: W:{} S:{} A:{} D:{} turret:{}", keyW, keyS, keyA, keyD, quantizedTurretTurn);
+                    gameClient.sendInput(keyW, keyS, keyA, keyD, quantizedTurretTurn);
                 }
 
                 // Update previous state
@@ -888,6 +902,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 prevKeyS = keyS;
                 prevKeyA = keyA;
                 prevKeyD = keyD;
+                prevTurretTurn = quantizedTurretTurn;
             }
 
             // Handle shooting command
@@ -1007,11 +1022,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
-    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b) {
+    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, float turretRotation) {
         ClientTank tank = tanks.get(id);
 
         TankData data = new TankData();
-        data.updateFromServer(id, name, x, y, rotation, r, g, b);
+        data.updateFromServer(id, name, x, y, rotation, r, g, b, turretRotation);
 
         if (tank == null) {
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
@@ -1061,7 +1076,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     // Called when PLAYER_UPDATE is received
-    public void updateTankState(int id, float x, float y, float rotation, boolean isRespawn) {
+    public void updateTankState(int id, float x, float y, float rotation, float turretRotation, boolean isRespawn) {
         ClientTank tank = tanks.get(id);
 
         if (tank == null) {
@@ -1069,7 +1084,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             return;
         }
 
-        if (tank.getPosition().x() == x && tank.getPosition().y() == y && tank.getRotation() == rotation) {
+        if (tank.getPosition().x() == x && tank.getPosition().y() == y
+                && tank.getRotation() == rotation && tank.getTurretRotation() == turretRotation) {
             // no change in state
             logger.trace("No state change for tank ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
             return;
@@ -1090,7 +1106,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());
 
-        tank.HandlerPlayerUpdateMessage(new Vector2f(x, y), rotation);
+        tank.HandlerPlayerUpdateMessage(new Vector2f(x, y), rotation, turretRotation);
 
         logger.trace("Updated tank state for player ID: {} x: {}, y: {}, rotation: {}", id, x, y, rotation);
     }

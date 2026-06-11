@@ -228,10 +228,11 @@ public sealed interface NetworkMessage {
         String name,
         float colorR,
         float colorG,
-        float colorB
+        float colorB,
+        float turretRotation
     ) implements NetworkMessage {
         public static NewPlayer parse(String[] parts) {
-            if (parts.length < 9) {
+            if (parts.length < 10) {
                 throw new IllegalArgumentException("Invalid NewPlayer message: insufficient parts");
             }
             return new NewPlayer(
@@ -242,26 +243,29 @@ public sealed interface NetworkMessage {
                 parts[5],
                 Float.parseFloat(parts[6]),
                 Float.parseFloat(parts[7]),
-                Float.parseFloat(parts[8])
+                Float.parseFloat(parts[8]),
+                Float.parseFloat(parts[9])
             );
         }
     }
-    
+
     record PlayerUpdate(
         int id,
         float x,
         float y,
-        float rotation
+        float rotation,
+        float turretRotation
     ) implements NetworkMessage {
         public static PlayerUpdate parse(String[] parts) {
-            if (parts.length < 5) {
+            if (parts.length < 6) {
                 throw new IllegalArgumentException("Invalid PlayerUpdate message: insufficient parts");
             }
             return new PlayerUpdate(
                 Integer.parseInt(parts[1]),
                 Float.parseFloat(parts[2]),
                 Float.parseFloat(parts[3]),
-                Float.parseFloat(parts[4])
+                Float.parseFloat(parts[4]),
+                Float.parseFloat(parts[5])
             );
         }
     }
@@ -338,17 +342,19 @@ public sealed interface NetworkMessage {
         int id,
         float x,
         float y,
-        float rotation
+        float rotation,
+        float turretRotation
     ) implements NetworkMessage {
         public static Respawn parse(String[] parts) {
-            if (parts.length < 5) {
+            if (parts.length < 6) {
                 throw new IllegalArgumentException("Invalid Respawn message: insufficient parts");
             }
             return new Respawn(
                 Integer.parseInt(parts[1]),
                 Float.parseFloat(parts[2]),
                 Float.parseFloat(parts[3]),
-                Float.parseFloat(parts[4])
+                Float.parseFloat(parts[4]),
+                Float.parseFloat(parts[5])
             );
         }
     }

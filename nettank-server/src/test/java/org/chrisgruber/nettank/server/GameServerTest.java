@@ -491,6 +491,65 @@ class GameServerTest {
     }
 
     @Test
+    void testTurretRotatesIndependentlyOfHull() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        tank.setRotation(0f);
+        tank.setTurretRotation(0f);
+
+        // Turret input only: +1.0 turns the turret right (clockwise) at 90 deg/s
+        gameServer.handlePlayerMovementInput(0, false, false, false, false, 1.0f);
+        gameServer.updateGameLogic(1.0f);
+
+        assertEquals(0f, tank.getRotation(), 0.01f); // hull unchanged
+        assertEquals(270f, tank.getTurretRotation(), 0.01f); // 0 - 90, normalized
+
+        // Hull turn input only: turret keeps its rotation
+        gameServer.handlePlayerMovementInput(0, false, false, true, false, 0.0f);
+        gameServer.updateGameLogic(1.0f);
+
+        assertEquals(50f, tank.getRotation(), 0.01f);
+        assertEquals(270f, tank.getTurretRotation(), 0.01f);
+    }
+
+    @Test
+    void testBulletFiresAlongTurretRotation() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+        tank.setRotation(0f);
+        tank.setTurretRotation(90f); // hull facing +Y, turret facing -X
+
+        gameServer.handlePlayerShootMainWeaponInput(0);
+
+        assertEquals(1, context.bullets.size());
+        var bullet = context.bullets.get(0);
+        // direction for 90 deg: dirX = -sin(90) = -1, dirY = cos(90) = 0
+        assertEquals(-GameServer.BULLET_SPEED, bullet.getXVelocity(), 0.01f);
+        assertEquals(0f, bullet.getYVelocity(), 0.01f);
+    }
+
+    @Test
     void testUnlimitedAmmoModeSendsNoAmmoMessages() throws Exception {
         when(mockClientHandler.getSocket()).thenReturn(mockSocket);
         when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
