@@ -1976,12 +1976,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 break;
             case WAITING:
             case COUNTDOWN:
-            case CONNECTING:
+                // Lobby / tank selection is its own mode, NOT spectating: the round
+                // simply hasn't started yet. Keep the normal HUD (health bar, armor
+                // diagram, type label) visible behind the selection screen.
                 this.roundStartTimeMillis = 0;
                 this.finalElapsedTimeMillis = -1;
                 bullets.clear(); // Clear bullets while not actively playing
-                isSpectating = true; // Spectate while waiting/connecting/counting
-                logger.info("Game state {}. Spectating forced.", state);
+                isSpectating = false;
+                logger.info("Game state {}. In lobby (not spectating).", state);
+                break;
+            case CONNECTING:
+                this.roundStartTimeMillis = 0;
+                this.finalElapsedTimeMillis = -1;
+                bullets.clear();
+                isSpectating = true; // No tank exists yet while connecting
+                logger.info("Game state CONNECTING. Spectating forced.");
                 break;
         }
     }
