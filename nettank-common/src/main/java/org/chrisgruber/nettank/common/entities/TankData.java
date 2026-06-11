@@ -22,6 +22,9 @@ public class TankData extends Entity {
     // Turret aims independently of the hull
     protected float turretRotation = 0.0f;
 
+    // Selected chassis type; stats are resolved server-side via the game mode
+    protected TankType tankType = TankType.STANDARD;
+
     // Movement input state
     protected volatile boolean movingForward = false;
     protected volatile boolean movingBackward = false;
@@ -77,6 +80,12 @@ public class TankData extends Entity {
     public void setHitPoints(int hitPoints) { this.hitPoints = hitPoints; }
     public void setDeathTimeMillis(long deathTimeMillis) { this.deathTimeMillis = deathTimeMillis; }
     public void setLastShotTime(long lastShotTime) { this.lastShotTime = lastShotTime; }
+
+    public TankType getTankType() { return tankType; }
+
+    public void setTankType(TankType tankType) {
+        this.tankType = tankType != null ? tankType : TankType.STANDARD;
+    }
 
     public float getTurretRotation() { return turretRotation; }
 

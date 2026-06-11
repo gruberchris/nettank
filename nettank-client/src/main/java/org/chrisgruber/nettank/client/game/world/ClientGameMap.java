@@ -155,7 +155,7 @@ public class ClientGameMap {
                     
                     if (baseTexture != null) {
                         baseTexture.bind();
-                        shader.setUniform3f("u_tintColor", tint, tint, tint);
+                        shader.setUniform4f("u_tintColor", tint, tint, tint, 1.0f);
                         renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                     }
                     
@@ -166,7 +166,7 @@ public class ClientGameMap {
                         
                         if (overlayTexture != null) {
                             overlayTexture.bind();
-                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            shader.setUniform4f("u_tintColor", tint, tint, tint, 1.0f);
                             renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                         }
                     }
@@ -178,7 +178,7 @@ public class ClientGameMap {
                         
                         if (visualTexture != null) {
                             visualTexture.bind();
-                            shader.setUniform3f("u_tintColor", tint, tint, tint);
+                            shader.setUniform4f("u_tintColor", tint, tint, tint, 1.0f);
                             renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                         }
                     }
@@ -188,7 +188,7 @@ public class ClientGameMap {
                         Texture scorchedTexture = stateOverlayTextures.get(TerrainState.SCORCHED);
                         if (scorchedTexture != null) {
                             scorchedTexture.bind();
-                            shader.setUniform3f("u_tintColor", tint * 0.7f, tint * 0.7f, tint * 0.7f);
+                            shader.setUniform4f("u_tintColor", tint * 0.7f, tint * 0.7f, tint * 0.7f, 1.0f);
                             renderer.drawQuad(tileCenterX, tileCenterY, tileSize, tileSize, 0, shader);
                         }
                     }
@@ -196,7 +196,7 @@ public class ClientGameMap {
             }
         }
 
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
    public boolean isOutOfBounds(ClientEntity clientEntity) {

@@ -10,8 +10,13 @@ public class ClientTank extends ClientEntity {
     protected Vector3f color;
     protected int hitPoints;
     protected float turretRotation;
+    protected org.chrisgruber.nettank.common.entities.TankType tankType = org.chrisgruber.nettank.common.entities.TankType.STANDARD;
     protected long cooldownRemainingMs = 0;
     protected long cooldownReceivedTime = 0;
+
+    // Cloak rendering: alpha eases toward targetAlpha (1 visible, 0 hidden, 0.5 own cloak)
+    protected float alpha = 1.0f;
+    protected float targetAlpha = 1.0f;
 
     public ClientTank(TankData data) {
         super(data.getPosition(), data.getVelocity(), data.getRotation(), TankData.SIZE, TankData.SIZE, data.getPlayerId(), data.isDestroyed());
@@ -19,6 +24,7 @@ public class ClientTank extends ClientEntity {
         this.color = data.getColor();
         this.hitPoints = data.getHitPoints();
         this.turretRotation = data.getTurretRotation();
+        this.tankType = data.getTankType();
     }
 
     public String getName() { return this.name; }
@@ -28,6 +34,22 @@ public class ClientTank extends ClientEntity {
     public void applyDamage(int damage) { this.hitPoints = Math.max(0, this.hitPoints - damage); }
     public float getTurretRotation() { return this.turretRotation; }
     public void setTurretRotation(float turretRotation) { this.turretRotation = turretRotation; }
+    public org.chrisgruber.nettank.common.entities.TankType getTankType() { return this.tankType; }
+    public void setTankType(org.chrisgruber.nettank.common.entities.TankType tankType) { this.tankType = tankType; }
+    public float getAlpha() { return this.alpha; }
+    public float getTargetAlpha() { return this.targetAlpha; }
+    public void setTargetAlpha(float targetAlpha) { this.targetAlpha = targetAlpha; }
+
+    // Eases alpha toward targetAlpha; rate is alpha units per second
+    public void updateAlpha(float deltaTime, float ratePerSecond) {
+        if (alpha == targetAlpha) return;
+        float step = ratePerSecond * deltaTime;
+        if (alpha < targetAlpha) {
+            alpha = Math.min(targetAlpha, alpha + step);
+        } else {
+            alpha = Math.max(targetAlpha, alpha - step);
+        }
+    }
     
     public void setCooldown(long cooldownMs) {
         this.cooldownRemainingMs = cooldownMs;
@@ -67,6 +89,7 @@ public class ClientTank extends ClientEntity {
             this.velocity = updatedTankData.getVelocity();
             this.rotation = updatedTankData.getRotation();
             this.turretRotation = updatedTankData.getTurretRotation();
+            this.tankType = updatedTankData.getTankType();
             this.hitPoints = updatedTankData.getHitPoints();
             this.color = updatedTankData.getColor();
             this.isDestroyed = updatedTankData.isDestroyed();

@@ -172,7 +172,7 @@ public class UIManager {
         uiShader.setUniform1i("u_texture", 0); // Tell shader to use texture unit 0
 
         // Reset default uniforms at the start of UI rendering pass
-        uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Default white tint
+        uiShader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Default white tint
         uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f); // Default full texture rectangle
     }
 
@@ -217,7 +217,7 @@ public class UIManager {
 
         // Ensure the correct UI shader is active and set the text color
         uiShader.bind();
-        uiShader.setUniform3f("u_tintColor", color);
+        uiShader.setUniform4f("u_tintColor", color, 1.0f);
 
         // Calculate the on-screen dimensions of a single character based on font texture size and scale
         final float charBaseWidth = (float)fontTexture.getWidth() / FONT_COLS;
@@ -293,7 +293,7 @@ public class UIManager {
         // potential issues if the same shader is reused for non-atlas drawing later.
         uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
         // Optional: Reset tint color if needed, though startUIRendering usually handles this.
-        // uiShader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        // uiShader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     /**

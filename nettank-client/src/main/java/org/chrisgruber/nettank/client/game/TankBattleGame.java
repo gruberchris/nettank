@@ -79,6 +79,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private int localPlayerId = -1;
     private ClientTank localTank = null;
     private int localAmmoCount = -1; // -1 = unlimited (mode never sends AMO)
+    private org.chrisgruber.nettank.common.entities.TankType selectedTankType = org.chrisgruber.nettank.common.entities.TankType.STANDARD;
+    private static final float CLOAK_FADE_PER_SECOND = 2.5f; // ~0.4 s fade
+    private static final float OWN_CLOAK_ALPHA = 0.5f;
     private final String playerName;
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
@@ -153,10 +156,15 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
      * Constructor for the Tank Battle Game.
      */
     public TankBattleGame(String hostIp, int port, String playerName, String title, int width, int height) {
+        this(hostIp, port, playerName, "STANDARD", title, width, height);
+    }
+
+    public TankBattleGame(String hostIp, int port, String playerName, String initialTankType, String title, int width, int height) {
         super(title, width, height);
         this.serverIp = hostIp;
         this.serverPort = port;
         this.playerName = playerName;
+        this.selectedTankType = org.chrisgruber.nettank.common.entities.TankType.fromString(initialTankType);
     }
 
     // --- Implementation of Abstract Methods from GameEngine ---
@@ -272,7 +280,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // Start networking game client AFTER core graphics setup
             logger.info("Starting network client...");
             currentGameState = GameState.CONNECTING;
-            gameClient = new GameClient(serverIp, serverPort, playerName, this);
+            gameClient = new GameClient(serverIp, serverPort, playerName, selectedTankType.name(), this);
             new Thread(gameClient, "GameClientThread").start();
 
         } catch (IOException e) {
@@ -345,6 +353,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // --- Apply queued terrain state changes and sync tile fire visuals ---
         processTerrainStateChanges();
         updateTileFireEffects();
+
+        // --- Ease cloak fades ---
+        for (ClientTank tank : tanks.values()) {
+            tank.updateAlpha(deltaTime, CLOAK_FADE_PER_SECOND);
+        }
 
         // --- Update Active Smoke Effects ---
         activeSmokeEffects.entrySet().removeIf(entry -> {
@@ -427,6 +440,24 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         logger.info("Received terrain data from server: {}x{} tiles, {} bytes", width, height, encodedData.length());
         this.receivedTerrainData = encodedData;
         this.terrainInfoReceivedForProcessing = true; // Signal the main thread
+    }
+
+    @Override
+    public void updateTankVisibility(int playerId, boolean visible) {
+        ClientTank tank = tanks.get(playerId);
+        if (tank == null) {
+            logger.warn("Received visibility update for unknown player ID: {}", playerId);
+            return;
+        }
+
+        if (visible) {
+            tank.setTargetAlpha(1.0f);
+        } else {
+            // Own tank stays faintly visible while cloaked; enemies fade out fully
+            tank.setTargetAlpha(playerId == localPlayerId ? OWN_CLOAK_ALPHA : 0.0f);
+        }
+
+        logger.debug("Tank visibility update: player {} -> {}", playerId, visible);
     }
 
     @Override
@@ -585,28 +616,38 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         tankTexture.bind(); // Bind tank texture once
 
         for (ClientTank tank : tanks.values()) {
+            if (tank.getAlpha() <= 0.02f) continue; // fully cloaked
+
             if (isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) {
-                shader.setUniform3f("u_tintColor", tank.getColor());
+                shader.setUniform4f("u_tintColor", tank.getColor(), tank.getAlpha());
+
+                // MVP per-type visuals until dedicated hull sprites exist: scale by chassis
+                float typeScale = switch (tank.getTankType()) {
+                    case HEAVY -> 1.15f;
+                    case LIGHT -> 0.85f;
+                    default -> 1.0f;
+                };
+                float renderSize = TankData.SIZE * typeScale;
 
                 // Hull at hull rotation
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
-                        TankData.SIZE, TankData.SIZE,
+                        renderSize, renderSize,
                         tank.getRotation(), shader);
 
                 // Turret layered on top at its own rotation.
                 // PLACEHOLDER ART: a scaled-down tank sprite stands in for a dedicated
                 // turret texture (turret.png) over a barrel-less hull.
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
-                        TankData.SIZE * 0.65f, TankData.SIZE * 0.65f,
+                        renderSize * 0.65f, renderSize * 0.65f,
                         tank.getTurretRotation(), shader);
             }
         }
 
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
 
         // Render Bullets
         bulletTexture.bind(); // Bind bullet texture once
-        shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
 
         for (ClientBullet bullet : bullets) {
             if (isObjectVisible(bullet.getPosition(), playerPos, renderRangeSq) && !bullet.isDestroyed()) {
@@ -646,7 +687,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- Render Explosions ---
         if (!activeExplosions.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Reset tint
 
             for (ExplosionEffect explosion : activeExplosions) {
                 if (explosion.isFinished()) continue;
@@ -677,7 +718,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- NEW: Render Flames ---
         if (!activeFlames.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint if needed
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Reset tint if needed
             for (FlameEffect flame : activeFlames) {
                 if (flame.isFinished()) continue; // Skip finished ones
 
@@ -701,7 +742,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- Render Tile Fires ---
         if (!tileFireEffects.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
             for (FlameEffect flame : tileFireEffects.values()) {
                 if (flame.isFinished()) continue;
 
@@ -718,7 +759,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // --- Render Smoke Effects ---
         if (!activeSmokeEffects.isEmpty()) {
-            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f); // Reset tint
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f); // Reset tint
 
             for (SmokeEffect smoke : activeSmokeEffects.values()) {
                 if (!smoke.isActive()) continue; // Skip rendering if stopped
@@ -758,13 +799,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            // --- Render Health Bar ---
+            // --- Render Health Bar (max HP comes from the chassis type) ---
             if (healthBar != null) {
                 float healthBarWidth = 150;
                 float healthBarHeight = 15;
-                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), TankData.MAX_HIT_POINTS, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
+                int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), maxHitPoints, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
                 currentY += healthBarHeight + lineSpacing;
             }
+
+            uiManager.drawText("TANK: " + localTank.getTankType().name(), statusTextX, currentY, UI_TEXT_SCALE_NORMAL, Colors.WHITE);
+            currentY += uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + lineSpacing;
             // -------------------------
         } else if (isSpectating) {
             uiManager.drawText("SPECTATING", statusTextX, currentY, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
@@ -861,6 +906,22 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
         }
 
+        // Lobby tank type selection (minimal until the Phase 9 selection screen)
+        if (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN) {
+            var stats = selectedTankType.getDefaultStats();
+            String selectionLine = "< " + selectedTankType.name() + " >  (A/D TO CHANGE)";
+            String statsLine = String.format("HP %d   SPEED %.0f   DMG %d   RELOAD %.1fS",
+                    stats.maxHitPoints(), stats.moveSpeed(), stats.bulletDamage(), stats.shootCooldownMs() / 1000.0f);
+
+            float selectionWidth = uiManager.getTextWidth(selectionLine, UI_TEXT_SCALE_STATUS);
+            uiManager.drawText(selectionLine, (windowWidth - selectionWidth) / 2.0f,
+                    centerMessageY + 60.0f, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
+
+            float statsWidth = uiManager.getTextWidth(statsLine, UI_TEXT_SCALE_NORMAL);
+            uiManager.drawText(statsLine, (windowWidth - statsWidth) / 2.0f,
+                    centerMessageY + 100.0f, UI_TEXT_SCALE_NORMAL, Colors.WHITE);
+        }
+
         uiManager.endUIRendering();
     }
 
@@ -873,6 +934,27 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             logger.info("Exit key pressed. Closing game window.");
             if(windowHandle != NULL) glfwSetWindowShouldClose(windowHandle, true);
             return;
+        }
+
+        // Lobby tank type selection: cycle with A/D or D-pad before the round starts
+        if (currentGameState == GameState.WAITING || currentGameState == GameState.COUNTDOWN) {
+            int direction = 0;
+            if (inputHandler.isKeyPressed(GLFW_KEY_A) || inputHandler.isDpadLeftPressed()) direction = -1;
+            else if (inputHandler.isKeyPressed(GLFW_KEY_D) || inputHandler.isDpadRightPressed()) direction = 1;
+
+            if (direction != 0) {
+                inputHandler.resetKey(GLFW_KEY_A);
+                inputHandler.resetKey(GLFW_KEY_D);
+
+                var types = org.chrisgruber.nettank.common.entities.TankType.values();
+                int index = (selectedTankType.ordinal() + direction + types.length) % types.length;
+                selectedTankType = types[index];
+
+                if (gameClient != null && gameClient.isConnected()) {
+                    gameClient.sendTankTypeSelection(selectedTankType.name());
+                }
+                logger.info("Selected tank type: {}", selectedTankType);
+            }
         }
 
         // Handle Game Controls only if playing
@@ -1022,11 +1104,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
-    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, float turretRotation) {
+    public void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, float turretRotation, String tankType) {
         ClientTank tank = tanks.get(id);
 
         TankData data = new TankData();
         data.updateFromServer(id, name, x, y, rotation, r, g, b, turretRotation);
+        data.setTankType(org.chrisgruber.nettank.common.entities.TankType.fromString(tankType));
 
         if (tank == null) {
             logger.info("Creating new ClientTank for player ID: {} Name: {}", id, name);
@@ -1101,7 +1184,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 logger.warn("No active smoke effect found for respawning player {}.", tank.getPlayerId());
             }
 
-            tank.setHitPoints(TankData.MAX_HIT_POINTS);
+            tank.setHitPoints(tank.getTankType().getDefaultStats().maxHitPoints());
         }
 
         logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());

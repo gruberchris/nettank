@@ -229,10 +229,11 @@ public sealed interface NetworkMessage {
         float colorR,
         float colorG,
         float colorB,
-        float turretRotation
+        float turretRotation,
+        String tankType
     ) implements NetworkMessage {
         public static NewPlayer parse(String[] parts) {
-            if (parts.length < 10) {
+            if (parts.length < 11) {
                 throw new IllegalArgumentException("Invalid NewPlayer message: insufficient parts");
             }
             return new NewPlayer(
@@ -244,7 +245,23 @@ public sealed interface NetworkMessage {
                 Float.parseFloat(parts[6]),
                 Float.parseFloat(parts[7]),
                 Float.parseFloat(parts[8]),
-                Float.parseFloat(parts[9])
+                Float.parseFloat(parts[9]),
+                parts[10]
+            );
+        }
+    }
+
+    record TankVisibility(
+        int playerId,
+        boolean visible
+    ) implements NetworkMessage {
+        public static TankVisibility parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid TankVisibility message: insufficient parts");
+            }
+            return new TankVisibility(
+                Integer.parseInt(parts[1]),
+                !"0".equals(parts[2])
             );
         }
     }

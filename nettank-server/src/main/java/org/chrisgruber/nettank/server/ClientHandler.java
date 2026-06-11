@@ -361,6 +361,7 @@ public class ClientHandler implements Runnable {
                 case NetworkProtocol.CONNECT -> handleConnectMessage(parts);
                 case NetworkProtocol.INPUT -> handleInputMessage(parts);
                 case NetworkProtocol.SHOOT_CMD -> handleShootCommand();
+                case NetworkProtocol.SELECT_TANK_TYPE -> handleSelectTankTypeMessage(parts);
                 case NetworkProtocol.PING -> handlePingMessage();
                 default -> {
                     logger.warn("Unknown command from client {}: {}", playerId, command);
@@ -419,10 +420,10 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        // parts[3] is the requested tank type; ignored until tank types ship (Phase 4)
+        var tankType = org.chrisgruber.nettank.common.entities.TankType.fromString(parts.length >= 4 ? parts[3] : null);
 
-        logger.info("Registration request from client: {}", name);
-        server.registerPlayer(this, name);
+        logger.info("Registration request from client: {} (tank type: {})", name, tankType);
+        server.registerPlayer(this, name, tankType);
     }
 
     private boolean isValidPlayerName(String name) {
@@ -450,6 +451,14 @@ public class ClientHandler implements Runnable {
 
     private void handleShootCommand() {
         server.handlePlayerShootMainWeaponInput(playerId);
+    }
+
+    private void handleSelectTankTypeMessage(String[] parts) {
+        if (parts.length < 2) {
+            logger.warn("Malformed SELECT_TANK_TYPE message from client {}", playerId);
+            return;
+        }
+        server.handleTankTypeSelection(playerId, parts[1]);
     }
 
     private void handlePingMessage() {

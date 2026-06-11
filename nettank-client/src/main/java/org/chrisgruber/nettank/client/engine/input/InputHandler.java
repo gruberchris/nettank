@@ -296,6 +296,26 @@ public class InputHandler {
     public boolean isExitPressed() {
         return isKeyDown(keyExit);
     }
+
+    // D-pad press detection (edge-triggered) for lobby navigation
+    private boolean previousDpadLeft = false;
+    private boolean previousDpadRight = false;
+
+    public boolean isDpadLeftPressed() {
+        if (!gamepadConnected) return false;
+        boolean current = getGamepadButton(GLFW_GAMEPAD_BUTTON_DPAD_LEFT);
+        boolean pressed = current && !previousDpadLeft;
+        previousDpadLeft = current;
+        return pressed;
+    }
+
+    public boolean isDpadRightPressed() {
+        if (!gamepadConnected) return false;
+        boolean current = getGamepadButton(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT);
+        boolean pressed = current && !previousDpadRight;
+        previousDpadRight = current;
+        return pressed;
+    }
     
     /**
      * Helper method to get gamepad button state

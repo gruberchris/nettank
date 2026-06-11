@@ -58,7 +58,7 @@ public class ClientMain {
         TankBattleGame game = null; // Declare outside try
 
         try {
-            game = new TankBattleGame(hostIp, port, playerName, WINDOW_TITLE, 
+            game = new TankBattleGame(hostIp, port, playerName, config.tankType, WINDOW_TITLE,
                                      config.display.width, config.display.height);
             game.run(); // Blocks until the game loop finishes and cleanup runs
         } catch (Exception e) {

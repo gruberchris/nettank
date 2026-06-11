@@ -508,6 +508,11 @@ class GameServerTest {
         tank.setRotation(0f);
         tank.setTurretRotation(0f);
 
+        // pin plain terrain so procedural speed modifiers don't affect the turn assertion
+        var tile = context.gameMapData.getTileAt(800, 800);
+        tile.setBaseType(org.chrisgruber.nettank.common.world.TerrainType.GRASS);
+        tile.setOverlayType(null);
+
         // Turret input only: +1.0 turns the turret right (clockwise) at 90 deg/s
         gameServer.handlePlayerMovementInput(0, false, false, false, false, 1.0f);
         gameServer.updateGameLogic(1.0f);
@@ -547,6 +552,144 @@ class GameServerTest {
         // direction for 90 deg: dirX = -sin(90) = -1, dirY = cos(90) = 0
         assertEquals(-GameServer.BULLET_SPEED, bullet.getXVelocity(), 0.01f);
         assertEquals(0f, bullet.getYVelocity(), 0.01f);
+    }
+
+    @Test
+    void testTankTypeStatsApplied() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(mockClientHandler, "HeavyPlayer", org.chrisgruber.nettank.common.entities.TankType.HEAVY);
+        TankData tank = context.tanks.get(0);
+
+        assertEquals(org.chrisgruber.nettank.common.entities.TankType.HEAVY, tank.getTankType());
+        assertEquals(6, tank.getHitPoints()); // HEAVY spawns with 6 HP
+
+        TankStats stats = gameServer.getEffectiveStats(tank);
+        assertEquals(70.0f, stats.moveSpeed());
+        assertEquals(2, stats.bulletDamage());
+        assertEquals(2800L, stats.shootCooldownMs());
+    }
+
+    @Test
+    void testTankTypeSelectionOnlyValidBeforeRoundStarts() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.WAITING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+
+        gameServer.handleTankTypeSelection(0, "LIGHT");
+        assertEquals(org.chrisgruber.nettank.common.entities.TankType.LIGHT, tank.getTankType());
+        assertEquals(3, tank.getHitPoints());
+
+        context.currentGameState = GameState.PLAYING;
+        gameServer.handleTankTypeSelection(0, "HEAVY");
+        assertEquals(org.chrisgruber.nettank.common.entities.TankType.LIGHT, tank.getTankType()); // rejected
+    }
+
+    @Test
+    void testStealthTankCloaksWhenIdleAndDecloaksOnMovement() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "Sneaky", org.chrisgruber.nettank.common.entities.TankType.STEALTH);
+        TankData tank = context.tanks.get(0);
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        tank.setLastShotTime(0);
+
+        // ensure the tank is on plain terrain (no concealment shortcut)
+        var tile = context.gameMapData.getTileAt(800, 800);
+        tile.setBaseType(org.chrisgruber.nettank.common.world.TerrainType.GRASS);
+        tile.setOverlayType(null);
+
+        long now = System.currentTimeMillis();
+        assertTrue(gameServer.computeShouldCloak(tank, now)); // idle since "0" -> cloaked
+
+        tank.setInputState(true, false, false, false);
+        assertFalse(gameServer.computeShouldCloak(tank, now)); // moving decloaks immediately
+
+        tank.setInputState(false, false, false, false);
+        tank.setLastShotTime(now - 500);
+        assertFalse(gameServer.computeShouldCloak(tank, now)); // recent shot blocks cloak
+        assertTrue(gameServer.computeShouldCloak(tank, now + 2500)); // recloaks after delay
+    }
+
+    @Test
+    void testNonStealthTankNeverCloaks() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "Regular");
+        TankData tank = context.tanks.get(0);
+        tank.setLastShotTime(0);
+
+        assertFalse(gameServer.computeShouldCloak(tank, System.currentTimeMillis()));
+    }
+
+    @Test
+    void testBroadcastStateSkipsCloakedTankForOtherPlayers() throws Exception {
+        ClientHandler handler1 = mock(ClientHandler.class);
+        ClientHandler handler2 = mock(ClientHandler.class);
+
+        when(handler1.getSocket()).thenReturn(mock(Socket.class));
+        when(handler2.getSocket()).thenReturn(mock(Socket.class));
+        when(handler1.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler2.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler1.getPlayerId()).thenReturn(0);
+        when(handler2.getPlayerId()).thenReturn(1);
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(handler1, "Cloaker");
+        gameServer.registerPlayer(handler2, "Watcher");
+
+        gameServer.cloakedPlayerIds.add(0);
+        gameServer.broadcastState();
+
+        String updPrefixCloaked = NetworkProtocol.PLAYER_UPDATE + ";0;";
+        String updPrefixVisible = NetworkProtocol.PLAYER_UPDATE + ";1;";
+
+        ArgumentCaptor<String> captor1 = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> captor2 = ArgumentCaptor.forClass(String.class);
+        verify(handler1, atLeastOnce()).sendMessage(captor1.capture());
+        verify(handler2, atLeastOnce()).sendMessage(captor2.capture());
+
+        // The cloaked tank's owner still receives their own UPD
+        assertTrue(captor1.getAllValues().stream().anyMatch(m -> m.startsWith(updPrefixCloaked)));
+        // The other player gets no UPD for the cloaked tank but sees the visible one
+        assertTrue(captor2.getAllValues().stream().noneMatch(m -> m.startsWith(updPrefixCloaked)));
+        assertTrue(captor2.getAllValues().stream().anyMatch(m -> m.startsWith(updPrefixVisible)));
     }
 
     @Test

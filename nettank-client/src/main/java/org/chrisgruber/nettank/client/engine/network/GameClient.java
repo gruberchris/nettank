@@ -18,6 +18,7 @@ public class GameClient implements Runnable {
     private final String serverIp;
     private final int serverPort;
     private final String playerName;
+    private final String tankTypeName;
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
@@ -36,9 +37,14 @@ public class GameClient implements Runnable {
     private long lastHeartbeatTime = 0;
 
     public GameClient(String serverIp, int serverPort, String playerName, NetworkCallbackHandler networkCallbackHandler) {
+        this(serverIp, serverPort, playerName, "STANDARD", networkCallbackHandler);
+    }
+
+    public GameClient(String serverIp, int serverPort, String playerName, String tankTypeName, NetworkCallbackHandler networkCallbackHandler) {
         this.serverIp = serverIp;
         this.serverPort = serverPort;
         this.playerName = playerName;
+        this.tankTypeName = tankTypeName;
         this.networkCallbackHandler = networkCallbackHandler;
         
         // Allow configuring a heartbeat interval via system property
@@ -78,9 +84,8 @@ public class GameClient implements Runnable {
             logger.info("Connected to server: {}:{}", serverIp, serverPort);
 
             if (localOut != null) {
-                // Tank type is fixed to STANDARD until the in-lobby selection screen ships (Phase 4)
-                sendMessage(NetworkProtocol.CONNECT + ";" + playerName + ";" + NetworkProtocol.PROTOCOL_VERSION + ";STANDARD");
-                logger.info("Sent initial connect message to server: {} (protocol v{})", playerName, NetworkProtocol.PROTOCOL_VERSION);
+                sendMessage(NetworkProtocol.CONNECT + ";" + playerName + ";" + NetworkProtocol.PROTOCOL_VERSION + ";" + tankTypeName);
+                logger.info("Sent initial connect message to server: {} (protocol v{}, tank type {})", playerName, NetworkProtocol.PROTOCOL_VERSION, tankTypeName);
             }
 
             String serverMessage = null;
@@ -197,10 +202,18 @@ public class GameClient implements Runnable {
                         networkCallbackHandler.addOrUpdateTank(
                             msg.id(), msg.x(), msg.y(), msg.rotation(),
                             msg.name(), msg.colorR(), msg.colorG(), msg.colorB(),
-                            msg.turretRotation()
+                            msg.turretRotation(), msg.tankType()
                         );
                     } catch (IllegalArgumentException e) {
                         logger.error("Malformed NEW_PLAYER message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.VISIBILITY -> {
+                    try {
+                        var msg = NetworkMessage.TankVisibility.parse(parts);
+                        networkCallbackHandler.updateTankVisibility(msg.playerId(), msg.visible());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed VISIBILITY message: {}", e.getMessage());
                     }
                 }
                 case NetworkProtocol.PLAYER_UPDATE -> {
@@ -422,6 +435,11 @@ public class GameClient implements Runnable {
     // Send shoot command
     public void sendShoot() {
         sendMessage(NetworkProtocol.SHOOT_CMD);
+    }
+
+    // Send lobby tank type selection
+    public void sendTankTypeSelection(String tankTypeName) {
+        sendMessage(NetworkProtocol.SELECT_TANK_TYPE + ";" + tankTypeName);
     }
     
     // Send heartbeat to keep connection alive

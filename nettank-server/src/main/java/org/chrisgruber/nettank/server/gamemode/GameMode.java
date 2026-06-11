@@ -65,7 +65,12 @@ public abstract class GameMode {
     protected abstract GameModePlayerState getGameModePlayerState(int playerId);
 
     // Base combat stats for tanks in this mode. Modes may override to rebalance.
-    public TankStats getBaseStats() { return TankStats.STANDARD; }
+    public TankStats getBaseStats() { return getTankStats(org.chrisgruber.nettank.common.entities.TankType.STANDARD); }
+
+    // Per-type combat stats. Modes may override to rebalance individual types.
+    public TankStats getTankStats(org.chrisgruber.nettank.common.entities.TankType tankType) {
+        return tankType.getDefaultStats();
+    }
 
     // Consumes one round of main weapon ammo. Returns false if the player is out of ammo.
     // Modes with unlimited ammo (startingMainWeaponAmmoCount < 0) always allow the shot.

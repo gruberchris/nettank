@@ -190,7 +190,7 @@ class NetworkMessageTest {
     
     @Test
     void testNewPlayerParse_Valid() {
-        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "Player1", "1.0", "0.5", "0.0", "0.79"};
+        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "Player1", "1.0", "0.5", "0.0", "0.79", "HEAVY"};
         var msg = NetworkMessage.NewPlayer.parse(parts);
         
         assertEquals(42, msg.id());
@@ -202,6 +202,7 @@ class NetworkMessageTest {
         assertEquals(0.5f, msg.colorG(), 0.001f);
         assertEquals(0.0f, msg.colorB(), 0.001f);
         assertEquals(0.79f, msg.turretRotation(), 0.001f);
+        assertEquals("HEAVY", msg.tankType());
     }
     
     @Test
@@ -224,7 +225,7 @@ class NetworkMessageTest {
         assertEquals(1.57f, msg.rotation(), 0.001f);
         assertEquals(0.79f, msg.turretRotation(), 0.001f);
     }
-    
+
     // ========== PlayerLeft Tests ==========
     
     @Test
@@ -437,7 +438,7 @@ class NetworkMessageTest {
     
     @Test
     void testEmptyStringInMessage() {
-        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "", "1.0", "0.5", "0.0", "0.0"};
+        String[] parts = {"NEW", "42", "100.5", "200.3", "1.57", "", "1.0", "0.5", "0.0", "0.0", "STANDARD"};
         var msg = NetworkMessage.NewPlayer.parse(parts);
         
         assertEquals("", msg.name());

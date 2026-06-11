@@ -63,7 +63,7 @@ class GameClientTest {
 
     @Test
     void testParseMessage_NewPlayer() throws Exception {
-        String message = "NEW;42;100.5;200.3;1.57;Player1;1.0;0.5;0.0;0.79";
+        String message = "NEW;42;100.5;200.3;1.57;Player1;1.0;0.5;0.0;0.79;HEAVY";
         
         var method = GameClient.class.getDeclaredMethod("parseServerMessage", String.class);
         method.setAccessible(true);
@@ -78,7 +78,8 @@ class GameClientTest {
             eq(1.0f),
             eq(0.5f),
             eq(0.0f),
-            eq(0.79f)
+            eq(0.79f),
+            eq("HEAVY")
         );
     }
 
@@ -227,7 +228,7 @@ class GameClientTest {
         
         assertDoesNotThrow(() -> method.invoke(gameClient, message));
         verify(mockHandler, never()).addOrUpdateTank(anyInt(), anyFloat(), anyFloat(),
-            anyFloat(), anyString(), anyFloat(), anyFloat(), anyFloat(), anyFloat());
+            anyFloat(), anyString(), anyFloat(), anyFloat(), anyFloat(), anyFloat(), anyString());
     }
 
     @Test
