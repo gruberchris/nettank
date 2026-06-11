@@ -32,6 +32,7 @@ public class ServerContext {
     public GameMapData gameMapData;
     public GameMode gameMode;
     public org.chrisgruber.nettank.server.world.FireManager fireManager;
+    public org.chrisgruber.nettank.server.world.PowerUpManager powerUpManager;
     public long terrainSeed;
     public String terrainProfileName;
 

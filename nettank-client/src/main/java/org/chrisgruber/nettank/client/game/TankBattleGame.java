@@ -88,6 +88,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private final int[] localArmor = {-1, -1, -1, -1}; // -1 = no snapshot received yet
     private final long[] armorHitFlashTimes = new long[4];
 
+    // Power-ups: battlefield pickups and active buffs (auras + HUD countdowns)
+    private record ClientPowerUp(int id, org.chrisgruber.nettank.common.entities.PowerUpType type,
+                                 Vector2f position, long spawnTime) {}
+    private record ActiveBuff(org.chrisgruber.nettank.common.entities.PowerUpType type, long endTimeMillis) {}
+    private final Map<Integer, ClientPowerUp> powerUps = new ConcurrentHashMap<>();
+    private final Map<Integer, Map<org.chrisgruber.nettank.common.entities.PowerUpType.Category, ActiveBuff>> activeBuffsByPlayerId = new ConcurrentHashMap<>();
+    private static final float POWERUP_RENDER_SIZE = 24.0f;
+
     // Hit feedback effects
     private final List<org.chrisgruber.nettank.client.game.effects.HitSparkEffect> hitSparks = new CopyOnWriteArrayList<>();
     private final List<org.chrisgruber.nettank.client.game.effects.FloatingTextEffect> floatingTexts = new CopyOnWriteArrayList<>();
@@ -400,6 +408,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             gameMap.reloadTerrain(receivedTerrainData);
             pendingTerrainStateChanges.clear();
             tileFireEffects.clear();
+            powerUps.clear();
+            activeBuffsByPlayerId.clear();
             terrainInfoReceivedForProcessing = false;
         }
 
@@ -457,6 +467,57 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         logger.info("Received terrain data from server: {}x{} tiles, {} bytes", width, height, encodedData.length());
         this.receivedTerrainData = encodedData;
         this.terrainInfoReceivedForProcessing = true; // Signal the main thread
+    }
+
+    @Override
+    public void powerUpSpawned(int powerUpId, String type, float x, float y) {
+        var powerUpType = org.chrisgruber.nettank.common.entities.PowerUpType.fromString(type);
+        if (powerUpType == null) {
+            logger.error("Received unknown power-up type '{}' for id {}", type, powerUpId);
+            return;
+        }
+        powerUps.put(powerUpId, new ClientPowerUp(powerUpId, powerUpType, new Vector2f(x, y), System.currentTimeMillis()));
+        logger.debug("Power-up spawned: {} ({}) at ({}, {})", powerUpId, type, x, y);
+    }
+
+    @Override
+    public void powerUpRemoved(int powerUpId, String reason) {
+        powerUps.remove(powerUpId);
+        logger.debug("Power-up removed: {} ({})", powerUpId, reason);
+    }
+
+    @Override
+    public void powerUpActivated(int playerId, String type, long durationMs) {
+        var powerUpType = org.chrisgruber.nettank.common.entities.PowerUpType.fromString(type);
+        if (powerUpType == null) return;
+
+        activeBuffsByPlayerId
+                .computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                .put(powerUpType.getCategory(), new ActiveBuff(powerUpType, System.currentTimeMillis() + durationMs));
+        logger.debug("Power-up activated for player {}: {} ({} ms)", playerId, type, durationMs);
+    }
+
+    @Override
+    public void powerUpEnded(int playerId, String type) {
+        var powerUpType = org.chrisgruber.nettank.common.entities.PowerUpType.fromString(type);
+        if (powerUpType == null) return;
+
+        var buffs = activeBuffsByPlayerId.get(playerId);
+        if (buffs != null) {
+            buffs.remove(powerUpType.getCategory());
+        }
+        logger.debug("Power-up ended for player {}: {}", playerId, type);
+    }
+
+    private static Vector3f powerUpCategoryColor(org.chrisgruber.nettank.common.entities.PowerUpType.Category category) {
+        return switch (category) {
+            case DAMAGE -> new Vector3f(1.0f, 0.25f, 0.2f);
+            case RELOAD -> new Vector3f(1.0f, 0.6f, 0.1f);
+            case SPEED -> new Vector3f(0.25f, 0.55f, 1.0f);
+            case AMMO -> new Vector3f(0.2f, 0.95f, 0.95f);
+            case ARMOR -> new Vector3f(0.3f, 0.9f, 0.3f);
+            case HEALTH -> new Vector3f(1.0f, 0.5f, 0.8f);
+        };
     }
 
     @Override
@@ -629,6 +690,57 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // Render Tanks
         Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
         float renderRangeSq = isSpectating ? Float.MAX_VALUE : VIEW_RANGE * VIEW_RANGE;
+
+        // --- Render Power-Up Pickups ---
+        // PLACEHOLDER ART: tinted bullet sprite + pulsing glow until per-type icons
+        // exist (textures/powerups/<type>.png)
+        if (!powerUps.isEmpty() && bulletTexture != null) {
+            bulletTexture.bind();
+            long now = System.currentTimeMillis();
+
+            for (ClientPowerUp powerUp : powerUps.values()) {
+                if (!isObjectVisible(powerUp.position(), playerPos, renderRangeSq)) continue;
+
+                float age = (now - powerUp.spawnTime()) / 1000.0f;
+                float bobOffset = (float) Math.sin(age * 3.0f) * 3.0f;
+                float pulse = 0.3f + 0.15f * (float) Math.sin(age * 5.0f);
+                Vector3f color = powerUpCategoryColor(powerUp.type().getCategory());
+
+                // Soft glow under the icon
+                shader.setUniform4f("u_tintColor", color, pulse);
+                renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
+                        POWERUP_RENDER_SIZE * 2.0f, POWERUP_RENDER_SIZE * 2.0f, 0f, shader);
+
+                // Icon
+                shader.setUniform4f("u_tintColor", color, 1.0f);
+                renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
+                        POWERUP_RENDER_SIZE, POWERUP_RENDER_SIZE, 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
+        // --- Render Buff Auras (pulsing colored ring under buffed tanks) ---
+        if (!activeBuffsByPlayerId.isEmpty() && bulletTexture != null) {
+            bulletTexture.bind();
+            long now = System.currentTimeMillis();
+
+            for (var entry : activeBuffsByPlayerId.entrySet()) {
+                ClientTank tank = tanks.get(entry.getKey());
+                if (tank == null || tank.getAlpha() <= 0.02f || entry.getValue().isEmpty()) continue;
+                if (!isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) continue;
+
+                var firstBuff = entry.getValue().values().iterator().next();
+                Vector3f color = powerUpCategoryColor(firstBuff.type().getCategory());
+                float pulse = 0.2f + 0.1f * (float) Math.sin(now / 150.0);
+
+                shader.setUniform4f("u_tintColor", color, pulse);
+                renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
+                        TankData.SIZE * 1.7f, TankData.SIZE * 1.7f, 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
 
         tankTexture.bind(); // Bind tank texture once
 
@@ -951,6 +1063,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float textWidth = uiManager.getTextWidth(stateMessage, UI_TEXT_SCALE_ANNOUNCEMENT);
             float x = (windowWidth - textWidth) / 2.0f;
             uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
+        }
+
+        // Active buff stack with countdowns (bottom-left)
+        var localBuffs = activeBuffsByPlayerId.get(localPlayerId);
+        if (localBuffs != null && !localBuffs.isEmpty()) {
+            long now = System.currentTimeMillis();
+            float buffY = windowHeight - 40.0f;
+
+            for (ActiveBuff buff : localBuffs.values()) {
+                long remainingMs = Math.max(0, buff.endTimeMillis() - now);
+                String line = buff.type().name() + " " + ((remainingMs + 999) / 1000) + "S";
+                uiManager.drawText(line, 10, buffY, UI_TEXT_SCALE_NORMAL,
+                        powerUpCategoryColor(buff.type().getCategory()));
+                buffY -= uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + 6.0f;
+            }
         }
 
         // Floating damage text above the player's tank (world -> screen projection)

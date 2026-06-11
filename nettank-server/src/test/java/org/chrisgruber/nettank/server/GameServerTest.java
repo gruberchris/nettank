@@ -503,6 +503,39 @@ class GameServerTest {
     }
 
     @Test
+    void testPowerUpMultipliersLayerIntoEffectiveStats() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+
+        context.powerUpManager = new org.chrisgruber.nettank.server.world.PowerUpManager() {
+            @Override
+            public float getMultiplier(int playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category category) {
+                return switch (category) {
+                    case DAMAGE -> 2.0f;
+                    case SPEED -> 3.0f;
+                    case RELOAD -> 2.0f;
+                    default -> 1.0f;
+                };
+            }
+        };
+
+        TankStats stats = gameServer.getEffectiveStats(tank);
+        assertEquals(2, stats.bulletDamage());
+        assertEquals(300.0f, stats.moveSpeed());
+        assertEquals(1000L, stats.shootCooldownMs());
+        assertEquals(4, stats.maxHitPoints()); // untouched
+    }
+
+    @Test
     void testRespawnRestoresPerTypeArmor() throws Exception {
         when(mockClientHandler.getSocket()).thenReturn(mockSocket);
         when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());

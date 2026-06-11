@@ -5,7 +5,7 @@ public class NetworkProtocol {
 
     // Protocol version. Client and server ship from one repo in lockstep; this check
     // exists only to fail fast on stale builds. Bump once per protocol-touching change set.
-    public static final int PROTOCOL_VERSION = 4;
+    public static final int PROTOCOL_VERSION = 5;
 
     // Client to Server Messages
     public static final String CONNECT = "CON";      // CON;<playerName>;<protocolVersion>;<tankType>
@@ -40,4 +40,8 @@ public class NetworkProtocol {
     public static final String TERRAIN_STATE = "TST"; // TST;<tileX>;<tileY>;<stateName>
     public static final String SHOOT_COOLDOWN = "SHT_CDN";     // SHT_CDN;<cooldownRemainingMs>
     public static final String AMMO_COUNT = "AMO";   // AMO;<playerId>;<ammoCount> (sent to the owning player only)
+    public static final String POWERUP_SPAWN = "PUS";     // PUS;<powerUpId>;<type>;<x>;<y>
+    public static final String POWERUP_REMOVE = "PUR";    // PUR;<powerUpId>;<reason TAKEN|EXPIRED>
+    public static final String POWERUP_ACTIVATED = "PUA"; // PUA;<playerId>;<type>;<durationMs> (broadcast for aura rendering)
+    public static final String POWERUP_ENDED = "PUE";     // PUE;<playerId>;<type>
 }

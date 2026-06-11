@@ -450,6 +450,72 @@ public sealed interface NetworkMessage {
         }
     }
 
+    record PowerUpSpawn(
+        int powerUpId,
+        String type,
+        float x,
+        float y
+    ) implements NetworkMessage {
+        public static PowerUpSpawn parse(String[] parts) {
+            if (parts.length < 5) {
+                throw new IllegalArgumentException("Invalid PowerUpSpawn message: insufficient parts");
+            }
+            return new PowerUpSpawn(
+                Integer.parseInt(parts[1]),
+                parts[2],
+                Float.parseFloat(parts[3]),
+                Float.parseFloat(parts[4])
+            );
+        }
+    }
+
+    record PowerUpRemove(
+        int powerUpId,
+        String reason
+    ) implements NetworkMessage {
+        public static PowerUpRemove parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid PowerUpRemove message: insufficient parts");
+            }
+            return new PowerUpRemove(
+                Integer.parseInt(parts[1]),
+                parts[2]
+            );
+        }
+    }
+
+    record PowerUpActivated(
+        int playerId,
+        String type,
+        long durationMs
+    ) implements NetworkMessage {
+        public static PowerUpActivated parse(String[] parts) {
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("Invalid PowerUpActivated message: insufficient parts");
+            }
+            return new PowerUpActivated(
+                Integer.parseInt(parts[1]),
+                parts[2],
+                Long.parseLong(parts[3])
+            );
+        }
+    }
+
+    record PowerUpEnded(
+        int playerId,
+        String type
+    ) implements NetworkMessage {
+        public static PowerUpEnded parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid PowerUpEnded message: insufficient parts");
+            }
+            return new PowerUpEnded(
+                Integer.parseInt(parts[1]),
+                parts[2]
+            );
+        }
+    }
+
     record ErrorMessage(
         String errorText
     ) implements NetworkMessage {

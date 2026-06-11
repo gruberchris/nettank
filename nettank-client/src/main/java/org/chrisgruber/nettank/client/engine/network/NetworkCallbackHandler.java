@@ -27,4 +27,8 @@ public interface NetworkCallbackHandler {
     void updateShootCooldown(long cooldownRemainingMs);
     void updateAmmoCount(int playerId, int ammoCount);
     void terrainStateChanged(int tileX, int tileY, String stateName);
+    void powerUpSpawned(int powerUpId, String type, float x, float y);
+    void powerUpRemoved(int powerUpId, String reason);
+    void powerUpActivated(int playerId, String type, long durationMs);
+    void powerUpEnded(int playerId, String type);
 }

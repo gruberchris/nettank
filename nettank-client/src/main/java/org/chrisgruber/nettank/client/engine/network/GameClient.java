@@ -389,6 +389,38 @@ public class GameClient implements Runnable {
                         logger.error("Malformed TERRAIN_STATE message: {}", e.getMessage());
                     }
                 }
+                case NetworkProtocol.POWERUP_SPAWN -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpSpawn.parse(parts);
+                        networkCallbackHandler.powerUpSpawned(msg.powerUpId(), msg.type(), msg.x(), msg.y());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_SPAWN message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_REMOVE -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpRemove.parse(parts);
+                        networkCallbackHandler.powerUpRemoved(msg.powerUpId(), msg.reason());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_REMOVE message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_ACTIVATED -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpActivated.parse(parts);
+                        networkCallbackHandler.powerUpActivated(msg.playerId(), msg.type(), msg.durationMs());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_ACTIVATED message: {}", e.getMessage());
+                    }
+                }
+                case NetworkProtocol.POWERUP_ENDED -> {
+                    try {
+                        var msg = NetworkMessage.PowerUpEnded.parse(parts);
+                        networkCallbackHandler.powerUpEnded(msg.playerId(), msg.type());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed POWERUP_ENDED message: {}", e.getMessage());
+                    }
+                }
                 case NetworkProtocol.AMMO_COUNT -> {
                     try {
                         var msg = NetworkMessage.AmmoCount.parse(parts);

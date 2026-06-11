@@ -102,6 +102,7 @@ public class GameServer {
             serverContext.terrainSeed, serverContext.terrainProfileName);
 
         this.serverContext.fireManager = new org.chrisgruber.nettank.server.world.FireManager(serverContext.gameMapData);
+        this.serverContext.powerUpManager = new org.chrisgruber.nettank.server.world.PowerUpManager();
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
@@ -341,6 +342,14 @@ public class GameServer {
         logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}",
             mapData.getWidthTiles(), mapData.getHeightTiles(), encodedTerrain.length(), playerId);
 
+        // Sync existing battlefield power-ups to the late joiner
+        if (serverContext.powerUpManager != null) {
+            for (var powerUp : serverContext.powerUpManager.getSpawnedPowerUps()) {
+                handler.sendMessage(String.format("%s;%d;%s;%f;%f", NetworkProtocol.POWERUP_SPAWN,
+                        powerUp.id, powerUp.type.name(), powerUp.position.x, powerUp.position.y));
+            }
+        }
+
         // Sync ongoing fire/scorch states to the late joiner (TERRAIN_DATA carries types only)
         for (int ty = 0; ty < mapData.getHeightTiles(); ty++) {
             for (int tx = 0; tx < mapData.getWidthTiles(); tx++) {
@@ -444,6 +453,9 @@ public class GameServer {
         lastFireDamageTimeByPlayerId.remove(playerId);
         lastHullActivityTimeByPlayerId.remove(playerId);
         cloakedPlayerIds.remove(playerId);
+        if (serverContext.powerUpManager != null) {
+            serverContext.powerUpManager.clearEffectsForPlayer(playerId);
+        }
 
         if (handler != null && tankData != null) {
             logger.info("Player removed: ID={}, Name={}", playerId, tankData.getPlayerName());
@@ -681,6 +693,12 @@ public class GameServer {
 
         updateCloakStates(currentTime);
 
+        // Power-up lifecycle: spawns, pickups, buff expiry
+        if (serverContext.powerUpManager != null) {
+            serverContext.powerUpManager.update(serverContext, currentTime);
+            processPowerUpEvents();
+        }
+
         logger.trace("Bullets collisions processed. Bullets removed: {} Current state: {}, Time: {}", bulletsToRemove.size(), serverContext.currentGameState, currentTime);
 
         // Check if any destroyed tanks can respawn
@@ -781,6 +799,12 @@ public class GameServer {
         String targetName = target.getPlayerName();
 
         target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
+
+        // Buffs are lost on death (PUE events go out on the next tick's drain)
+        if (serverContext.powerUpManager != null) {
+            serverContext.powerUpManager.clearEffectsForPlayer(target.getPlayerId());
+        }
+
         int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
         broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
         broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), killerPlayerId), -1);
@@ -791,6 +815,51 @@ public class GameServer {
             broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
             sendSpectatePermanentMessage(target.getPlayerId());
         }
+    }
+
+    // Translates power-up events into protocol messages and applies instant repairs
+    private synchronized void processPowerUpEvents() {
+        for (var event : serverContext.powerUpManager.drainEvents()) {
+            switch (event) {
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Spawned spawned ->
+                        broadcast(String.format("%s;%d;%s;%f;%f", NetworkProtocol.POWERUP_SPAWN,
+                                spawned.powerUpId(), spawned.type().name(), spawned.x(), spawned.y()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Removed removed ->
+                        broadcast(String.format("%s;%d;%s", NetworkProtocol.POWERUP_REMOVE,
+                                removed.powerUpId(), removed.reason()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Activated activated ->
+                        broadcast(String.format("%s;%d;%s;%d", NetworkProtocol.POWERUP_ACTIVATED,
+                                activated.playerId(), activated.type().name(), activated.durationMs()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.Ended ended ->
+                        broadcast(String.format("%s;%d;%s", NetworkProtocol.POWERUP_ENDED,
+                                ended.playerId(), ended.type().name()), -1);
+                case org.chrisgruber.nettank.server.world.PowerUpManager.Event.InstantApplied instant ->
+                        applyInstantPowerUp(instant.playerId(), instant.type());
+            }
+        }
+    }
+
+    // Instant pickups: REPAIR_ARMOR restores +1 to every side (capped at the type's
+    // per-side max); REPAIR_HP restores +2 HP capped at max
+    private synchronized void applyInstantPowerUp(int playerId, org.chrisgruber.nettank.common.entities.PowerUpType type) {
+        TankData tankData = serverContext.tanks.get(playerId);
+        if (tankData == null || tankData.isDestroyed()) return;
+
+        TankStats stats = serverContext.gameMode.getTankStats(tankData.getTankType());
+
+        switch (type) {
+            case REPAIR_ARMOR -> {
+                for (var side : org.chrisgruber.nettank.common.entities.ArmorSide.values()) {
+                    int max = stats.armorFor(side);
+                    tankData.setArmor(side, Math.min(max, tankData.getArmor(side) + 1));
+                }
+            }
+            case REPAIR_HP -> tankData.setHitPoints(Math.min(stats.maxHitPoints(), tankData.getHitPoints() + 2));
+            default -> logger.warn("Unhandled instant power-up type: {}", type);
+        }
+
+        sendArmorStatus(tankData);
+        logger.info("PlayerId {} picked up instant power-up {}", playerId, type);
     }
 
     // Decides whether a tank is cloaked right now. Cloak requires a stealth chassis,
@@ -906,10 +975,32 @@ public class GameServer {
         logger.debug("Spectate permanently message sent to playerId: {}", playerId);
     }
 
-    // Resolves the combat stats currently in effect for a tank. Single layering point:
-    // power-up modifiers will fold in here (Phase 6).
+    // Resolves the combat stats currently in effect for a tank: per-type base stats
+    // from the game mode with active power-up multipliers layered on top.
     public synchronized TankStats getEffectiveStats(TankData tankData) {
-        return serverContext.gameMode.getTankStats(tankData.getTankType());
+        TankStats base = serverContext.gameMode.getTankStats(tankData.getTankType());
+
+        var powerUpManager = serverContext.powerUpManager;
+        if (powerUpManager == null) return base;
+
+        int playerId = tankData.getPlayerId();
+        float damageMultiplier = powerUpManager.getMultiplier(playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category.DAMAGE);
+        float reloadMultiplier = powerUpManager.getMultiplier(playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category.RELOAD);
+        float speedMultiplier = powerUpManager.getMultiplier(playerId, org.chrisgruber.nettank.common.entities.PowerUpType.Category.SPEED);
+
+        if (damageMultiplier == 1.0f && reloadMultiplier == 1.0f && speedMultiplier == 1.0f) return base;
+
+        return new TankStats(
+                base.maxHitPoints(),
+                base.moveSpeed() * speedMultiplier,
+                base.turnSpeed(),
+                base.backwardSpeedFactor(),
+                base.bulletSpeed(),
+                base.bulletLifetimeMs(),
+                Math.round(base.bulletDamage() * damageMultiplier),
+                (long) (base.shootCooldownMs() / reloadMultiplier),
+                base.turretTurnSpeed(),
+                base.frontArmor(), base.leftArmor(), base.rightArmor(), base.rearArmor());
     }
 
     // Stats for an in-flight bullet's owner; falls back to mode base stats if the owner left.
@@ -984,7 +1075,9 @@ public class GameServer {
             return;
         }
 
-        if (!serverContext.gameMode.tryConsumeMainWeaponAmmo(playerId)) {
+        boolean hasUnlimitedAmmoBuff = serverContext.powerUpManager != null
+                && serverContext.powerUpManager.hasUnlimitedAmmo(playerId);
+        if (!hasUnlimitedAmmoBuff && !serverContext.gameMode.tryConsumeMainWeaponAmmo(playerId)) {
             logger.debug("PlayerId: {} attempted to shoot but is out of main weapon ammo.", playerId);
             return;
         }
@@ -1155,8 +1248,9 @@ public class GameServer {
         logger.info("Terrain regeneration complete (new seed: {}, profile: {})",
             serverContext.terrainSeed, serverContext.terrainProfileName);
 
-        // Fresh fire state for the new round (tile states were reset by the generator)
+        // Fresh fire and power-up state for the new round (tile states were reset by the generator)
         serverContext.fireManager = new org.chrisgruber.nettank.server.world.FireManager(serverContext.gameMapData);
+        serverContext.powerUpManager = new org.chrisgruber.nettank.server.world.PowerUpManager();
         lastFireDamageTimeByPlayerId.clear();
 
         // Broadcast new terrain to all connected clients

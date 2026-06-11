@@ -378,6 +378,47 @@ class NetworkMessageTest {
             () -> NetworkMessage.TerrainStateChange.parse(parts));
     }
 
+    // ========== PowerUp Tests ==========
+
+    @Test
+    void testPowerUpSpawnParse_Valid() {
+        String[] parts = {"PUS", "7", "DAMAGE_2X", "150.5", "200.25"};
+        var msg = NetworkMessage.PowerUpSpawn.parse(parts);
+
+        assertEquals(7, msg.powerUpId());
+        assertEquals("DAMAGE_2X", msg.type());
+        assertEquals(150.5f, msg.x(), 0.001f);
+        assertEquals(200.25f, msg.y(), 0.001f);
+    }
+
+    @Test
+    void testPowerUpRemoveParse_Valid() {
+        String[] parts = {"PUR", "7", "TAKEN"};
+        var msg = NetworkMessage.PowerUpRemove.parse(parts);
+
+        assertEquals(7, msg.powerUpId());
+        assertEquals("TAKEN", msg.reason());
+    }
+
+    @Test
+    void testPowerUpActivatedParse_Valid() {
+        String[] parts = {"PUA", "3", "SPEED_3X", "8000"};
+        var msg = NetworkMessage.PowerUpActivated.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertEquals("SPEED_3X", msg.type());
+        assertEquals(8000L, msg.durationMs());
+    }
+
+    @Test
+    void testPowerUpEndedParse_Valid() {
+        String[] parts = {"PUE", "3", "SPEED_3X"};
+        var msg = NetworkMessage.PowerUpEnded.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertEquals("SPEED_3X", msg.type());
+    }
+
     // ========== Parameterized Tests for Number Parsing ==========
     
     @ParameterizedTest
