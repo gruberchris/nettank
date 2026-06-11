@@ -357,6 +357,14 @@ public class GameClient implements Runnable {
                         logger.error("Malformed SHOOT_COOLDOWN message: {}", e.getMessage());
                     }
                 }
+                case NetworkProtocol.TERRAIN_STATE -> {
+                    try {
+                        var msg = NetworkMessage.TerrainStateChange.parse(parts);
+                        networkCallbackHandler.terrainStateChanged(msg.tileX(), msg.tileY(), msg.stateName());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed TERRAIN_STATE message: {}", e.getMessage());
+                    }
+                }
                 case NetworkProtocol.AMMO_COUNT -> {
                     try {
                         var msg = NetworkMessage.AmmoCount.parse(parts);

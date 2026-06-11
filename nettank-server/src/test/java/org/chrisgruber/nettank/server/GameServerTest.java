@@ -399,6 +399,98 @@ class GameServerTest {
     }
 
     @Test
+    void testTankOnMudMovesAtReducedSpeed() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+
+        // MUD everywhere (0.6x speed), no overlays
+        for (int y = 0; y < context.gameMapData.getHeightTiles(); y++) {
+            for (int x = 0; x < context.gameMapData.getWidthTiles(); x++) {
+                var tile = context.gameMapData.getTile(x, y);
+                tile.setBaseType(org.chrisgruber.nettank.common.world.TerrainType.MUD);
+                tile.setOverlayType(null);
+            }
+        }
+
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        gameServer.handlePlayerMovementInput(0, true, false, false, false);
+
+        org.joml.Vector2f before = new org.joml.Vector2f(tank.getPosition());
+        gameServer.updateGameLogic(1.0f); // one simulated second
+
+        float distance = tank.getPosition().distance(before);
+        assertEquals(100.0f * 0.6f, distance, 0.01f);
+    }
+
+    @Test
+    void testTurnRateScalesWithTerrainSpeedModifier() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        tank.setRotation(0f); // avoid 360-degree wraparound in the assertion
+        var tile = context.gameMapData.getTileAt(800, 800);
+        tile.setBaseType(org.chrisgruber.nettank.common.world.TerrainType.MUD);
+        tile.setOverlayType(null);
+
+        gameServer.handlePlayerMovementInput(0, false, false, true, false); // turn left only
+        float rotationBefore = tank.getRotation();
+        gameServer.updateGameLogic(1.0f);
+
+        float turned = tank.getRotation() - rotationBefore;
+        assertEquals(50.0f * 0.6f, turned, 0.01f); // turn modifier = max(0.6, 0.5)
+    }
+
+    @Test
+    void testBurningTileDamagesOccupyingTankOncePerInterval() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        TankData tank = context.tanks.get(0);
+
+        tank.setPosition(new org.joml.Vector2f(800, 800));
+        var tile = context.gameMapData.getTileAt(800, 800);
+        tile.setCurrentState(org.chrisgruber.nettank.common.world.TerrainState.BURNING);
+
+        int initialHitPoints = tank.getHitPoints();
+
+        gameServer.updateGameLogic(1.0f / 60.0f);
+        assertEquals(initialHitPoints - 1, tank.getHitPoints());
+
+        // Immediately after, the 2-second damage interval has not elapsed
+        gameServer.updateGameLogic(1.0f / 60.0f);
+        assertEquals(initialHitPoints - 1, tank.getHitPoints());
+    }
+
+    @Test
     void testUnlimitedAmmoModeSendsNoAmmoMessages() throws Exception {
         when(mockClientHandler.getSocket()).thenReturn(mockSocket);
         when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());

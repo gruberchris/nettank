@@ -55,8 +55,32 @@ public class ClientGameMap {
         TerrainTile tile = mapData.getTile(x, y);
         tile.setCurrentState(newState);
         tile.setStateChangeTime(System.currentTimeMillis());
-        
+
         logger.debug("Terrain state changed at ({}, {}) to {}", x, y, newState);
+    }
+
+    // Re-decodes terrain for a new round into the existing map, resetting all tile states
+    public void reloadTerrain(String encodedTerrainData) {
+        org.chrisgruber.nettank.common.world.TerrainEncoder.decode(mapData, encodedTerrainData);
+
+        for (int y = 0; y < mapData.getHeightTiles(); y++) {
+            for (int x = 0; x < mapData.getWidthTiles(); x++) {
+                TerrainTile tile = mapData.getTile(x, y);
+                tile.setCurrentState(TerrainState.NORMAL);
+                tile.setVisualOverlay(null);
+            }
+        }
+
+        logger.info("Client terrain reloaded from server: {}x{} tiles", mapData.getWidthTiles(), mapData.getHeightTiles());
+    }
+
+    public TerrainState getTileState(int x, int y) {
+        if (!mapData.isValidTile(x, y)) return TerrainState.NORMAL;
+        return mapData.getTile(x, y).getCurrentState();
+    }
+
+    public float getTileSize() {
+        return mapData.getTileSize();
     }
     
     // Smoothstep function for smoother interpolation (eases in and out)

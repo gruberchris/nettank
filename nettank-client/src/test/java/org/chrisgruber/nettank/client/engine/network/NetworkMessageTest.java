@@ -334,6 +334,25 @@ class NetworkMessageTest {
             () -> NetworkMessage.AmmoCount.parse(parts));
     }
 
+    // ========== TerrainStateChange Tests ==========
+
+    @Test
+    void testTerrainStateChangeParse_Valid() {
+        String[] parts = {"TST", "12", "34", "BURNING"};
+        var msg = NetworkMessage.TerrainStateChange.parse(parts);
+
+        assertEquals(12, msg.tileX());
+        assertEquals(34, msg.tileY());
+        assertEquals("BURNING", msg.stateName());
+    }
+
+    @Test
+    void testTerrainStateChangeParse_InsufficientParts() {
+        String[] parts = {"TST", "12", "34"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.TerrainStateChange.parse(parts));
+    }
+
     // ========== Parameterized Tests for Number Parsing ==========
     
     @ParameterizedTest

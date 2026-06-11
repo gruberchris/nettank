@@ -9,7 +9,10 @@ public enum TerrainType {
     SAND(0.85f, true, false, false, VisionBlockingType.NONE, Flammability.NONE, 0L),
     STONE(1.0f, true, false, false, VisionBlockingType.NONE, Flammability.NONE, 0L),
     FOREST(0.7f, false, true, true, VisionBlockingType.PARTIAL, Flammability.HIGH, 15000L),
-    MOUNTAIN(0.0f, false, false, false, VisionBlockingType.FULL, Flammability.NONE, 0L);
+    MOUNTAIN(0.0f, false, false, false, VisionBlockingType.FULL, Flammability.NONE, 0L),
+    // Appended at end: TerrainEncoder transmits ordinals, so order above must never change
+    HILL(0.7f, true, false, false, VisionBlockingType.PARTIAL, Flammability.NONE, 0L),
+    ROCKS(0.0f, false, true, true, VisionBlockingType.FULL, Flammability.NONE, 0L);
 
     private final float speedModifier;
     private final boolean passable;

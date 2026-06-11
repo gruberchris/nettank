@@ -34,6 +34,7 @@ public class NetworkProtocol {
     public static final String MAP_INFO = "MAP";     // MAP;<widthTiles>;<heightTiles>;<tileSize>
     public static final String TERRAIN_INIT = "TER"; // TER;<seed>;<profileName>
     public static final String TERRAIN_DATA = "TRD"; // TRD;<width>;<height>;<compressedData>
+    public static final String TERRAIN_STATE = "TST"; // TST;<tileX>;<tileY>;<stateName>
     public static final String SHOOT_COOLDOWN = "SHT_CDN";     // SHT_CDN;<cooldownRemainingMs>
     public static final String AMMO_COUNT = "AMO";   // AMO;<playerId>;<ammoCount> (sent to the owning player only)
 }

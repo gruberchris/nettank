@@ -370,6 +370,23 @@ public sealed interface NetworkMessage {
         }
     }
     
+    record TerrainStateChange(
+        int tileX,
+        int tileY,
+        String stateName
+    ) implements NetworkMessage {
+        public static TerrainStateChange parse(String[] parts) {
+            if (parts.length < 4) {
+                throw new IllegalArgumentException("Invalid TerrainStateChange message: insufficient parts");
+            }
+            return new TerrainStateChange(
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]),
+                parts[3]
+            );
+        }
+    }
+
     record AmmoCount(
         int playerId,
         int ammoCount

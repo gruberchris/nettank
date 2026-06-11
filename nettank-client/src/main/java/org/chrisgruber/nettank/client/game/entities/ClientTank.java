@@ -22,6 +22,8 @@ public class ClientTank extends ClientEntity {
     public String getName() { return this.name; }
     public Vector3f getColor() { return this.color; }
     public int getHitPoints() { return this.hitPoints; }
+    public void setHitPoints(int hitPoints) { this.hitPoints = hitPoints; }
+    public void applyDamage(int damage) { this.hitPoints = Math.max(0, this.hitPoints - damage); }
     
     public void setCooldown(long cooldownMs) {
         this.cooldownRemainingMs = cooldownMs;

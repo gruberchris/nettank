@@ -31,6 +31,7 @@ public class ServerContext {
     public final List<BulletData> bullets = new CopyOnWriteArrayList<>();
     public GameMapData gameMapData;
     public GameMode gameMode;
+    public org.chrisgruber.nettank.server.world.FireManager fireManager;
     public long terrainSeed;
     public String terrainProfileName;
 

@@ -16,15 +16,24 @@ public class FireManager {
 
     private final GameMapData gameMapData;
     private final Map<TilePosition, Long> burningTiles = new ConcurrentHashMap<>();
-    private final Random random = new Random();
+    private final Map<TilePosition, Long> lastSpreadAttemptTimes = new HashMap<>();
+    private final List<TileStateChange> pendingStateChanges = new ArrayList<>();
+    private final Random random;
 
     private static final float EXPLOSION_IGNITION_RADIUS_TILES = 2.5f;
+    private static final long SPREAD_ATTEMPT_INTERVAL_MS = 1000;
 
     public FireManager(GameMapData gameMapData) {
-        this.gameMapData = gameMapData;
+        this(gameMapData, new Random());
     }
 
-    public void onExplosion(Vector2f position, float radius) {
+    // Random is injectable so tests can drive ignition and spread deterministically
+    public FireManager(GameMapData gameMapData, Random random) {
+        this.gameMapData = gameMapData;
+        this.random = random;
+    }
+
+    public void onExplosion(Vector2f position, float radius, long currentTime) {
         int tileX = (int) (position.x / gameMapData.getTileSize());
         int tileY = (int) (position.y / gameMapData.getTileSize());
 
@@ -43,45 +52,49 @@ public class FireManager {
 
                 float tileRadius = EXPLOSION_IGNITION_RADIUS_TILES * gameMapData.getTileSize();
                 if (distToExplosion <= tileRadius) {
-                    attemptIgnition(x, y, 1.0f);
+                    attemptIgnition(x, y, 1.0f, currentTime);
                 }
             }
         }
     }
 
-    public boolean attemptIgnition(int tileX, int tileY, float chanceMultiplier) {
+    public boolean attemptIgnition(int tileX, int tileY, float chanceMultiplier, long currentTime) {
         TerrainTile tile = gameMapData.getTile(tileX, tileY);
-        if (tile == null) return false;
+        if (tile == null || !canIgnite(tile)) return false;
 
-        if (tile.getCurrentState().hasVisualEffect() ||
-            tile.getBaseType().getFlammability() == Flammability.NONE) {
-            return false;
-        }
-
-        if (tile.getCurrentState() == TerrainState.FLOODED) {
-            return false;
-        }
-
-        float ignitionChance = tile.getBaseType().getFlammability().getIgnitionChance();
+        float ignitionChance = tile.getEffectiveType().getFlammability().getIgnitionChance();
         if (random.nextFloat() > ignitionChance * chanceMultiplier) {
             return false;
         }
 
-        tile.setCurrentState(TerrainState.IGNITING);
-        tile.setStateChangeTime(System.currentTimeMillis());
-        tile.setFireDuration(tile.getBaseType().getBurnDuration());
-
-        TilePosition pos = new TilePosition(tileX, tileY);
-        burningTiles.put(pos, System.currentTimeMillis());
-
-        logger.debug("Tile ({}, {}) ignited, will burn for {} ms",
-                tileX, tileY, tile.getFireDuration());
+        igniteTile(tileX, tileY, tile, currentTime);
 
         return true;
     }
 
+    private boolean canIgnite(TerrainTile tile) {
+        return !tile.getCurrentState().hasVisualEffect() &&
+                tile.getCurrentState() != TerrainState.SCORCHED &&
+                tile.getCurrentState() != TerrainState.FLOODED &&
+                tile.getEffectiveType().getFlammability() != Flammability.NONE;
+    }
+
+    private void igniteTile(int tileX, int tileY, TerrainTile tile, long currentTime) {
+        tile.setCurrentState(TerrainState.IGNITING);
+        tile.setStateChangeTime(currentTime);
+        tile.setFireDuration(tile.getEffectiveType().getBurnDuration());
+
+        TilePosition pos = new TilePosition(tileX, tileY);
+        burningTiles.put(pos, currentTime);
+        recordStateChange(tileX, tileY, TerrainState.IGNITING);
+
+        logger.debug("Tile ({}, {}) ignited, will burn for {} ms",
+                tileX, tileY, tile.getFireDuration());
+    }
+
     public void update(long currentTime) {
         Iterator<Map.Entry<TilePosition, Long>> iterator = burningTiles.entrySet().iterator();
+        List<TilePosition> spreadSources = new ArrayList<>();
 
         while (iterator.hasNext()) {
             Map.Entry<TilePosition, Long> entry = iterator.next();
@@ -99,23 +112,68 @@ public class FireManager {
             if (timeBurning < 2000) {
                 if (tile.getCurrentState() != TerrainState.IGNITING) {
                     tile.setCurrentState(TerrainState.IGNITING);
+                    recordStateChange(pos.x, pos.y, TerrainState.IGNITING);
                 }
             } else if (timeBurning < burnDuration - 3000) {
                 if (tile.getCurrentState() != TerrainState.BURNING) {
                     tile.setCurrentState(TerrainState.BURNING);
+                    recordStateChange(pos.x, pos.y, TerrainState.BURNING);
                     logger.debug("Tile ({}, {}) transitioned to BURNING", pos.x, pos.y);
                 }
+                spreadSources.add(pos);
             } else if (timeBurning < burnDuration) {
                 if (tile.getCurrentState() != TerrainState.SMOLDERING) {
                     tile.setCurrentState(TerrainState.SMOLDERING);
+                    recordStateChange(pos.x, pos.y, TerrainState.SMOLDERING);
                     logger.debug("Tile ({}, {}) transitioned to SMOLDERING", pos.x, pos.y);
                 }
             } else {
                 tile.setCurrentState(TerrainState.SCORCHED);
+                recordStateChange(pos.x, pos.y, TerrainState.SCORCHED);
                 logger.debug("Tile ({}, {}) burned out, now SCORCHED", pos.x, pos.y);
+                lastSpreadAttemptTimes.remove(pos);
                 iterator.remove();
             }
         }
+
+        for (TilePosition pos : spreadSources) {
+            attemptSpread(pos, currentTime);
+        }
+    }
+
+    // Fire spreads from BURNING tiles to flammable 4-neighbors, rolled once per second per tile
+    private void attemptSpread(TilePosition pos, long currentTime) {
+        Long lastAttempt = lastSpreadAttemptTimes.get(pos);
+        if (lastAttempt != null && currentTime - lastAttempt < SPREAD_ATTEMPT_INTERVAL_MS) {
+            return;
+        }
+        lastSpreadAttemptTimes.put(pos, currentTime);
+
+        int[][] neighbors = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}};
+        for (int[] n : neighbors) {
+            int nx = pos.x + n[0];
+            int ny = pos.y + n[1];
+
+            TerrainTile neighborTile = gameMapData.getTile(nx, ny);
+            if (neighborTile == null || !canIgnite(neighborTile)) continue;
+
+            float spreadChance = neighborTile.getEffectiveType().getFlammability().getSpreadChance();
+            if (random.nextFloat() <= spreadChance) {
+                igniteTile(nx, ny, neighborTile, currentTime);
+            }
+        }
+    }
+
+    private void recordStateChange(int x, int y, TerrainState state) {
+        pendingStateChanges.add(new TileStateChange(x, y, state));
+    }
+
+    // Returns state changes accumulated since the last drain (for TST broadcasting) and clears them
+    public List<TileStateChange> drainStateChanges() {
+        if (pendingStateChanges.isEmpty()) return Collections.emptyList();
+        List<TileStateChange> drained = new ArrayList<>(pendingStateChanges);
+        pendingStateChanges.clear();
+        return drained;
     }
 
     public List<TileStateChange> getBurningTiles() {

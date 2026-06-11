@@ -56,6 +56,11 @@ public class GameServer {
     private final List<Thread> clientHandlerThreads = new CopyOnWriteArrayList<>();
     private final ServerContext serverContext = new ServerContext();
 
+    // Burning terrain damage: 1 HP per 2 seconds standing in fire (bypasses armor)
+    private static final long FIRE_DAMAGE_INTERVAL_MS = 2000;
+    private static final int FIRE_TICK_DAMAGE = 1;
+    private final java.util.Map<Integer, Long> lastFireDamageTimeByPlayerId = new java.util.HashMap<>();
+
     public GameServer(int port, int networkHz, int mapWidth, int mapHeight) {
         this.port = port;
         this.mapWidth = mapWidth;
@@ -83,8 +88,10 @@ public class GameServer {
             org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND, 
             serverContext.terrainSeed);
         
-        logger.info("Terrain generation complete (seed: {}, profile: {})", 
+        logger.info("Terrain generation complete (seed: {}, profile: {})",
             serverContext.terrainSeed, serverContext.terrainProfileName);
+
+        this.serverContext.fireManager = new org.chrisgruber.nettank.server.world.FireManager(serverContext.gameMapData);
 
         // Make and shuffle colors to assign to players
         availableColors = Colors.generateDistinctColors(serverContext.gameMode.getMaxAllowedPlayers());
@@ -316,8 +323,19 @@ public class GameServer {
                 mapData.getWidthTiles(),
                 mapData.getHeightTiles(),
                 encodedTerrain));
-        logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}", 
+        logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}",
             mapData.getWidthTiles(), mapData.getHeightTiles(), encodedTerrain.length(), playerId);
+
+        // Sync ongoing fire/scorch states to the late joiner (TERRAIN_DATA carries types only)
+        for (int ty = 0; ty < mapData.getHeightTiles(); ty++) {
+            for (int tx = 0; tx < mapData.getWidthTiles(); tx++) {
+                TerrainTile tile = mapData.getTile(tx, ty);
+                if (tile != null && tile.getCurrentState() != org.chrisgruber.nettank.common.world.TerrainState.NORMAL) {
+                    handler.sendMessage(String.format("%s;%d;%d;%s",
+                            NetworkProtocol.TERRAIN_STATE, tx, ty, tile.getCurrentState().name()));
+                }
+            }
+        }
 
         handler.sendMessage(String.format("%s;%s;%d",
                 NetworkProtocol.GAME_STATE,
@@ -377,6 +395,7 @@ public class GameServer {
     public synchronized void removePlayer(int playerId) {
         ClientHandler handler = serverContext.clients.remove(playerId);
         TankData tankData = serverContext.tanks.remove(playerId);
+        lastFireDamageTimeByPlayerId.remove(playerId);
 
         if (handler != null && tankData != null) {
             logger.info("Player removed: ID={}, Name={}", playerId, tankData.getPlayerName());
@@ -455,7 +474,7 @@ public class GameServer {
         return delta;
     }
 
-    private synchronized boolean updateGameLogic(float deltaTime) {
+    synchronized boolean updateGameLogic(float deltaTime) {
         boolean stateChangedThisTick = false;
         long currentTime = System.currentTimeMillis();
 
@@ -475,10 +494,15 @@ public class GameServer {
 
             TankStats stats = getEffectiveStats(tankData);
 
+            // Terrain under the tank slows movement; turning suffers less so mud feels
+            // heavy without rotation-locking tanks
+            float terrainSpeedModifier = serverContext.gameMapData.getSpeedModifierAt(tankData.getX(), tankData.getY());
+            float terrainTurnModifier = Math.max(terrainSpeedModifier, 0.5f);
+
             // Movement Logic
             float turnAmount = 0;
-            if (tankData.isTurningLeft()) turnAmount += stats.turnSpeed() * deltaTime;
-            if (tankData.isTurningRight()) turnAmount -= stats.turnSpeed() * deltaTime;
+            if (tankData.isTurningLeft()) turnAmount += stats.turnSpeed() * terrainTurnModifier * deltaTime;
+            if (tankData.isTurningRight()) turnAmount -= stats.turnSpeed() * terrainTurnModifier * deltaTime;
 
             if (turnAmount != 0) {
                 tankData.setRotation(tankData.getRotation() + turnAmount);
@@ -490,8 +514,8 @@ public class GameServer {
             }
 
             float moveAmount = 0;
-            if (tankData.isMovingForward()) moveAmount = stats.moveSpeed() * deltaTime;
-            else if (tankData.isMovingBackward()) moveAmount = -stats.moveSpeed() * deltaTime * stats.backwardSpeedFactor();
+            if (tankData.isMovingForward()) moveAmount = stats.moveSpeed() * terrainSpeedModifier * deltaTime;
+            else if (tankData.isMovingBackward()) moveAmount = -stats.moveSpeed() * terrainSpeedModifier * deltaTime * stats.backwardSpeedFactor();
 
             if (moveAmount != 0) {
                 float angleRad = (float) Math.toRadians(tankData.getRotation());
@@ -553,6 +577,11 @@ public class GameServer {
             
             if (expired || serverContext.gameMapData.isOutOfBounds(bulletData) || hitTerrain) {
                 bulletsToRemove.add(bulletData);
+
+                // Detonating shells can ignite flammable terrain (not when leaving the map)
+                if ((expired || hitTerrain) && serverContext.fireManager != null) {
+                    serverContext.fireManager.onExplosion(bulletData.getPosition(), BulletData.SIZE, currentTime);
+                }
             }
         }
 
@@ -567,12 +596,27 @@ public class GameServer {
                     handleHit(tankData, bulletData);
                     bulletData.setDestroyed(true);
                     bulletsToRemove.add(bulletData);
+
+                    if (serverContext.fireManager != null) {
+                        serverContext.fireManager.onExplosion(bulletData.getPosition(), BulletData.SIZE, currentTime);
+                    }
                     break;
                 }
             }
         }
 
         serverContext.bullets.removeAll(bulletsToRemove);
+
+        // Fire propagation and burning-tile damage
+        if (serverContext.fireManager != null) {
+            serverContext.fireManager.update(currentTime);
+
+            for (var change : serverContext.fireManager.drainStateChanges()) {
+                broadcast(String.format("%s;%d;%d;%s", NetworkProtocol.TERRAIN_STATE, change.x, change.y, change.state.name()), -1);
+            }
+
+            stateChangedThisTick |= applyFireDamageToTanks(currentTime);
+        }
 
         logger.trace("Bullets collisions processed. Bullets removed: {} Current state: {}, Time: {}", bulletsToRemove.size(), serverContext.currentGameState, currentTime);
 
@@ -619,19 +663,57 @@ public class GameServer {
         target.takeHit(weaponDamage);
 
         if (target.isDestroyed()) {
-            target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
-            int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
-            broadcast(String.format("%s;%d;%d;%s;%d", NetworkProtocol.HIT, target.getPlayerId(), bulletData.getPlayerId(), bulletData.getId(), weaponDamage), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
-            broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), bulletData.getPlayerId()), -1);
-            sendSpectatorStartMessage(target.getPlayerId(), target);
+            handleTankDestruction(target, bulletData.getPlayerId(), bulletData.getId(), weaponDamage);
+        }
+    }
 
-            if (respawnsRemaining <= 0) {
-                logger.info("{} was eliminated from the round.", targetName);
-                broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
-                sendSpectatePermanentMessage(target.getPlayerId());
+    // Shared destruction flow for bullet kills and environmental (fire) kills.
+    // killerPlayerId is -1 for environmental deaths; causeId identifies the bullet if any.
+    private synchronized void handleTankDestruction(TankData target, int killerPlayerId, UUID causeId, int damage) {
+        String targetName = target.getPlayerName();
+
+        target.setInputState(false, false, false, false);   // Stop movement to prevent "ghosting" after death
+        int respawnsRemaining = serverContext.gameMode.getRemainingRespawnsForPlayer(target.getPlayerId());
+        broadcast(String.format("%s;%d;%d;%s;%d", NetworkProtocol.HIT, target.getPlayerId(), killerPlayerId, causeId, damage), -1);
+        broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_LIVES, target.getPlayerId(), respawnsRemaining), -1);
+        broadcast(String.format("%s;%d;%d", NetworkProtocol.DESTROYED, target.getPlayerId(), killerPlayerId), -1);
+        sendSpectatorStartMessage(target.getPlayerId(), target);
+
+        if (respawnsRemaining <= 0) {
+            logger.info("{} was eliminated from the round.", targetName);
+            broadcastAnnouncement(targetName + " HAS BEEN ELIMINATED!", -1);
+            sendSpectatePermanentMessage(target.getPlayerId());
+        }
+    }
+
+    // Damages tanks standing on tiles that are on fire (IGNITING/BURNING/SMOLDERING).
+    // Fire damage bypasses armor and reduces hitpoints directly.
+    private synchronized boolean applyFireDamageToTanks(long currentTime) {
+        boolean stateChanged = false;
+
+        for (TankData tankData : serverContext.tanks.values()) {
+            if (tankData.isDestroyed()) continue;
+
+            TerrainTile tile = serverContext.gameMapData.getTileAt(tankData.getX(), tankData.getY());
+            if (tile == null || !tile.getCurrentState().hasVisualEffect()) continue;
+
+            long lastDamageTime = lastFireDamageTimeByPlayerId.getOrDefault(tankData.getPlayerId(), 0L);
+            if (currentTime - lastDamageTime < FIRE_DAMAGE_INTERVAL_MS) continue;
+
+            lastFireDamageTimeByPlayerId.put(tankData.getPlayerId(), currentTime);
+            tankData.takeHit(FIRE_TICK_DAMAGE);
+            stateChanged = true;
+
+            logger.debug("Tank for playerId {} took {} fire damage standing on a burning tile, remaining HP: {}",
+                    tankData.getPlayerId(), FIRE_TICK_DAMAGE, tankData.getHitPoints());
+
+            if (tankData.isDestroyed()) {
+                logger.info("{} was destroyed by fire.", tankData.getPlayerName());
+                handleTankDestruction(tankData, -1, UUID.randomUUID(), FIRE_TICK_DAMAGE);
             }
         }
+
+        return stateChanged;
     }
 
     private synchronized void sendSpectatorStartMessage(int playerId, TankData tankData) {
@@ -915,9 +997,13 @@ public class GameServer {
             org.chrisgruber.nettank.common.world.BaseTerrainProfile.GRASSLAND,
             serverContext.terrainSeed);
         
-        logger.info("Terrain regeneration complete (new seed: {}, profile: {})", 
+        logger.info("Terrain regeneration complete (new seed: {}, profile: {})",
             serverContext.terrainSeed, serverContext.terrainProfileName);
-        
+
+        // Fresh fire state for the new round (tile states were reset by the generator)
+        serverContext.fireManager = new org.chrisgruber.nettank.server.world.FireManager(serverContext.gameMapData);
+        lastFireDamageTimeByPlayerId.clear();
+
         // Broadcast new terrain to all connected clients
         String encodedTerrain = org.chrisgruber.nettank.common.world.TerrainEncoder.encode(serverContext.gameMapData);
         broadcast(String.format("%s;%d;%d;%s",
@@ -934,6 +1020,7 @@ public class GameServer {
         logger.info("Resetting players for new round.");
 
         serverContext.bullets.clear();
+        lastFireDamageTimeByPlayerId.clear();
 
         int totalRespawnsAllowed = serverContext.gameMode.getTotalRespawnsAllowedOnStart();
 

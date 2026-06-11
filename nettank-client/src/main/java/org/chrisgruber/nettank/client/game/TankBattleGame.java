@@ -133,6 +133,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private static final String FLAME_FILENAME_PREFIX = "textures/flame/Flame_"; // Adjust path/prefix
     private static final String FLAME_FILENAME_SUFFIX = ".png";
 
+    // Terrain tile fire (driven by TST messages from the server)
+    private record TileStateUpdate(int x, int y, org.chrisgruber.nettank.common.world.TerrainState state) {}
+    private final java.util.Queue<TileStateUpdate> pendingTerrainStateChanges = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private final Map<Long, FlameEffect> tileFireEffects = new ConcurrentHashMap<>();
+    private static final float TILE_FIRE_RENDER_SIZE = 40.0f;
+
     // Smoke effect
     private final List<Texture> smokeFrameTextures = new ArrayList<>();
     private final Map<Integer, SmokeEffect> activeSmokeEffects = new ConcurrentHashMap<>();
@@ -335,6 +341,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         });
         // --------------------------------
 
+        // --- Apply queued terrain state changes and sync tile fire visuals ---
+        processTerrainStateChanges();
+        updateTileFireEffects();
+
         // --- Update Active Smoke Effects ---
         activeSmokeEffects.entrySet().removeIf(entry -> {
             SmokeEffect smoke = entry.getValue();
@@ -353,6 +363,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (mapInfoReceivedForProcessing && terrainInfoReceivedForProcessing && !mapInitialized) {
             initializeMapAndTextures();
             mapInfoReceivedForProcessing = false; // Reset the signal flags
+            terrainInfoReceivedForProcessing = false;
+        } else if (terrainInfoReceivedForProcessing && mapInitialized && gameMap != null && receivedTerrainData != null) {
+            // New round: the server regenerated terrain, re-decode it into the existing map
+            gameMap.reloadTerrain(receivedTerrainData);
+            pendingTerrainStateChanges.clear();
+            tileFireEffects.clear();
             terrainInfoReceivedForProcessing = false;
         }
 
@@ -413,6 +429,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     @Override
+    public void terrainStateChanged(int tileX, int tileY, String stateName) {
+        try {
+            var state = org.chrisgruber.nettank.common.world.TerrainState.valueOf(stateName);
+            pendingTerrainStateChanges.add(new TileStateUpdate(tileX, tileY, state));
+        } catch (IllegalArgumentException e) {
+            logger.error("Received unknown terrain state '{}' for tile ({}, {})", stateName, tileX, tileY);
+        }
+    }
+
+    @Override
     public void updateAmmoCount(int playerId, int ammoCount) {
         if (playerId == localPlayerId) {
             this.localAmmoCount = ammoCount;
@@ -428,6 +454,52 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         } else {
             logger.warn("Received shoot cooldown update ({}ms remaining) but localTank is null. This may indicate an unexpected state or timing issue.", cooldownRemainingMs);
         }
+    }
+
+    private static long tileKey(int x, int y) {
+        return ((long) x << 32) | (y & 0xFFFFFFFFL);
+    }
+
+    // Drains TST updates queued by the network thread into the map (render thread only)
+    private void processTerrainStateChanges() {
+        if (gameMap == null) return;
+
+        TileStateUpdate update;
+        while ((update = pendingTerrainStateChanges.poll()) != null) {
+            gameMap.onTerrainStateChanged(update.x(), update.y(), update.state());
+
+            long key = tileKey(update.x(), update.y());
+            if (update.state().hasVisualEffect()) {
+                if (!tileFireEffects.containsKey(key) && !flameFrameTextures.isEmpty()) {
+                    tileFireEffects.put(key, newTileFlame(update.x(), update.y()));
+                }
+            } else {
+                tileFireEffects.remove(key);
+            }
+        }
+    }
+
+    // Tile fires loop until the tile stops burning, so finished flame animations are respawned
+    private void updateTileFireEffects() {
+        if (gameMap == null || tileFireEffects.isEmpty()) return;
+
+        for (var entry : tileFireEffects.entrySet()) {
+            long key = entry.getKey();
+            int x = (int) (key >> 32);
+            int y = (int) key;
+
+            if (!gameMap.getTileState(x, y).hasVisualEffect()) {
+                tileFireEffects.remove(key);
+            } else if (entry.getValue().update() && !flameFrameTextures.isEmpty()) {
+                tileFireEffects.put(key, newTileFlame(x, y));
+            }
+        }
+    }
+
+    private FlameEffect newTileFlame(int tileX, int tileY) {
+        float tileSize = gameMap.getTileSize();
+        Vector2f center = new Vector2f((tileX + 0.5f) * tileSize, (tileY + 0.5f) * tileSize);
+        return new FlameEffect(center, FLAME_DURATION_MS, flameFrameTextures, TILE_FIRE_RENDER_SIZE);
     }
 
     private void initializeMapAndTextures() {
@@ -457,6 +529,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.STONE, summerGrassTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SHALLOW_WATER, shallowWaterTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, summerTreeTexture);
+            // PLACEHOLDER ART: dedicated hill/rocks tiles and a scorched-ground overlay are pending
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.HILL, dirtFieldTexture);
+            gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.ROCKS, forestFloorTexture);
+            gameMap.registerStateOverlayTexture(org.chrisgruber.nettank.common.world.TerrainState.SCORCHED, dirtFieldTexture);
             logger.debug("Registered terrain textures for all types.");
 
             mapInitialized = true; // Mark map as fully ready
@@ -609,6 +685,23 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 float size = flame.getRenderSize();
 
                 // Render the quad using the bound flame texture
+                renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
+            }
+        }
+        // -------------------------
+
+        // --- Render Tile Fires ---
+        if (!tileFireEffects.isEmpty()) {
+            shader.setUniform3f("u_tintColor", 1.0f, 1.0f, 1.0f);
+            for (FlameEffect flame : tileFireEffects.values()) {
+                if (flame.isFinished()) continue;
+
+                Texture currentFrameTexture = flame.getCurrentFrameTexture();
+                if (currentFrameTexture == null) continue;
+
+                currentFrameTexture.bind();
+                Vector2f pos = flame.getPosition();
+                float size = flame.getRenderSize();
                 renderer.drawQuad(pos.x, pos.y, size, size, 0f, shader);
             }
         }
@@ -991,6 +1084,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             } else {
                 logger.warn("No active smoke effect found for respawning player {}.", tank.getPlayerId());
             }
+
+            tank.setHitPoints(TankData.MAX_HIT_POINTS);
         }
 
         logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());
@@ -1027,6 +1122,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         logger.debug("Player hit: Target={}, Shooter={}, BulletID={}, Damage={}",
                 targetId, shooterId, bulletId, damage);
 
+        // Server-authoritative damage: keep the target's HP (and the health bar) in sync
+        ClientTank hitTank = tanks.get(targetId);
+        if (hitTank != null) {
+            hitTank.applyDamage(damage);
+        }
+
         // Remove bullet directly using removeIf
         boolean removed = bullets.removeIf(bullet -> {
             if (bullet.getId().equals(bulletId)) {
@@ -1052,6 +1153,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         ClientTank shooterTank = tanks.get(shooterId);
         ClientTank targetTank = tanks.get(targetId);
+
+        if (targetTank != null) {
+            targetTank.setHitPoints(0);
+        }
 
         // --- Spawn Explosion ---
         // Check if target exists AND if explosion textures were loaded successfully
@@ -1104,7 +1209,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
         // ------------------------
 
-        String shooterName = (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
+        // shooterId -1 means an environmental kill (burning terrain)
+        String shooterName = (shooterId == -1) ? "THE FIRE"
+                : (shooterTank != null) ? shooterTank.getName() : ("Player " + shooterId);
         String targetName = (targetTank != null) ? targetTank.getName() : ("Player " + targetId);
 
         // Construct the message
