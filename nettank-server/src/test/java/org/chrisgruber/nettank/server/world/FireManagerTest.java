@@ -58,7 +58,7 @@ class FireManagerTest {
 
     @Test
     void testFireProgressionFollowsScheduleWithInjectedTime() {
-        // FOREST burns for 15000 ms: IGNITING < 2000, BURNING < 12000, SMOLDERING < 15000, then SCORCHED
+        // FOREST burns for 30000 ms: IGNITING < 2000, BURNING < 27000, SMOLDERING < 30000, then SCORCHED
         mapData.getTile(5, 5).setOverlayType(TerrainType.FOREST);
         FireManager fireManager = new FireManager(mapData, alwaysPass);
 
@@ -70,15 +70,31 @@ class FireManagerTest {
         fireManager.update(2000L);
         assertEquals(TerrainState.BURNING, mapData.getTile(5, 5).getCurrentState());
 
-        fireManager.update(11999L);
+        fireManager.update(26999L);
         assertEquals(TerrainState.BURNING, mapData.getTile(5, 5).getCurrentState());
 
-        fireManager.update(12000L);
+        fireManager.update(27000L);
         assertEquals(TerrainState.SMOLDERING, mapData.getTile(5, 5).getCurrentState());
 
-        fireManager.update(15000L);
+        fireManager.update(30000L);
         assertEquals(TerrainState.SCORCHED, mapData.getTile(5, 5).getCurrentState());
         assertTrue(fireManager.getBurningTiles().isEmpty());
+    }
+
+    @Test
+    void testBurnedOutForestOverlayIsDestroyedLeavingDrivableGround() {
+        var tile = mapData.getTile(5, 5);
+        tile.setOverlayType(TerrainType.FOREST);
+        assertFalse(tile.isPassable()); // tree blocks driving
+
+        FireManager fireManager = new FireManager(mapData, alwaysPass);
+        fireManager.attemptIgnition(5, 5, 1.0f, 0L);
+        fireManager.update(30000L); // well past the forest burn duration
+
+        assertEquals(TerrainState.SCORCHED, tile.getCurrentState());
+        assertFalse(tile.hasOverlay());      // the tree burned down
+        assertTrue(tile.isPassable());       // scorched base terrain is drivable
+        assertFalse(tile.blocksBullets());   // and no longer blocks shots
     }
 
     @Test

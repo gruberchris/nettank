@@ -20,9 +20,10 @@ public abstract class GameEngine implements Runnable {
 
     private static final Logger logger = LoggerFactory.getLogger(GameEngine.class);
 
-    // Window Properties
-    protected final int windowWidth;
-    protected final int windowHeight;
+    // Window Properties. Not final: the requested size is clamped to the monitor's
+    // work area at window creation so the window (and its UI) always fits on screen.
+    protected int windowWidth;
+    protected int windowHeight;
     protected final String windowTitle;
 
     // Core Engine Components
@@ -99,28 +100,59 @@ public abstract class GameEngine implements Runnable {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Hidden until ready
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // Not resizable
 
+        // Clamp the requested size to the monitor's work area: a window larger than
+        // the screen would hang off the edges, pushing edge-anchored UI (kill feed,
+        // buff stack) off-screen entirely.
+        long primaryMonitor = glfwGetPrimaryMonitor();
+        int workX = 0, workY = 0;
+        try (MemoryStack stack = stackPush()) {
+            IntBuffer pX = stack.mallocInt(1);
+            IntBuffer pY = stack.mallocInt(1);
+            IntBuffer pW = stack.mallocInt(1);
+            IntBuffer pH = stack.mallocInt(1);
+            glfwGetMonitorWorkarea(primaryMonitor, pX, pY, pW, pH);
+
+            if (pW.get(0) > 0 && pH.get(0) > 0) {
+                workX = pX.get(0);
+                workY = pY.get(0);
+                if (windowWidth > pW.get(0) || windowHeight > pH.get(0)) {
+                    logger.info("Requested window {}x{} exceeds monitor work area {}x{}; clamping.",
+                            windowWidth, windowHeight, pW.get(0), pH.get(0));
+                    windowWidth = Math.min(windowWidth, pW.get(0));
+                    windowHeight = Math.min(windowHeight, pH.get(0));
+                }
+            }
+        }
+
         // Create the window
         windowHandle = glfwCreateWindow(windowWidth, windowHeight, windowTitle, NULL, NULL);
         if (windowHandle == NULL) {
             throw new RuntimeException("Failed to create the GLFW window");
         }
 
-        // Center the window on the primary monitor
+        // Adopt the size GLFW actually gave us and center within the work area
         try (MemoryStack stack = stackPush()) {
             IntBuffer pWidth = stack.mallocInt(1);
             IntBuffer pHeight = stack.mallocInt(1);
+            IntBuffer pW = stack.mallocInt(1);
+            IntBuffer pH = stack.mallocInt(1);
             glfwGetWindowSize(windowHandle, pWidth, pHeight);
-            GLFWVidMode vidmode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-            if (vidmode != null) {
+            windowWidth = pWidth.get(0);
+            windowHeight = pHeight.get(0);
+
+            glfwGetMonitorWorkarea(primaryMonitor, stack.mallocInt(1), stack.mallocInt(1), pW, pH);
+            if (pW.get(0) > 0 && pH.get(0) > 0) {
                 glfwSetWindowPos(
                         windowHandle,
-                        (vidmode.width() - pWidth.get(0)) / 2,
-                        (vidmode.height() - pHeight.get(0)) / 2
+                        workX + (pW.get(0) - windowWidth) / 2,
+                        workY + (pH.get(0) - windowHeight) / 2
                 );
             } else {
-                logger.warn("Could not get primary monitor video mode to center window.");
+                logger.warn("Could not get primary monitor work area to center window.");
             }
         }
+
+        logger.info("Window created at {}x{}", windowWidth, windowHeight);
 
         // Make the OpenGL context current
         glfwMakeContextCurrent(windowHandle);

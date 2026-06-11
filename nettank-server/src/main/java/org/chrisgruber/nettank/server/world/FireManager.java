@@ -21,7 +21,7 @@ public class FireManager {
     private final Random random;
 
     private static final float EXPLOSION_IGNITION_RADIUS_TILES = 2.5f;
-    private static final long SPREAD_ATTEMPT_INTERVAL_MS = 1000;
+    private static final long SPREAD_ATTEMPT_INTERVAL_MS = 2500;
 
     public FireManager(GameMapData gameMapData) {
         this(gameMapData, new Random());
@@ -129,6 +129,15 @@ public class FireManager {
                 }
             } else {
                 tile.setCurrentState(TerrainState.SCORCHED);
+
+                // A burned-out flammable overlay (e.g. FOREST) is destroyed: the tree is
+                // gone, leaving drivable scorched base terrain. Clients mirror this rule
+                // on receiving the SCORCHED state (see ClientGameMap.onTerrainStateChanged).
+                if (tile.hasOverlay() && tile.getOverlayType().getFlammability() != Flammability.NONE) {
+                    logger.debug("Overlay {} at ({}, {}) burned down", tile.getOverlayType(), pos.x, pos.y);
+                    tile.setOverlayType(null);
+                }
+
                 recordStateChange(pos.x, pos.y, TerrainState.SCORCHED);
                 logger.debug("Tile ({}, {}) burned out, now SCORCHED", pos.x, pos.y);
                 lastSpreadAttemptTimes.remove(pos);
@@ -141,7 +150,7 @@ public class FireManager {
         }
     }
 
-    // Fire spreads from BURNING tiles to flammable 4-neighbors, rolled once per second per tile
+    // Fire spreads from BURNING tiles to flammable 4-neighbors, rolled once per SPREAD_ATTEMPT_INTERVAL_MS per tile
     private void attemptSpread(TilePosition pos, long currentTime) {
         Long lastAttempt = lastSpreadAttemptTimes.get(pos);
         if (lastAttempt != null && currentTime - lastAttempt < SPREAD_ATTEMPT_INTERVAL_MS) {

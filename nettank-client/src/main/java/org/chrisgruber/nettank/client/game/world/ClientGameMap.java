@@ -56,6 +56,13 @@ public class ClientGameMap {
         tile.setCurrentState(newState);
         tile.setStateChangeTime(System.currentTimeMillis());
 
+        // Mirror of the server's burn-down rule (FireManager): a flammable overlay
+        // that finishes burning is destroyed, leaving drivable scorched ground
+        if (newState == TerrainState.SCORCHED && tile.hasOverlay()
+                && tile.getOverlayType().getFlammability() != org.chrisgruber.nettank.common.world.Flammability.NONE) {
+            tile.setOverlayType(null);
+        }
+
         logger.debug("Terrain state changed at ({}, {}) to {}", x, y, newState);
     }
 
