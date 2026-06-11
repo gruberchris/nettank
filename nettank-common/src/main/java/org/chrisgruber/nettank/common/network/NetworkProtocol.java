@@ -5,19 +5,21 @@ public class NetworkProtocol {
 
     // Protocol version. Client and server ship from one repo in lockstep; this check
     // exists only to fail fast on stale builds. Bump once per protocol-touching change set.
-    public static final int PROTOCOL_VERSION = 5;
+    public static final int PROTOCOL_VERSION = 6;
 
     // Client to Server Messages
     public static final String CONNECT = "CON";      // CON;<playerName>;<protocolVersion>;<tankType>
     public static final String INPUT = "INP";        // INP;<W_down>;<S_down>;<A_down>;<D_down>;<turretTurn -1.0..1.0>
     public static final String SHOOT_CMD = "SHT";    // SHT (Command to shoot)
     public static final String SELECT_TANK_TYPE = "SEL"; // SEL;<tankType> (valid only during WAITING/COUNTDOWN)
+    public static final String READY = "RDY";        // RDY;<0|1> (lobby ready toggle; round starts when all players are ready)
     public static final String PING = "PIN";         // PIN (Optional)
 
     // Server to Client Messages
     public static final String ASSIGN_ID = "AID";    // AID;<yourId>;<colorR>;<colorG>;<colorB> // REMOVED isHost
     public static final String NEW_PLAYER = "NEW";   // NEW;<id>;<x>;<y>;<rot>;<name>;<r>;<g>;<b>;<turretRot>;<tankType> // Lives sent separately
     public static final String VISIBILITY = "VIS";   // VIS;<playerId>;<0|1> (0 = cloaked/hidden, 1 = visible)
+    public static final String PLAYER_READY = "PRD"; // PRD;<playerId>;<0|1> (lobby ready state, broadcast)
     public static final String PLAYER_UPDATE = "UPD"; // UPD;<id>;<x>;<y>;<rot>;<turretRot>
     public static final String PLAYER_LEFT = "LEF";  // LEF;<id>
     public static final String SHOOT = "SHO";        // SHO;<bulletId>;<ownerId>;<x>;<y>;<dirX>;<dirY>

@@ -251,6 +251,21 @@ public sealed interface NetworkMessage {
         }
     }
 
+    record PlayerReady(
+        int playerId,
+        boolean ready
+    ) implements NetworkMessage {
+        public static PlayerReady parse(String[] parts) {
+            if (parts.length < 3) {
+                throw new IllegalArgumentException("Invalid PlayerReady message: insufficient parts");
+            }
+            return new PlayerReady(
+                Integer.parseInt(parts[1]),
+                "1".equals(parts[2])
+            );
+        }
+    }
+
     record TankVisibility(
         int playerId,
         boolean visible

@@ -87,6 +87,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Lobby tank selection screen (Phase 9)
     private org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen selectionScreen;
     private boolean selectionConfirmed = false;
+    // Lobby readiness: the round starts only when every player is ready
+    private final Map<Integer, Boolean> lobbyReadyByPlayerId = new ConcurrentHashMap<>();
+    private volatile long countdownEndTimeMillis = 0;
 
     // Directional armor HUD state (owner-only, fed by ARM messages); index = ArmorSide.ordinal()
     private org.chrisgruber.nettank.client.engine.ui.ArmorIndicator armorIndicator;
@@ -565,6 +568,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             case ARMOR -> new Vector3f(0.3f, 0.9f, 0.3f);
             case HEALTH -> new Vector3f(1.0f, 0.5f, 0.8f);
         };
+    }
+
+    @Override
+    public void updatePlayerReady(int playerId, boolean ready) {
+        lobbyReadyByPlayerId.put(playerId, ready);
+
+        // Server echo is authoritative for our own ready state (e.g. revoked by a type change)
+        if (playerId == localPlayerId) {
+            selectionConfirmed = ready;
+        }
+
+        logger.debug("Lobby ready state: player {} -> {}", playerId, ready);
     }
 
     @Override
@@ -1247,14 +1262,33 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        // Full lobby tank selection screen: backdrop, portrait, stats, status line
+        // Full lobby tank selection screen: backdrop, portrait, stats, roster, status line
         if (showSelectionScreen) {
             selectionScreen.drawBackdrop(uiManager.getProjectionMatrix(), windowWidth, windowHeight);
             drawSelectionPortrait();
 
-            String statusLine = !announcements.isEmpty() ? announcements.getFirst() : stateMessage;
+            String statusLine;
+            if (currentGameState == GameState.COUNTDOWN && countdownEndTimeMillis > 0) {
+                long secondsLeft = Math.max(1, (countdownEndTimeMillis - System.currentTimeMillis() + 999) / 1000);
+                statusLine = "GET READY: " + secondsLeft;
+            } else if (!announcements.isEmpty()) {
+                statusLine = announcements.getFirst();
+            } else {
+                statusLine = "WAITING FOR ALL PLAYERS TO READY UP (" + tanks.size() + ")";
+            }
+
+            // Roster: every connected player with their ready state
+            var roster = new ArrayList<org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen.RosterEntry>();
+            for (ClientTank tank : tanks.values()) {
+                roster.add(new org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen.RosterEntry(
+                        tank.getName(),
+                        Boolean.TRUE.equals(lobbyReadyByPlayerId.get(tank.getPlayerId())),
+                        tank.getPlayerId() == localPlayerId));
+            }
+            roster.sort(java.util.Comparator.comparing(e -> !e.isLocal()));
+
             selectionScreen.drawInfo(uiManager.getProjectionMatrix(), uiManager, windowWidth, windowHeight,
-                    selectedTankType, selectionConfirmed, statusLine);
+                    selectedTankType, selectionConfirmed, statusLine, roster);
         }
 
         uiManager.endUIRendering();
@@ -1315,18 +1349,25 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 var types = org.chrisgruber.nettank.common.entities.TankType.values();
                 int index = (selectedTankType.ordinal() + direction + types.length) % types.length;
                 selectedTankType = types[index];
-                selectionConfirmed = false;
 
                 if (gameClient != null && gameClient.isConnected()) {
                     gameClient.sendTankTypeSelection(selectedTankType.name());
+                    // Changing type revokes readiness (the server enforces this too)
+                    if (selectionConfirmed) {
+                        gameClient.sendReady(false);
+                    }
                 }
+                selectionConfirmed = false;
                 logger.info("Selected tank type: {}", selectedTankType);
             }
 
-            // Confirm with Space or gamepad A (selection already applied live via SEL)
+            // Space or gamepad A toggles ready; the round starts once everyone is ready
             if (inputHandler.isShootPressed()) {
                 inputHandler.resetKey(GLFW_KEY_SPACE);
-                selectionConfirmed = true;
+                selectionConfirmed = !selectionConfirmed;
+                if (gameClient != null && gameClient.isConnected()) {
+                    gameClient.sendReady(selectionConfirmed);
+                }
             }
         }
 
@@ -1880,8 +1921,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             lastAnnouncementTime = 0;
         }
 
+        if (state == GameState.COUNTDOWN) {
+            this.countdownEndTimeMillis = timeData; // server sends the countdown end time
+        } else {
+            this.countdownEndTimeMillis = 0;
+        }
+
         switch (state) {
             case PLAYING:
+                this.lobbyReadyByPlayerId.clear();
+                this.selectionConfirmed = false;
                 this.roundStartTimeMillis = timeData;
                 this.finalElapsedTimeMillis = -1;
                 // Clear bullets from previous round? Server should dictate respawn/reset.

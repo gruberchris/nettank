@@ -16,6 +16,7 @@ public interface NetworkCallbackHandler {
     void addOrUpdateTank(int id, float x, float y, float rotation, String name, float r, float g, float b, float turretRotation, String tankType);
     void updateTankState(int id, float x, float y, float rotation, float turretRotation, boolean isRespawn);
     void updateTankVisibility(int playerId, boolean visible);
+    void updatePlayerReady(int playerId, boolean ready);
     void removeTank(int id);
     void updatePlayerLives(int playerId, int lives);
     void spawnBullet(UUID bulletId, int ownerId, float x, float y, float dirX, float dirY);

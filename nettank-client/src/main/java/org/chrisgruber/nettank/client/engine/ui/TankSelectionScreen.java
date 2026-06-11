@@ -68,15 +68,18 @@ public class TankSelectionScreen {
         glBindVertexArray(0);
     }
 
+    /** One row in the lobby roster: player name + ready state. */
+    public record RosterEntry(String name, boolean ready, boolean isLocal) {}
+
     public float panelX(float screenWidth) { return screenWidth / 2.0f - 320.0f; }
-    public float panelY(float screenHeight) { return screenHeight * 0.18f; }
+    public float panelY(float screenHeight) { return screenHeight * 0.14f; }
     public float panelWidth() { return 640.0f; }
-    public float panelHeight() { return 420.0f; }
+    public float panelHeight() { return 490.0f; }
 
     // Portrait slot inside the panel (the caller draws the texture there)
     public float portraitCenterX(float screenWidth) { return panelX(screenWidth) + 150.0f; }
-    public float portraitCenterY(float screenHeight) { return panelY(screenHeight) + 200.0f; }
-    public float portraitSize() { return 180.0f; }
+    public float portraitCenterY(float screenHeight) { return panelY(screenHeight) + 190.0f; }
+    public float portraitSize() { return 160.0f; }
 
     public static String roleBlurb(TankType type) {
         return switch (type) {
@@ -109,9 +112,10 @@ public class TankSelectionScreen {
         shaderProgram.unbind();
     }
 
-    /** Draws type name, blurb, stat bars, and control hints. Call after the portrait. */
+    /** Draws type name, blurb, stat bars, roster, and control hints. Call after the portrait. */
     public void drawInfo(Matrix4f projectionMatrix, UIManager uiManager, float screenWidth, float screenHeight,
-                         TankType selectedType, boolean confirmed, String statusLine) {
+                         TankType selectedType, boolean confirmed, String statusLine,
+                         java.util.List<RosterEntry> roster) {
         float x = panelX(screenWidth);
         float y = panelY(screenHeight);
         TankStats stats = selectedType.getDefaultStats();
@@ -157,8 +161,35 @@ public class TankSelectionScreen {
                     new Vector3f(0.8f, 0.8f, 0.8f));
         }
 
+        // Player roster with ready states (left column, under the portrait)
+        float rosterX = x + 40;
+        float rosterY = y + 290;
+        uiManager.drawText("PLAYERS", rosterX, rosterY, 0.45f, new Vector3f(0.9f, 0.9f, 0.9f));
+        rosterY += 22;
+
+        int maxRosterRows = 6;
+        int shown = 0;
+        for (RosterEntry entry : roster) {
+            if (shown >= maxRosterRows) {
+                uiManager.drawText("+" + (roster.size() - shown) + " MORE", rosterX, rosterY, 0.35f,
+                        new Vector3f(0.6f, 0.6f, 0.6f));
+                break;
+            }
+
+            String name = entry.isLocal() ? entry.name() + " (YOU)" : entry.name();
+            uiManager.drawText(name, rosterX, rosterY, 0.38f,
+                    entry.isLocal() ? new Vector3f(1.0f, 0.85f, 0.3f) : new Vector3f(0.85f, 0.85f, 0.85f));
+
+            String state = entry.ready() ? "READY" : "PICKING...";
+            uiManager.drawText(state, rosterX + 170, rosterY, 0.38f,
+                    entry.ready() ? new Vector3f(0.3f, 1.0f, 0.3f) : new Vector3f(0.95f, 0.55f, 0.2f));
+
+            rosterY += 19;
+            shown++;
+        }
+
         // Confirmation + controls
-        String readyLine = confirmed ? "READY!" : "SPACE / (A) TO CONFIRM";
+        String readyLine = confirmed ? "READY! (SPACE TO UNREADY)" : "SPACE / (A) TO READY UP";
         uiManager.drawText(readyLine, x + (panelWidth() - uiManager.getTextWidth(readyLine, 0.6f)) / 2.0f,
                 y + panelHeight() - 70, 0.6f,
                 confirmed ? new Vector3f(0.3f, 1.0f, 0.3f) : new Vector3f(1.0f, 1.0f, 1.0f));

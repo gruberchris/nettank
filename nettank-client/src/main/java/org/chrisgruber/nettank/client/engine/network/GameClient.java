@@ -208,6 +208,14 @@ public class GameClient implements Runnable {
                         logger.error("Malformed NEW_PLAYER message: {}", e.getMessage());
                     }
                 }
+                case NetworkProtocol.PLAYER_READY -> {
+                    try {
+                        var msg = NetworkMessage.PlayerReady.parse(parts);
+                        networkCallbackHandler.updatePlayerReady(msg.playerId(), msg.ready());
+                    } catch (IllegalArgumentException e) {
+                        logger.error("Malformed PLAYER_READY message: {}", e.getMessage());
+                    }
+                }
                 case NetworkProtocol.VISIBILITY -> {
                     try {
                         var msg = NetworkMessage.TankVisibility.parse(parts);
@@ -482,6 +490,11 @@ public class GameClient implements Runnable {
     // Send lobby tank type selection
     public void sendTankTypeSelection(String tankTypeName) {
         sendMessage(NetworkProtocol.SELECT_TANK_TYPE + ";" + tankTypeName);
+    }
+
+    // Send lobby ready state (round starts when every player is ready)
+    public void sendReady(boolean ready) {
+        sendMessage(NetworkProtocol.READY + ";" + (ready ? 1 : 0));
     }
     
     // Send heartbeat to keep connection alive

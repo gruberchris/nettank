@@ -378,6 +378,27 @@ class NetworkMessageTest {
             () -> NetworkMessage.TerrainStateChange.parse(parts));
     }
 
+    // ========== PlayerReady Tests ==========
+
+    @Test
+    void testPlayerReadyParse_Valid() {
+        String[] parts = {"PRD", "3", "1"};
+        var msg = NetworkMessage.PlayerReady.parse(parts);
+
+        assertEquals(3, msg.playerId());
+        assertTrue(msg.ready());
+
+        String[] notReady = {"PRD", "4", "0"};
+        assertFalse(NetworkMessage.PlayerReady.parse(notReady).ready());
+    }
+
+    @Test
+    void testPlayerReadyParse_InsufficientParts() {
+        String[] parts = {"PRD", "3"};
+        assertThrows(IllegalArgumentException.class,
+            () -> NetworkMessage.PlayerReady.parse(parts));
+    }
+
     // ========== PowerUp Tests ==========
 
     @Test

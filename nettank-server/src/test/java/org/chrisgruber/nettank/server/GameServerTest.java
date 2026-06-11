@@ -649,6 +649,119 @@ class GameServerTest {
     }
 
     @Test
+    void testRoundDoesNotStartUntilAllPlayersReady() throws Exception {
+        ClientHandler handler1 = mock(ClientHandler.class);
+        ClientHandler handler2 = mock(ClientHandler.class);
+
+        when(handler1.getSocket()).thenReturn(mock(Socket.class));
+        when(handler2.getSocket()).thenReturn(mock(Socket.class));
+        when(handler1.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler2.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(handler1, "PlayerA");
+        gameServer.registerPlayer(handler2, "PlayerB");
+
+        long now = System.currentTimeMillis();
+
+        // Enough players, but nobody is ready: stay in WAITING
+        assertEquals(GameState.WAITING, context.gameMode.shouldTransitionFromWaiting(context, now));
+
+        // One of two ready: still WAITING
+        gameServer.handlePlayerReady(0, true);
+        assertEquals(GameState.WAITING, context.gameMode.shouldTransitionFromWaiting(context, now));
+
+        // Everyone ready: countdown can begin
+        gameServer.handlePlayerReady(1, true);
+        assertEquals(GameState.COUNTDOWN, context.gameMode.shouldTransitionFromWaiting(context, now));
+
+        // Un-readying takes it back
+        gameServer.handlePlayerReady(0, false);
+        assertEquals(GameState.WAITING, context.gameMode.shouldTransitionFromWaiting(context, now));
+    }
+
+    @Test
+    void testCountdownAbortsWhenUnreadyPlayerJoins() throws Exception {
+        ClientHandler handler1 = mock(ClientHandler.class);
+        ClientHandler handler2 = mock(ClientHandler.class);
+
+        when(handler1.getSocket()).thenReturn(mock(Socket.class));
+        when(handler2.getSocket()).thenReturn(mock(Socket.class));
+        when(handler1.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler2.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(handler1, "PlayerA");
+        gameServer.handlePlayerReady(0, true);
+
+        context.currentGameState = GameState.COUNTDOWN;
+        context.stateChangeTime = System.currentTimeMillis();
+
+        // Mid-countdown, a new (not yet ready) player joins: countdown aborts
+        gameServer.registerPlayer(handler2, "Latecomer");
+        assertEquals(GameState.WAITING, context.gameMode.shouldTransitionFromCountdown(context, System.currentTimeMillis()));
+
+        // Once they ready up, the countdown can run again
+        gameServer.handlePlayerReady(1, true);
+        assertEquals(GameState.COUNTDOWN, context.gameMode.shouldTransitionFromCountdown(context, System.currentTimeMillis()));
+    }
+
+    @Test
+    void testReadyStateBroadcastAndRevokedByTypeChange() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        clearInvocations(mockClientHandler);
+
+        gameServer.handlePlayerReady(0, true);
+        assertTrue(context.readyPlayerIds.contains(0));
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(mockClientHandler, atLeastOnce()).sendMessage(captor.capture());
+        assertTrue(captor.getAllValues().stream().anyMatch(m -> m.equals(NetworkProtocol.PLAYER_READY + ";0;1")));
+
+        // Changing tank type revokes readiness
+        clearInvocations(mockClientHandler);
+        gameServer.handleTankTypeSelection(0, "HEAVY");
+        assertFalse(context.readyPlayerIds.contains(0));
+
+        ArgumentCaptor<String> captor2 = ArgumentCaptor.forClass(String.class);
+        verify(mockClientHandler, atLeastOnce()).sendMessage(captor2.capture());
+        assertTrue(captor2.getAllValues().stream().anyMatch(m -> m.equals(NetworkProtocol.PLAYER_READY + ";0;0")));
+    }
+
+    @Test
+    void testReadyIgnoredDuringPlay() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.handlePlayerReady(0, true);
+        assertFalse(context.readyPlayerIds.contains(0));
+    }
+
+    @Test
     void testRespawnRestoresPerTypeArmor() throws Exception {
         when(mockClientHandler.getSocket()).thenReturn(mockSocket);
         when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());

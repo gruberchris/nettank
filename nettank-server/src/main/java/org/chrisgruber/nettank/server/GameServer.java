@@ -351,6 +351,11 @@ public class GameServer {
         logger.info("Sent TERRAIN_DATA ({}x{} tiles, {} bytes) to player ID {}",
             mapData.getWidthTiles(), mapData.getHeightTiles(), encodedTerrain.length(), playerId);
 
+        // Sync current lobby ready states to the new joiner
+        for (Integer readyPlayerId : serverContext.readyPlayerIds) {
+            handler.sendMessage(String.format("%s;%d;%d", NetworkProtocol.PLAYER_READY, readyPlayerId, 1));
+        }
+
         // Sync existing battlefield power-ups to the late joiner
         if (serverContext.powerUpManager != null) {
             for (var powerUp : serverContext.powerUpManager.getSpawnedPowerUps()) {
@@ -434,8 +439,35 @@ public class GameServer {
 
         logger.info("PlayerId {} selected tank type {}", playerId, tankType);
 
+        // Changing type revokes readiness; the player must confirm again
+        if (serverContext.readyPlayerIds.remove(playerId)) {
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_READY, playerId, 0), -1);
+        }
+
         // Rebroadcast the extended NEW so every client (including the owner) sees the new type
         broadcast(formatNewPlayerMessage(tankData), -1);
+    }
+
+    // Sets a player's lobby ready state; the round cannot start until all players are ready
+    public synchronized void handlePlayerReady(int playerId, boolean ready) {
+        if (serverContext.currentGameState != GameState.WAITING && serverContext.currentGameState != GameState.COUNTDOWN) {
+            logger.warn("Ignored ready={} from playerId {} during {} state.", ready, playerId, serverContext.currentGameState);
+            return;
+        }
+
+        if (!serverContext.tanks.containsKey(playerId)) {
+            logger.error("Unable to process ready state for playerId {}: no tank data found.", playerId);
+            return;
+        }
+
+        boolean changed = ready
+                ? serverContext.readyPlayerIds.add(playerId)
+                : serverContext.readyPlayerIds.remove(playerId);
+
+        if (changed) {
+            logger.info("PlayerId {} is {}.", playerId, ready ? "READY" : "no longer ready");
+            broadcast(String.format("%s;%d;%d", NetworkProtocol.PLAYER_READY, playerId, ready ? 1 : 0), -1);
+        }
     }
 
     // Returns the time data for the new connected player based on the current game state when they connected - invoked from registerPlayer()
@@ -462,6 +494,7 @@ public class GameServer {
         lastFireDamageTimeByPlayerId.remove(playerId);
         lastHullActivityTimeByPlayerId.remove(playerId);
         cloakedPlayerIds.remove(playerId);
+        serverContext.readyPlayerIds.remove(playerId);
         visibilityByViewerTarget.keySet().removeIf(key ->
                 (int) (key >> 32) == playerId || key.intValue() == playerId);
         if (serverContext.powerUpManager != null) {
@@ -1259,6 +1292,7 @@ public class GameServer {
         sendStateAnnouncement(newState);
 
         if (newState == GameState.PLAYING) {
+            serverContext.readyPlayerIds.clear();
             resetPlayersForNewRound();
         }
     }

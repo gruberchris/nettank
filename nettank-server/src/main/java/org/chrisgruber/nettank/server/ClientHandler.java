@@ -362,6 +362,7 @@ public class ClientHandler implements Runnable {
                 case NetworkProtocol.INPUT -> handleInputMessage(parts);
                 case NetworkProtocol.SHOOT_CMD -> handleShootCommand();
                 case NetworkProtocol.SELECT_TANK_TYPE -> handleSelectTankTypeMessage(parts);
+                case NetworkProtocol.READY -> handleReadyMessage(parts);
                 case NetworkProtocol.PING -> handlePingMessage();
                 default -> {
                     logger.warn("Unknown command from client {}: {}", playerId, command);
@@ -459,6 +460,14 @@ public class ClientHandler implements Runnable {
             return;
         }
         server.handleTankTypeSelection(playerId, parts[1]);
+    }
+
+    private void handleReadyMessage(String[] parts) {
+        if (parts.length < 2) {
+            logger.warn("Malformed READY message from client {}", playerId);
+            return;
+        }
+        server.handlePlayerReady(playerId, "1".equals(parts[1]));
     }
 
     private void handlePingMessage() {

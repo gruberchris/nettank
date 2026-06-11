@@ -26,8 +26,8 @@ public class FreeForAll extends GameMode {
         this.killCountToBroadcastKillStreak = 3;
         this.startingMainWeaponAmmoCount = -1; // -1 for unlimited ammo allowed
 
-        // Round starting countdown state and configuration
-        this.gameStartOnCountdownInSeconds = 3;
+        // Round starting countdown state and configuration ("get ready" 5..1)
+        this.gameStartOnCountdownInSeconds = 5;
         this.countdownTimeInSeconds = -1;
 
         this.gameModeRule = GameModeRule.FREE_FOR_ALL;
@@ -37,9 +37,9 @@ public class FreeForAll extends GameMode {
 
     @Override
     public long getCountdownStateLengthInSeconds() {
-        long delayPerSecond = 2;
+        // Real-time countdown: one second per announced number (5..1)
         synchronized (stateLock) {
-            return gameStartOnCountdownInSeconds * delayPerSecond;
+            return gameStartOnCountdownInSeconds;
         }
     }
 
@@ -109,12 +109,14 @@ public class FreeForAll extends GameMode {
 
         logger.trace("Checking transition from WAITING to COUNTDOWN. Current player count: {} Required player count: {}", playerCount, minRequiredPlayers);
 
-        if (playerCount >= minRequiredPlayers) {
-            logger.trace("Transitioning to COUNTDOWN state.");
+        // The round cannot start until every connected player has confirmed
+        // their tank selection (ready) in the lobby
+        if (playerCount >= minRequiredPlayers && serverContext.areAllPlayersReady()) {
+            logger.info("All {} players are ready. Transitioning to COUNTDOWN state.", playerCount);
             return GameState.COUNTDOWN;
         }
 
-        logger.trace("Not enough players to transition to COUNTDOWN. Waiting for more players.");
+        logger.trace("Waiting for more players or for all players to ready up.");
 
         return GameState.WAITING;
     }
@@ -132,6 +134,12 @@ public class FreeForAll extends GameMode {
 
         if (playerCount < minRequiredPlayers) {
             logger.trace("Not enough players to transition to PLAYING. Returning to WAITING state.");
+            return GameState.WAITING;
+        }
+
+        // A new (unready) player joined or someone un-readied: abort the countdown
+        if (!serverContext.areAllPlayersReady()) {
+            logger.info("Countdown aborted: not all players are ready anymore.");
             return GameState.WAITING;
         }
 
