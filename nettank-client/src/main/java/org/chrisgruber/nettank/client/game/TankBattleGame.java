@@ -102,6 +102,30 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private static final long HIT_SPARK_DURATION_MS = 250;
     private static final float HIT_SPARK_RENDER_SIZE = 26.0f;
     private static final long FLOATING_TEXT_DURATION_MS = 1200;
+
+    // Effects quality (from game-config.json): LOW drops decals, dust, and vignettes
+    private enum EffectsQuality { OFF, LOW, FULL }
+    private EffectsQuality effectsQuality = EffectsQuality.FULL;
+    private boolean effectsAtLeastLow() { return effectsQuality != EffectsQuality.OFF; }
+    private boolean effectsFull() { return effectsQuality == EffectsQuality.FULL; }
+
+    // Phase 7 visual effects
+    private final List<org.chrisgruber.nettank.client.game.effects.MuzzleFlashEffect> muzzleFlashes = new CopyOnWriteArrayList<>();
+    private final java.util.Deque<org.chrisgruber.nettank.client.game.effects.TrackMarkEffect> trackMarks = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private final List<org.chrisgruber.nettank.client.game.effects.DustPuffEffect> dustPuffs = new CopyOnWriteArrayList<>();
+    private final java.util.Deque<org.chrisgruber.nettank.client.game.effects.ScorchDecal> scorchDecals = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private final Map<Integer, Vector2f> lastGroundEffectPosition = new ConcurrentHashMap<>();
+    private long lastHullSmokeTime = 0;
+    private org.chrisgruber.nettank.client.engine.ui.VignetteOverlay vignetteOverlay;
+    private long lastOwnHitTime = 0;
+    private boolean lastOwnHitCrit = false;
+    private static final int TRACK_MARK_CAP = 400;
+    private static final int SCORCH_DECAL_CAP = 200;
+    private static final float GROUND_EFFECT_SPACING = 12.0f;
+    private static final long MUZZLE_FLASH_DURATION_MS = 120;
+    private static final long RESPAWN_SHIMMER_DURATION_MS = 500;
+    private static final long OWN_HIT_VIGNETTE_MS = 450;
+    private static final float EXPLOSION_SHAKE_RANGE = 400.0f;
     private final String playerName;
     private boolean isSpectating = false;
     private long roundStartTimeMillis = 0;
@@ -180,11 +204,20 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     }
 
     public TankBattleGame(String hostIp, int port, String playerName, String initialTankType, String title, int width, int height) {
+        this(hostIp, port, playerName, initialTankType, "FULL", title, width, height);
+    }
+
+    public TankBattleGame(String hostIp, int port, String playerName, String initialTankType, String effectsQuality, String title, int width, int height) {
         super(title, width, height);
         this.serverIp = hostIp;
         this.serverPort = port;
         this.playerName = playerName;
         this.selectedTankType = org.chrisgruber.nettank.common.entities.TankType.fromString(initialTankType);
+        try {
+            this.effectsQuality = EffectsQuality.valueOf(effectsQuality.trim().toUpperCase());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            this.effectsQuality = EffectsQuality.FULL;
+        }
     }
 
     // --- Implementation of Abstract Methods from GameEngine ---
@@ -207,6 +240,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             uiManager = new UIManager();
             healthBar = new HealthBar();
             armorIndicator = new org.chrisgruber.nettank.client.engine.ui.ArmorIndicator();
+            vignetteOverlay = new org.chrisgruber.nettank.client.engine.ui.VignetteOverlay();
 
             // Load game textures
             logger.debug("Loading textures...");
@@ -383,6 +417,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // --- Hit feedback effects ---
         hitSparks.removeIf(org.chrisgruber.nettank.client.game.effects.HitSparkEffect::update);
         floatingTexts.removeIf(org.chrisgruber.nettank.client.game.effects.FloatingTextEffect::isFinished);
+
+        // --- Phase 7 cosmetic effects ---
+        muzzleFlashes.removeIf(org.chrisgruber.nettank.client.game.effects.MuzzleFlashEffect::update);
+        trackMarks.removeIf(org.chrisgruber.nettank.client.game.effects.TrackMarkEffect::isFinished);
+        dustPuffs.removeIf(org.chrisgruber.nettank.client.game.effects.DustPuffEffect::isFinished);
+        scorchDecals.removeIf(org.chrisgruber.nettank.client.game.effects.ScorchDecal::isFinished);
+        spawnGroundEffects();
 
         // --- Update Active Smoke Effects ---
         activeSmokeEffects.entrySet().removeIf(entry -> {
@@ -691,6 +732,39 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
         float renderRangeSq = isSpectating ? Float.MAX_VALUE : VIEW_RANGE * VIEW_RANGE;
 
+        // --- Render Ground Decals (scorch marks, track marks, dust) ---
+        if (effectsFull() && bulletTexture != null) {
+            bulletTexture.bind(); // soft round sprite reused for all ground decals
+
+            for (var decal : scorchDecals) {
+                shader.setUniform4f("u_tintColor", 0.08f, 0.06f, 0.05f, decal.getAlpha());
+                renderer.drawQuad(decal.getPosition().x, decal.getPosition().y,
+                        decal.getRenderSize(), decal.getRenderSize(), decal.getRotationDegrees(), shader);
+            }
+
+            for (var mark : trackMarks) {
+                float alpha = mark.getAlpha();
+                if (alpha <= 0.01f) continue;
+                shader.setUniform4f("u_tintColor", 0.12f, 0.1f, 0.08f, alpha);
+                renderer.drawQuad(mark.getLeftTrack().x, mark.getLeftTrack().y,
+                        mark.getMarkSize(), mark.getMarkSize(), mark.getRotationDegrees(), shader);
+                renderer.drawQuad(mark.getRightTrack().x, mark.getRightTrack().y,
+                        mark.getMarkSize(), mark.getMarkSize(), mark.getRotationDegrees(), shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+
+        if (effectsFull() && !dustPuffs.isEmpty() && !smokeFrameTextures.isEmpty()) {
+            smokeFrameTextures.getFirst().bind();
+            for (var puff : dustPuffs) {
+                shader.setUniform4f("u_tintColor", puff.getTint(), puff.getAlpha());
+                renderer.drawQuad(puff.getPosition().x, puff.getPosition().y,
+                        puff.getCurrentSize(), puff.getCurrentSize(), 0f, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
+
         // --- Render Power-Up Pickups ---
         // PLACEHOLDER ART: tinted bullet sprite + pulsing glow until per-type icons
         // exist (textures/powerups/<type>.png)
@@ -748,7 +822,20 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             if (tank.getAlpha() <= 0.02f) continue; // fully cloaked
 
             if (isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) {
-                shader.setUniform4f("u_tintColor", tank.getColor(), tank.getAlpha());
+                boolean isWreck = tank.getHitPoints() <= 0;
+                float shimmer = tank.getRespawnShimmerProgress(RESPAWN_SHIMMER_DURATION_MS);
+
+                Vector3f tint = tank.getColor();
+                if (isWreck) {
+                    // Destroyed tanks remain as darkened wrecks until they respawn
+                    tint = new Vector3f(tank.getColor()).mul(0.3f);
+                } else if (effectsAtLeastLow() && tank.isHitFlashing()) {
+                    // Hit-confirm flash: white for normal hits, gold for crits
+                    tint = tank.isHitFlashGold() ? new Vector3f(1.0f, 0.84f, 0.2f) : new Vector3f(1.0f, 1.0f, 1.0f);
+                }
+
+                float renderAlpha = tank.getAlpha() * (isWreck ? 1.0f : 0.3f + 0.7f * shimmer);
+                shader.setUniform4f("u_tintColor", tint, renderAlpha);
 
                 // MVP per-type visuals until dedicated hull sprites exist: scale by chassis
                 float typeScale = switch (tank.getTankType()) {
@@ -756,21 +843,39 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                     case LIGHT -> 0.85f;
                     default -> 1.0f;
                 };
-                float renderSize = TankData.SIZE * typeScale;
+                // Respawn shimmer scales the tank in over ~0.5 s so spawns read clearly
+                float renderSize = TankData.SIZE * typeScale * (isWreck ? 1.0f : 0.6f + 0.4f * shimmer);
 
                 // Hull at hull rotation
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
                         renderSize, renderSize,
                         tank.getRotation(), shader);
 
-                // Turret layered on top at its own rotation.
+                // Turret layered on top at its own rotation (wrecks keep hull only).
                 // PLACEHOLDER ART: a scaled-down tank sprite stands in for a dedicated
                 // turret texture (turret.png) over a barrel-less hull.
-                renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
-                        renderSize * 0.65f, renderSize * 0.65f,
-                        tank.getTurretRotation(), shader);
+                if (!isWreck) {
+                    renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
+                            renderSize * 0.65f, renderSize * 0.65f,
+                            tank.getTurretRotation(), shader);
+                }
             }
         }
+
+        // --- Render Muzzle Flashes ---
+        if (!muzzleFlashes.isEmpty()) {
+            for (var flash : muzzleFlashes) {
+                if (flash.isFinished()) continue;
+                Texture frame = flash.getCurrentFrameTexture();
+                if (frame == null) continue;
+                frame.bind();
+                shader.setUniform4f("u_tintColor", 1.0f, 0.95f, 0.7f, 1.0f);
+                renderer.drawQuad(flash.getPosition().x, flash.getPosition().y,
+                        flash.getRenderSize(), flash.getRenderSize(), flash.getRotationDegrees(), shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        // -------------------------
 
         shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -805,6 +910,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 Vector2f bulletPosition = bullet.getPosition();
                 logger.trace("Rendering Bullet: Pos=({}, {}), Vel=({}, {}), Rotation={}",
                         bulletPosition.x, bulletPosition.y, velocity.x, velocity.y, rotationDegrees);
+
+                // Tracer streak: a bright stretched quad trailing the bullet makes
+                // firefights readable at long range
+                if (effectsAtLeastLow() && velocity.lengthSquared() > 0.0001f) {
+                    float speed = velocity.length();
+                    float trailX = bullet.getPosition().x - velocity.x / speed * 12.0f;
+                    float trailY = bullet.getPosition().y - velocity.y / speed * 12.0f;
+                    shader.setUniform4f("u_tintColor", 1.0f, 0.9f, 0.5f, 0.55f);
+                    renderer.drawQuad(trailX, trailY, 4.0f, 22.0f, rotationDegrees, shader);
+                    shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+                }
 
                 // Draw the quad using the calculated rotation
                 renderer.drawQuad(bullet.getPosition().x, bullet.getPosition().y,
@@ -941,6 +1057,26 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private void renderUI() {
         uiManager.startUIRendering(windowWidth, windowHeight);
 
+        // Damage vignette: pulse on taking a hit, slow heartbeat at critically low HP
+        if (effectsFull() && vignetteOverlay != null && localTank != null && !isSpectating) {
+            long now = System.currentTimeMillis();
+            float intensity = 0.0f;
+
+            long sinceHit = now - lastOwnHitTime;
+            if (lastOwnHitTime > 0 && sinceHit < OWN_HIT_VIGNETTE_MS) {
+                float pulse = 1.0f - sinceHit / (float) OWN_HIT_VIGNETTE_MS;
+                intensity = (lastOwnHitCrit ? 1.0f : 0.65f) * pulse;
+            }
+
+            int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+            if (localTank.getHitPoints() > 0 && localTank.getHitPoints() <= Math.max(1, maxHitPoints / 4)) {
+                float heartbeat = 0.25f + 0.2f * (float) Math.sin(now / 350.0);
+                intensity = Math.max(intensity, heartbeat);
+            }
+
+            vignetteOverlay.draw(uiManager.getProjectionMatrix(), windowWidth, windowHeight, intensity);
+        }
+
         // --- Top-Left UI Elements ---
         final float statusTextX = 10;
         float currentY = 10; // Starting Y position
@@ -1022,10 +1158,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        // Render Kill Feed Messages (top-right)
+        // Render Kill Feed Messages (top-right); fresh messages pop with a brief scale bounce
+        long killFeedNow = System.currentTimeMillis();
         float currentKillFeedY = killFeedStartY;
         for (KillFeedMessage feedMessage : killFeedMessages) {
-            float textWidth = uiManager.getTextWidth(feedMessage.message(), UI_TEXT_SCALE_KILL_FEED);
+            long age = killFeedNow - (feedMessage.expiryTimeMillis() - KILL_FEED_DISPLAY_TIME_MS);
+            float bounce = (effectsAtLeastLow() && age >= 0 && age < 300)
+                    ? 1.0f + 0.35f * (1.0f - age / 300.0f) : 1.0f;
+            float scale = UI_TEXT_SCALE_KILL_FEED * bounce;
+
+            float textWidth = uiManager.getTextWidth(feedMessage.message(), scale);
             float x = windowWidth - textWidth - killFeedPaddingX;
             Vector3f textColor = switch (feedMessage.getStatusMessageKind()) {
                 case PlayerKilled -> Colors.RED;
@@ -1033,7 +1175,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 case PlayerJoined -> Colors.WHITE;
                 default -> Colors.CYAN;
             };
-            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, UI_TEXT_SCALE_KILL_FEED, textColor);
+            uiManager.drawText(feedMessage.message(), x, currentKillFeedY, scale, textColor);
             currentKillFeedY += killFeedLineHeight;
         }
 
@@ -1276,6 +1418,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             if (armorIndicator != null) {
                 armorIndicator.cleanup();
             }
+            if (vignetteOverlay != null) {
+                vignetteOverlay.cleanup();
+            }
         } catch (Exception e) {
             logger.error("Error cleaning up uiManager", e);
         }
@@ -1379,6 +1524,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
 
             tank.setHitPoints(tank.getTankType().getDefaultStats().maxHitPoints());
+            tank.startRespawnShimmer();
         }
 
         logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());
@@ -1405,6 +1551,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         bullets.add(clientBullet);
 
+        // Muzzle flash at the firing point, rotated to the shot direction
+        if (effectsAtLeastLow() && !explosionFrameTextures.isEmpty()) {
+            float flashRotation = (float) Math.toDegrees(Math.atan2(dirY, dirX)) - 90.0f;
+            muzzleFlashes.add(new org.chrisgruber.nettank.client.game.effects.MuzzleFlashEffect(
+                    position, flashRotation, MUZZLE_FLASH_DURATION_MS, explosionFrameTextures, 22.0f));
+        }
+
         logger.trace("Spawned bullet owned by {}", ownerId);
     }
 
@@ -1420,12 +1573,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         ClientTank hitTank = tanks.get(targetId);
         if (hitTank != null) {
             spawnHitSpark(hitTank, side, critical);
+
+            // Hit-confirm: when YOUR shot connects, the struck enemy flashes (gold on crit)
+            if (shooterId == localPlayerId && effectsAtLeastLow()) {
+                hitTank.triggerHitFlash(critical, critical ? 160 : 80);
+            }
         }
 
         // Own tank: flash the matching HUD armor segment; HP/armor values arrive via ARM
         if (targetId == localPlayerId) {
             int sideIndex = org.chrisgruber.nettank.common.entities.ArmorSide.fromString(side).ordinal();
             armorHitFlashTimes[sideIndex] = System.currentTimeMillis();
+            lastOwnHitTime = System.currentTimeMillis();
+            lastOwnHitCrit = critical;
 
             if (critical && localTank != null) {
                 floatingTexts.add(new org.chrisgruber.nettank.client.game.effects.FloatingTextEffect(
@@ -1465,6 +1625,56 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         System.arraycopy(newArmor, 0, localArmor, 0, newArmor.length);
         logger.debug("Armor status: F{} L{} R{} B{}, HP {}", front, left, right, rear, hitPoints);
+    }
+
+    // Track marks and terrain-themed dust behind moving tanks, plus a smoke trickle
+    // from the player's own hull below 50% HP. All gated behind FULL effects quality.
+    private void spawnGroundEffects() {
+        if (!effectsFull() || gameMap == null) return;
+
+        long now = System.currentTimeMillis();
+
+        for (ClientTank tank : tanks.values()) {
+            if (tank.getHitPoints() <= 0 || tank.getAlpha() <= 0.02f) continue;
+
+            Vector2f lastPosition = lastGroundEffectPosition.get(tank.getPlayerId());
+            if (lastPosition == null) {
+                lastGroundEffectPosition.put(tank.getPlayerId(), new Vector2f(tank.getPosition()));
+                continue;
+            }
+            if (tank.getPosition().distance(lastPosition) < GROUND_EFFECT_SPACING) continue;
+
+            lastPosition.set(tank.getPosition());
+
+            trackMarks.addLast(new org.chrisgruber.nettank.client.game.effects.TrackMarkEffect(
+                    tank.getPosition(), tank.getRotation(), TankData.SIZE * 0.6f, 5.0f, 0.35f));
+            while (trackMarks.size() > TRACK_MARK_CAP) {
+                trackMarks.pollFirst();
+            }
+
+            // Terrain-themed dust kick-up behind the tracks
+            var terrainType = gameMap.getEffectiveTypeAt(tank.getPosition().x, tank.getPosition().y);
+            Vector3f dustTint = switch (terrainType) {
+                case DIRT, SAND -> new Vector3f(0.82f, 0.72f, 0.5f);  // tan dust
+                case MUD -> new Vector3f(0.32f, 0.24f, 0.16f);        // dark mud splatter
+                case SHALLOW_WATER -> new Vector3f(0.65f, 0.8f, 0.95f); // water spray
+                default -> null;
+            };
+            if (dustTint != null && !smokeFrameTextures.isEmpty()) {
+                dustPuffs.add(new org.chrisgruber.nettank.client.game.effects.DustPuffEffect(
+                        tank.getPosition(), dustTint, 600, 14.0f));
+            }
+        }
+
+        // Damaged hull smoke trickle (own tank only: enemy HP is not public)
+        if (localTank != null && localTank.getHitPoints() > 0 && !smokeFrameTextures.isEmpty()) {
+            int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+            if (localTank.getHitPoints() <= maxHitPoints / 2 && now - lastHullSmokeTime >= 400) {
+                lastHullSmokeTime = now;
+                dustPuffs.add(new org.chrisgruber.nettank.client.game.effects.DustPuffEffect(
+                        localTank.getPosition(), new Vector3f(0.35f, 0.35f, 0.35f), 900, 12.0f));
+            }
+        }
     }
 
     private Vector2f aboveTank(ClientTank tank, float extraHeight) {
@@ -1510,6 +1720,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         if (targetTank != null) {
             targetTank.setHitPoints(0);
+
+            // Camera shake for nearby explosions and a persistent scorch mark
+            if (effectsAtLeastLow() && camera != null && localTank != null
+                    && localTank.getPosition().distance(targetTank.getPosition()) <= EXPLOSION_SHAKE_RANGE) {
+                camera.addShake(6.0f);
+            }
+            if (effectsFull()) {
+                scorchDecals.addLast(new org.chrisgruber.nettank.client.game.effects.ScorchDecal(
+                        targetTank.getPosition(), (float) (Math.random() * 360.0), 46.0f));
+                while (scorchDecals.size() > SCORCH_DECAL_CAP) {
+                    scorchDecals.pollFirst();
+                }
+            }
         }
 
         // --- Spawn Explosion ---

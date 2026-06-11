@@ -18,6 +18,11 @@ public class ClientTank extends ClientEntity {
     protected float alpha = 1.0f;
     protected float targetAlpha = 1.0f;
 
+    // Hit-confirm flash (white for normal hits, gold for crits) and respawn shimmer
+    protected long hitFlashUntilMillis = 0;
+    protected boolean hitFlashGold = false;
+    protected long respawnShimmerStartMillis = 0;
+
     public ClientTank(TankData data) {
         super(data.getPosition(), data.getVelocity(), data.getRotation(), TankData.SIZE, TankData.SIZE, data.getPlayerId(), data.isDestroyed());
         this.name = data.getPlayerName();
@@ -39,6 +44,22 @@ public class ClientTank extends ClientEntity {
     public float getAlpha() { return this.alpha; }
     public float getTargetAlpha() { return this.targetAlpha; }
     public void setTargetAlpha(float targetAlpha) { this.targetAlpha = targetAlpha; }
+
+    public void triggerHitFlash(boolean gold, long durationMs) {
+        this.hitFlashUntilMillis = System.currentTimeMillis() + durationMs;
+        this.hitFlashGold = gold;
+    }
+
+    public boolean isHitFlashing() { return System.currentTimeMillis() < hitFlashUntilMillis; }
+    public boolean isHitFlashGold() { return hitFlashGold; }
+
+    public void startRespawnShimmer() { this.respawnShimmerStartMillis = System.currentTimeMillis(); }
+
+    // Returns spawn-in progress in [0, 1]; 1 = fully materialized
+    public float getRespawnShimmerProgress(long shimmerDurationMs) {
+        if (respawnShimmerStartMillis == 0) return 1.0f;
+        return Math.min(1.0f, (System.currentTimeMillis() - respawnShimmerStartMillis) / (float) shimmerDurationMs);
+    }
 
     // Eases alpha toward targetAlpha; rate is alpha units per second
     public void updateAlpha(float deltaTime, float ratePerSecond) {

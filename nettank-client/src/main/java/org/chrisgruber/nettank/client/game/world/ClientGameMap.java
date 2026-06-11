@@ -82,6 +82,11 @@ public class ClientGameMap {
     public float getTileSize() {
         return mapData.getTileSize();
     }
+
+    public TerrainType getEffectiveTypeAt(float worldX, float worldY) {
+        TerrainTile tile = mapData.getTileAt(worldX, worldY);
+        return tile != null ? tile.getEffectiveType() : TerrainType.GRASS;
+    }
     
     // Smoothstep function for smoother interpolation (eases in and out)
     private float smoothstep(float t) {
