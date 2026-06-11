@@ -536,6 +536,119 @@ class GameServerTest {
     }
 
     @Test
+    void testStealthTanksAreHarderToSpot() throws Exception {
+        ClientHandler handler1 = mock(ClientHandler.class);
+        ClientHandler handler2 = mock(ClientHandler.class);
+
+        when(handler1.getSocket()).thenReturn(mock(Socket.class));
+        when(handler2.getSocket()).thenReturn(mock(Socket.class));
+        when(handler1.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler2.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+
+        gameServer.registerPlayer(handler1, "Viewer");
+        gameServer.registerPlayer(handler2, "Sneaky", org.chrisgruber.nettank.common.entities.TankType.STEALTH);
+
+        // Clear terrain so only distance matters
+        for (int y = 0; y < context.gameMapData.getHeightTiles(); y++) {
+            for (int x = 0; x < context.gameMapData.getWidthTiles(); x++) {
+                var tile = context.gameMapData.getTile(x, y);
+                tile.setBaseType(org.chrisgruber.nettank.common.world.TerrainType.GRASS);
+                tile.setOverlayType(null);
+            }
+        }
+
+        TankData viewer = context.tanks.get(0);
+        TankData stealthTarget = context.tanks.get(1);
+        viewer.setPosition(new org.joml.Vector2f(800, 800));
+
+        // 400 px away: inside the 500 px standard sight radius, but outside the
+        // stealth-reduced detection radius (500 * 0.7 = 350)
+        stealthTarget.setPosition(new org.joml.Vector2f(1200, 800));
+        assertFalse(gameServer.computeVisibility(viewer, stealthTarget));
+
+        // The same distance against a STANDARD tank is visible
+        TankData standardTarget = new TankData(99, new org.joml.Vector2f(1200, 800), new org.joml.Vector2f(), 0f,
+                new org.joml.Vector3f(1, 1, 1), "Regular");
+        assertTrue(gameServer.computeVisibility(viewer, standardTarget));
+
+        // Moving the stealth tank inside the reduced radius makes it spottable
+        stealthTarget.setPosition(new org.joml.Vector2f(1100, 800)); // 300 px
+        assertFalse(stealthTarget.isDestroyed());
+        assertTrue(gameServer.computeVisibility(viewer, stealthTarget));
+    }
+
+    @Test
+    void testTerrainBlocksVisibilityAndSendsVisTransitions() throws Exception {
+        ClientHandler handler1 = mock(ClientHandler.class);
+        ClientHandler handler2 = mock(ClientHandler.class);
+
+        when(handler1.getSocket()).thenReturn(mock(Socket.class));
+        when(handler2.getSocket()).thenReturn(mock(Socket.class));
+        when(handler1.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler2.getSocket().getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        when(handler1.getPlayerId()).thenReturn(0);
+        when(handler2.getPlayerId()).thenReturn(1);
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(handler1, "PlayerA");
+        gameServer.registerPlayer(handler2, "PlayerB");
+
+        // Clear terrain, then raise a mountain wall between the two tanks
+        for (int y = 0; y < context.gameMapData.getHeightTiles(); y++) {
+            for (int x = 0; x < context.gameMapData.getWidthTiles(); x++) {
+                var tile = context.gameMapData.getTile(x, y);
+                tile.setBaseType(org.chrisgruber.nettank.common.world.TerrainType.GRASS);
+                tile.setOverlayType(null);
+            }
+        }
+
+        TankData tankA = context.tanks.get(0);
+        TankData tankB = context.tanks.get(1);
+        tankA.setPosition(new org.joml.Vector2f(800, 800));   // tile y=25
+        tankB.setPosition(new org.joml.Vector2f(800, 1120));  // tile y=35, 320 px apart
+
+        for (int x = 0; x < context.gameMapData.getWidthTiles(); x++) {
+            context.gameMapData.getTile(x, 30).setBaseType(org.chrisgruber.nettank.common.world.TerrainType.MOUNTAIN);
+        }
+
+        clearInvocations(handler1, handler2);
+        gameServer.updateGameLogic(1.0f / 60.0f);
+
+        // Each side is told the other became invisible
+        ArgumentCaptor<String> captor1 = ArgumentCaptor.forClass(String.class);
+        verify(handler1, atLeastOnce()).sendMessage(captor1.capture());
+        assertTrue(captor1.getAllValues().stream()
+                .anyMatch(m -> m.equals(NetworkProtocol.VISIBILITY + ";1;0")));
+        assertFalse(gameServer.isVisibleTo(0, 1));
+        assertFalse(gameServer.isVisibleTo(1, 0));
+
+        // broadcastState withholds the hidden tank's UPD from that viewer
+        clearInvocations(handler1, handler2);
+        gameServer.broadcastState();
+        ArgumentCaptor<String> captor1b = ArgumentCaptor.forClass(String.class);
+        verify(handler1, atLeastOnce()).sendMessage(captor1b.capture());
+        assertTrue(captor1b.getAllValues().stream()
+                .noneMatch(m -> m.startsWith(NetworkProtocol.PLAYER_UPDATE + ";1;")));
+        assertTrue(captor1b.getAllValues().stream()
+                .anyMatch(m -> m.startsWith(NetworkProtocol.PLAYER_UPDATE + ";0;")));
+
+        // Removing the wall restores visibility on the next tick
+        for (int x = 0; x < context.gameMapData.getWidthTiles(); x++) {
+            context.gameMapData.getTile(x, 30).setBaseType(org.chrisgruber.nettank.common.world.TerrainType.GRASS);
+        }
+        gameServer.updateGameLogic(1.0f / 60.0f);
+        assertTrue(gameServer.isVisibleTo(0, 1));
+    }
+
+    @Test
     void testRespawnRestoresPerTypeArmor() throws Exception {
         when(mockClientHandler.getSocket()).thenReturn(mockSocket);
         when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());

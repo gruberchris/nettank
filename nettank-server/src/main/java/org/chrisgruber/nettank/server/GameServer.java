@@ -71,6 +71,15 @@ public class GameServer {
     final java.util.Set<Integer> cloakedPlayerIds = new java.util.HashSet<>(); // package-private for tests
     private final java.util.Map<Integer, Long> lastHullActivityTimeByPlayerId = new java.util.HashMap<>();
 
+    // Line-of-sight fog of war: per-(viewer, target) visibility driven by terrain
+    // raycasts; STEALTH tanks are harder to spot (reduced detection radius)
+    private static final float STEALTH_DETECTION_FACTOR = 0.7f;
+    private final java.util.Map<Long, Boolean> visibilityByViewerTarget = new java.util.HashMap<>();
+
+    private static long viewerTargetKey(int viewerId, int targetId) {
+        return ((long) viewerId << 32) | (targetId & 0xFFFFFFFFL);
+    }
+
     public GameServer(int port, int networkHz, int mapWidth, int mapHeight) {
         this.port = port;
         this.mapWidth = mapWidth;
@@ -453,6 +462,8 @@ public class GameServer {
         lastFireDamageTimeByPlayerId.remove(playerId);
         lastHullActivityTimeByPlayerId.remove(playerId);
         cloakedPlayerIds.remove(playerId);
+        visibilityByViewerTarget.keySet().removeIf(key ->
+                (int) (key >> 32) == playerId || key.intValue() == playerId);
         if (serverContext.powerUpManager != null) {
             serverContext.powerUpManager.clearEffectsForPlayer(playerId);
         }
@@ -692,6 +703,7 @@ public class GameServer {
         }
 
         updateCloakStates(currentTime);
+        updatePerRecipientVisibility();
 
         // Power-up lifecycle: spawns, pickups, buff expiry
         if (serverContext.powerUpManager != null) {
@@ -884,23 +896,74 @@ public class GameServer {
         return currentTime - lastActivity >= CLOAK_IDLE_DELAY_MS;
     }
 
-    // Applies cloak transitions and announces them via VIS broadcasts
+    // Applies cloak transitions. The owner gets a VIS for their own tank (the client
+    // renders own-cloak at half alpha); enemies learn about it through the
+    // per-recipient visibility pass, which folds cloak and line-of-sight together.
     private synchronized void updateCloakStates(long currentTime) {
         for (TankData tankData : serverContext.tanks.values()) {
             int playerId = tankData.getPlayerId();
             boolean shouldCloak = computeShouldCloak(tankData, currentTime);
             boolean isCloaked = cloakedPlayerIds.contains(playerId);
 
-            if (shouldCloak && !isCloaked) {
+            if (shouldCloak == isCloaked) continue;
+
+            if (shouldCloak) {
                 cloakedPlayerIds.add(playerId);
-                broadcast(String.format("%s;%d;%d", NetworkProtocol.VISIBILITY, playerId, 0), -1);
-                logger.debug("PlayerId {} cloaked.", playerId);
-            } else if (!shouldCloak && isCloaked) {
+            } else {
                 cloakedPlayerIds.remove(playerId);
-                broadcast(String.format("%s;%d;%d", NetworkProtocol.VISIBILITY, playerId, 1), -1);
-                logger.debug("PlayerId {} decloaked.", playerId);
+            }
+
+            ClientHandler owner = serverContext.clients.get(playerId);
+            if (owner != null) {
+                owner.sendMessage(String.format("%s;%d;%d", NetworkProtocol.VISIBILITY, playerId, shouldCloak ? 0 : 1));
+            }
+            logger.debug("PlayerId {} {}.", playerId, shouldCloak ? "cloaked" : "decloaked");
+        }
+    }
+
+    // Whether the target tank is visible to the viewer right now: cloak hides from
+    // everyone but the owner; otherwise terrain line-of-sight decides, with STEALTH
+    // chassis ~30% harder to spot. Destroyed (spectating) viewers see everything.
+    synchronized boolean computeVisibility(TankData viewer, TankData target) {
+        if (viewer.getPlayerId() == target.getPlayerId()) return true;
+        if (cloakedPlayerIds.contains(target.getPlayerId())) return false;
+        if (viewer.isDestroyed()) return true;
+
+        float sightRadius = getEffectiveStats(viewer).sightRadius();
+        if (target.getTankType() == org.chrisgruber.nettank.common.entities.TankType.STEALTH) {
+            sightRadius *= STEALTH_DETECTION_FACTOR;
+        }
+
+        return org.chrisgruber.nettank.server.world.LineOfSightCalculator.canSee(
+                serverContext.gameMapData, viewer.getPosition(), target.getPosition(), sightRadius);
+    }
+
+    // Recomputes per-recipient visibility and notifies each viewer of transitions
+    private synchronized void updatePerRecipientVisibility() {
+        for (ClientHandler viewerHandler : serverContext.clients.values()) {
+            if (viewerHandler == null) continue;
+            TankData viewer = serverContext.tanks.get(viewerHandler.getPlayerId());
+            if (viewer == null) continue;
+
+            for (TankData target : serverContext.tanks.values()) {
+                if (target.getPlayerId() == viewer.getPlayerId()) continue;
+
+                boolean visible = computeVisibility(viewer, target);
+                long key = viewerTargetKey(viewer.getPlayerId(), target.getPlayerId());
+                boolean previous = visibilityByViewerTarget.getOrDefault(key, true);
+
+                if (visible != previous) {
+                    visibilityByViewerTarget.put(key, visible);
+                    viewerHandler.sendMessage(String.format("%s;%d;%d",
+                            NetworkProtocol.VISIBILITY, target.getPlayerId(), visible ? 1 : 0));
+                }
             }
         }
+    }
+
+    boolean isVisibleTo(int viewerId, int targetId) {
+        if (viewerId == targetId) return true;
+        return visibilityByViewerTarget.getOrDefault(viewerTargetKey(viewerId, targetId), true);
     }
 
     // Damages tanks standing on tiles that are on fire (IGNITING/BURNING/SMOLDERING).
@@ -1000,7 +1063,8 @@ public class GameServer {
                 Math.round(base.bulletDamage() * damageMultiplier),
                 (long) (base.shootCooldownMs() / reloadMultiplier),
                 base.turretTurnSpeed(),
-                base.frontArmor(), base.leftArmor(), base.rightArmor(), base.rearArmor());
+                base.frontArmor(), base.leftArmor(), base.rightArmor(), base.rearArmor(),
+                base.sightRadius());
     }
 
     // Stats for an in-flight bullet's owner; falls back to mode base stats if the owner left.
@@ -1366,6 +1430,7 @@ public class GameServer {
             for (ClientHandler handler : serverContext.clients.values()) {
                 if (handler == null) continue;
                 if (cloaked && handler.getPlayerId() != tankData.getPlayerId()) continue;
+                if (!isVisibleTo(handler.getPlayerId(), tankData.getPlayerId())) continue;
                 handler.sendMessage(updateMessage);
             }
         }

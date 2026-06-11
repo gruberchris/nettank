@@ -14,7 +14,8 @@ public record TankStats(
         int frontArmor,
         int leftArmor,
         int rightArmor,
-        int rearArmor
+        int rearArmor,
+        float sightRadius
 ) {
     // Matches the legacy flat combat constants so introducing stats changes no behavior.
     public static final TankStats STANDARD = new TankStats(
@@ -27,7 +28,8 @@ public record TankStats(
             1,      // bulletDamage
             2000L,  // shootCooldownMs
             90.0f,  // turretTurnSpeed (deg/s)
-            2, 1, 1, 1 // front/left/right/rear armor
+            2, 1, 1, 1, // front/left/right/rear armor
+            500.0f  // sightRadius (px)
     );
 
     public int armorFor(ArmorSide side) {
