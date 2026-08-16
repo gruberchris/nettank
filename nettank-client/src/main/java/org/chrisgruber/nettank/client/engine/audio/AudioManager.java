@@ -97,18 +97,60 @@ public class AudioManager {
         return initialized;
     }
 
-    /** Decodes a classpath/filesystem OGG resource and registers it under the given name. */
+    /** Decodes a classpath/filesystem OGG or WAV resource and registers it under the given name. */
     public void loadSound(String name, String classpathOgg) {
         if (!initialized) return;
         try {
-            ByteBuffer vorbis = ioResourceToByteBuffer(classpathOgg);
+            ByteBuffer audioData = ioResourceToByteBuffer(classpathOgg);
+            
+            // Check if file is RIFF/WAVE
+            if (audioData.remaining() >= 12 && 
+                audioData.get(0) == 'R' && audioData.get(1) == 'I' && 
+                audioData.get(2) == 'F' && audioData.get(3) == 'F') {
+                
+                int channels = audioData.getShort(22) & 0xFFFF;
+                int sampleRate = audioData.getInt(24);
+                int bitsPerSample = audioData.getShort(34) & 0xFFFF;
+                
+                // Find "data" chunk
+                int dataOffset = 12;
+                int dataLength = 0;
+                while (dataOffset + 8 <= audioData.remaining()) {
+                    if (audioData.get(dataOffset) == 'd' && audioData.get(dataOffset + 1) == 'a' &&
+                        audioData.get(dataOffset + 2) == 't' && audioData.get(dataOffset + 3) == 'a') {
+                        dataLength = audioData.getInt(dataOffset + 4);
+                        dataOffset += 8;
+                        break;
+                    }
+                    int chunkSize = audioData.getInt(dataOffset + 4);
+                    dataOffset += 8 + chunkSize;
+                }
+                
+                if (dataLength > 0 && dataOffset + dataLength <= audioData.remaining()) {
+                    audioData.position(dataOffset);
+                    audioData.limit(dataOffset + dataLength);
+                    ByteBuffer pcm = audioData.slice();
+                    
+                    int format = channels == 1 ? 
+                        (bitsPerSample == 8 ? AL_FORMAT_MONO8 : AL_FORMAT_MONO16) :
+                        (bitsPerSample == 8 ? AL_FORMAT_STEREO8 : AL_FORMAT_STEREO16);
+                        
+                    int bufferId = alGenBuffers();
+                    alBufferData(bufferId, format, pcm, sampleRate);
+                    soundBuffers.put(name, bufferId);
+                    logger.debug("Loaded WAV sound '{}' from {} ({} Hz, {} ch)", name, classpathOgg, sampleRate, channels);
+                    return;
+                }
+            }
+
+            // Fallback to STB Vorbis OGG decoder
             try (MemoryStack stack = stackPush()) {
                 IntBuffer channelsBuffer = stack.mallocInt(1);
                 IntBuffer sampleRateBuffer = stack.mallocInt(1);
 
-                ShortBuffer pcm = stb_vorbis_decode_memory(vorbis, channelsBuffer, sampleRateBuffer);
+                ShortBuffer pcm = stb_vorbis_decode_memory(audioData, channelsBuffer, sampleRateBuffer);
                 if (pcm == null) {
-                    logger.error("Failed to decode OGG resource: {}", classpathOgg);
+                    logger.error("Failed to decode audio resource: {}", classpathOgg);
                     return;
                 }
                 int channels = channelsBuffer.get(0);
@@ -120,7 +162,7 @@ public class AudioManager {
                 MemoryUtil.memFree(pcm);
 
                 soundBuffers.put(name, bufferId);
-                logger.debug("Loaded sound '{}' from {} ({} Hz, {} ch)", name, classpathOgg, sampleRate, channels);
+                logger.debug("Loaded OGG sound '{}' from {} ({} Hz, {} ch)", name, classpathOgg, sampleRate, channels);
             }
         } catch (IOException e) {
             logger.error("Failed to load sound '{}' from {}", name, classpathOgg, e);

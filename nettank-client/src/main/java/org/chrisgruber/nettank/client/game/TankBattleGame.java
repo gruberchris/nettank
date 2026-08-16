@@ -35,8 +35,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL13.GL_TEXTURE0;
-import static org.lwjgl.opengl.GL13.glActiveTexture;
+import static org.lwjgl.opengl.GL13.*;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
 public class TankBattleGame extends GameEngine implements NetworkCallbackHandler {
@@ -53,6 +52,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private static final long KILL_FEED_DISPLAY_TIME_MS = 10000L; // 10 seconds display time
 
     private Shader shader;
+    private Shader tankShader;
+    private Shader shadowShader;
     private Renderer renderer;
     private Camera camera;
     private UIManager uiManager;
@@ -63,7 +64,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private Texture bulletTexture;
     private final Map<org.chrisgruber.nettank.common.entities.TankType, Texture> hullTexturesByType = new EnumMap<>(org.chrisgruber.nettank.common.entities.TankType.class);
     private final Map<org.chrisgruber.nettank.common.entities.TankType, Texture> turretTexturesByType = new EnumMap<>(org.chrisgruber.nettank.common.entities.TankType.class);
+    private final Map<org.chrisgruber.nettank.common.entities.TankType, Texture> hullMasksByType = new EnumMap<>(org.chrisgruber.nettank.common.entities.TankType.class);
+    private final Map<org.chrisgruber.nettank.common.entities.TankType, Texture> turretMasksByType = new EnumMap<>(org.chrisgruber.nettank.common.entities.TankType.class);
     private final Map<org.chrisgruber.nettank.common.entities.PowerUpType, Texture> powerUpIconTextures = new EnumMap<>(org.chrisgruber.nettank.common.entities.PowerUpType.class);
+    private final List<org.chrisgruber.nettank.client.game.effects.FlyingTurretEffect> flyingTurrets = new CopyOnWriteArrayList<>();
 
     // Effect textures (Phase 5/7 sprite sheets)
     private final List<Texture> muzzleFlashFrameTextures = new ArrayList<>();
@@ -267,6 +271,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             logger.debug("OpenGL blending enabled (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA).");
 
             shader = new Shader("/shaders/quad.vert", "/shaders/quad.frag");
+            try {
+                tankShader = new Shader("/shaders/quad.vert", "/shaders/tank.frag");
+            } catch (Exception e) {
+                logger.warn("Could not load tank.frag shader, falling back to basic shader", e);
+                tankShader = shader;
+            }
+            try {
+                shadowShader = new Shader("/shaders/quad.vert", "/shaders/shadow.frag");
+            } catch (Exception e) {
+                logger.warn("Could not load shadow.frag shader, falling back to basic shader", e);
+                shadowShader = shader;
+            }
             shader.bind();
 
             renderer = new Renderer();
@@ -284,8 +300,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             uiManager.loadFontTexture("textures/font.png");
             logger.debug("Textures loaded.");
 
-            // Per-type hull + turret textures (turret rotates independently of the hull)
-            logger.debug("Loading per-type tank hull/turret textures...");
+            // Per-type hull + turret textures & team-color masks
+            logger.debug("Loading per-type tank hull/turret textures and masks...");
             Texture turretStandard = new Texture("textures/turret.png");
             hullTexturesByType.put(org.chrisgruber.nettank.common.entities.TankType.STANDARD, tankTexture);
             turretTexturesByType.put(org.chrisgruber.nettank.common.entities.TankType.STANDARD, turretStandard);
@@ -295,6 +311,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             turretTexturesByType.put(org.chrisgruber.nettank.common.entities.TankType.LIGHT, new Texture("textures/turret_light.png"));
             hullTexturesByType.put(org.chrisgruber.nettank.common.entities.TankType.STEALTH, new Texture("textures/tank_stealth.png"));
             turretTexturesByType.put(org.chrisgruber.nettank.common.entities.TankType.STEALTH, new Texture("textures/turret_stealth.png"));
+
+            try {
+                hullMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.STANDARD, new Texture("textures/tank_mask.png"));
+                turretMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.STANDARD, new Texture("textures/turret_mask.png"));
+                hullMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.HEAVY, new Texture("textures/tank_heavy_mask.png"));
+                turretMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.HEAVY, new Texture("textures/turret_heavy_mask.png"));
+                hullMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.LIGHT, new Texture("textures/tank_light_mask.png"));
+                turretMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.LIGHT, new Texture("textures/turret_light_mask.png"));
+                hullMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.STEALTH, new Texture("textures/tank_stealth_mask.png"));
+                turretMasksByType.put(org.chrisgruber.nettank.common.entities.TankType.STEALTH, new Texture("textures/turret_stealth_mask.png"));
+            } catch (Exception e) {
+                logger.warn("Some team masks could not be loaded: {}", e.getMessage());
+            }
 
             // Power-up pickup icons (tinted per-category at render time)
             logger.debug("Loading power-up icon textures...");
@@ -489,10 +518,17 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         processTerrainStateChanges();
         updateTileFireEffects();
 
-        // --- Ease cloak fades ---
+        // --- Ease cloak fades & dynamics ---
         for (ClientTank tank : tanks.values()) {
             tank.updateAlpha(deltaTime, CLOAK_FADE_PER_SECOND);
+            tank.update(deltaTime);
         }
+
+        // --- Flying blowout turrets ---
+        for (var ft : flyingTurrets) {
+            ft.update(deltaTime);
+        }
+        flyingTurrets.removeIf(org.chrisgruber.nettank.client.game.effects.FlyingTurretEffect::isFinished);
 
         // --- Hit feedback effects ---
         hitSparks.removeIf(org.chrisgruber.nettank.client.game.effects.HitSparkEffect::update);
@@ -775,16 +811,32 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             // Register terrain textures with the new terrain system
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.GRASS, summerGrassTexture);
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.GRASS, new Texture("textures/Summer_Grass_1.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.GRASS, new Texture("textures/Summer_Grass_2.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.GRASS, new Texture("textures/Summer_Grass_3.png")); } catch (Exception ignored) {}
+
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.DIRT, dirtFieldTexture);
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.DIRT, new Texture("textures/Dirt_Field_1.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.DIRT, new Texture("textures/Dirt_Field_2.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.DIRT, new Texture("textures/Dirt_Field_3.png")); } catch (Exception ignored) {}
+
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.MUD, mudFieldTexture);
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.MUD, new Texture("textures/Mud_Field_1.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.MUD, new Texture("textures/Mud_Field_2.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.MUD, new Texture("textures/Mud_Field_3.png")); } catch (Exception ignored) {}
+
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SAND, desertSandTexture);
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.SAND, new Texture("textures/Desert_1.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.SAND, new Texture("textures/Desert_2.png")); } catch (Exception ignored) {}
+            try { gameMap.registerTerrainTextureVariant(org.chrisgruber.nettank.common.world.TerrainType.SAND, new Texture("textures/Desert_3.png")); } catch (Exception ignored) {}
+
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.STONE, summerGrassTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.SHALLOW_WATER, shallowWaterTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.FOREST, summerTreeTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.HILL, hillTexture);
             gameMap.registerTerrainTexture(org.chrisgruber.nettank.common.world.TerrainType.ROCKS, rocksTexture);
             gameMap.registerStateOverlayTexture(org.chrisgruber.nettank.common.world.TerrainState.SCORCHED, scorchedTerrainTexture);
-            logger.debug("Registered terrain textures for all types.");
+            logger.debug("Registered terrain textures and variations for all types.");
 
             mapInitialized = true; // Mark map as fully ready
             logger.info("ClientGameMap and textures initialized successfully.");
@@ -928,6 +980,54 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
         // -------------------------
 
+        // --- Render Directional Drop Shadows (Sun from top-left: offset dx=+3.5, dy=-4.5) ---
+        if (effectsAtLeastLow() && shadowShader != null) {
+            shadowShader.bind();
+            shadowShader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
+            shadowShader.setUniformMat4f("u_view", camera.getViewMatrix());
+            glActiveTexture(GL_TEXTURE0);
+
+            for (ClientTank tank : tanks.values()) {
+                if (tank.getAlpha() <= 0.02f) continue;
+                if (!isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) continue;
+
+                boolean isWreck = tank.getHitPoints() <= 0;
+                float shimmer = tank.getRespawnShimmerProgress(RESPAWN_SHIMMER_DURATION_MS);
+                float renderSize = TankData.SIZE * (isWreck ? 1.0f : 0.6f + 0.4f * shimmer);
+                float shadowAlpha = tank.getAlpha() * 0.42f;
+                shadowShader.setUniform4f("u_shadowColor", 0.02f, 0.03f, 0.05f, shadowAlpha);
+
+                Texture hull = hullTexturesByType.getOrDefault(tank.getTankType(), tankTexture);
+                if (hull != null) {
+                    hull.bind();
+                    renderer.drawQuad(tank.getPosition().x + 3.2f, tank.getPosition().y - 4.2f,
+                            renderSize, renderSize, tank.getRotation(), shadowShader);
+                }
+
+                if (!isWreck) {
+                    Texture turret = turretTexturesByType.get(tank.getTankType());
+                    if (turret != null) {
+                        turret.bind();
+                        renderer.drawQuad(tank.getPosition().x + 4.5f, tank.getPosition().y - 5.8f,
+                                renderSize, renderSize, tank.getTurretRotation(), shadowShader);
+                    }
+                }
+            }
+
+            // Shadows for flying blowout turrets
+            for (var flyingTurret : flyingTurrets) {
+                flyingTurret.renderShadow(renderer, shadowShader);
+            }
+        }
+
+        // --- Render Tanks & Turrets with AoE2 Team Masking & Recoil ---
+        Shader activeTankShader = (tankShader != null) ? tankShader : shader;
+        activeTankShader.bind();
+        activeTankShader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
+        activeTankShader.setUniformMat4f("u_view", camera.getViewMatrix());
+        activeTankShader.setUniform1i("u_diffuseTexture", 0);
+        activeTankShader.setUniform1i("u_teamMaskTexture", 1);
+
         for (ClientTank tank : tanks.values()) {
             if (tank.getAlpha() <= 0.02f) continue; // fully cloaked
 
@@ -935,46 +1035,83 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 boolean isWreck = tank.getHitPoints() <= 0;
                 float shimmer = tank.getRespawnShimmerProgress(RESPAWN_SHIMMER_DURATION_MS);
 
-                Vector3f hullTint = tank.getColor();
-                // Turret stays a fixed neutral gunmetal regardless of team color so it
-                // always contrasts against the colored hull and its aim direction reads
-                // clearly at a glance.
-                Vector3f turretTint = TURRET_NEUTRAL_TINT;
+                Vector3f hullColor = tank.getColor();
+                Vector3f flashTint = new Vector3f(1.0f, 1.0f, 1.0f);
+
                 if (isWreck) {
-                    // Destroyed tanks remain as darkened wrecks until they respawn
-                    hullTint = new Vector3f(tank.getColor()).mul(0.3f);
+                    hullColor = new Vector3f(tank.getColor()).mul(0.25f);
                 } else if (effectsAtLeastLow() && tank.isHitFlashing()) {
-                    // Hit-confirm flash: white for normal hits, gold for crits (both hull and turret flash together)
-                    Vector3f flash = tank.isHitFlashGold() ? new Vector3f(1.0f, 0.84f, 0.2f) : new Vector3f(1.0f, 1.0f, 1.0f);
-                    hullTint = flash;
-                    turretTint = flash;
+                    flashTint = tank.isHitFlashGold() ? new Vector3f(1.0f, 0.85f, 0.2f) : new Vector3f(1.0f, 1.0f, 1.0f);
                 }
 
                 float renderAlpha = tank.getAlpha() * (isWreck ? 1.0f : 0.3f + 0.7f * shimmer);
-
-                // Respawn shimmer scales the tank in over ~0.5 s so spawns read clearly
                 float renderSize = TankData.SIZE * (isWreck ? 1.0f : 0.6f + 0.4f * shimmer);
 
                 Texture hull = hullTexturesByType.getOrDefault(tank.getTankType(), tankTexture);
-                hull.bind();
-                shader.setUniform4f("u_tintColor", hullTint, renderAlpha);
+                Texture hullMask = hullMasksByType.get(tank.getTankType());
+
+                glActiveTexture(GL_TEXTURE0);
+                if (hull != null) hull.bind();
+
+                if (hullMask != null && !isWreck) {
+                    glActiveTexture(GL_TEXTURE1);
+                    hullMask.bind();
+                    activeTankShader.setUniform1i("u_hasTeamMask", 1);
+                } else {
+                    activeTankShader.setUniform1i("u_hasTeamMask", 0);
+                }
+
+                activeTankShader.setUniform4f("u_teamColor", hullColor.x, hullColor.y, hullColor.z, 1.0f);
+                activeTankShader.setUniform4f("u_tintColor", flashTint.x, flashTint.y, flashTint.z, renderAlpha);
                 renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
                         renderSize, renderSize,
-                        tank.getRotation(), shader);
+                        tank.getRotation(), activeTankShader);
 
-                // Turret layered on top at its own rotation (wrecks keep hull only)
+                // Turret layered on top at its own rotation with firing recoil
                 if (!isWreck) {
                     Texture turret = turretTexturesByType.get(tank.getTankType());
+                    Texture turretMask = turretMasksByType.get(tank.getTankType());
+
                     if (turret != null) {
+                        glActiveTexture(GL_TEXTURE0);
                         turret.bind();
-                        shader.setUniform4f("u_tintColor", turretTint, renderAlpha);
-                        renderer.drawQuad(tank.getPosition().x, tank.getPosition().y,
-                                renderSize, renderSize,
-                                tank.getTurretRotation(), shader);
+
+                        if (turretMask != null) {
+                            glActiveTexture(GL_TEXTURE1);
+                            turretMask.bind();
+                            activeTankShader.setUniform1i("u_hasTeamMask", 1);
+                        } else {
+                            activeTankShader.setUniform1i("u_hasTeamMask", 0);
+                        }
+
+                        // Recoil offset along the aim axis
+                        float rotRad = (float) Math.toRadians(tank.getTurretRotation());
+                        float recoil = tank.getRecoilOffset();
+                        float tx = tank.getPosition().x + (float) Math.sin(rotRad) * recoil;
+                        float ty = tank.getPosition().y - (float) Math.cos(rotRad) * recoil;
+
+                        activeTankShader.setUniform4f("u_teamColor", hullColor.x, hullColor.y, hullColor.z, 1.0f);
+                        activeTankShader.setUniform4f("u_tintColor", flashTint.x, flashTint.y, flashTint.z, renderAlpha);
+                        renderer.drawQuad(tx, ty, renderSize, renderSize,
+                                tank.getTurretRotation(), activeTankShader);
                     }
                 }
+
+                // Reset texture unit 1
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                glActiveTexture(GL_TEXTURE0);
             }
         }
+
+        // Render flying blowout turrets
+        for (var flyingTurret : flyingTurrets) {
+            flyingTurret.render(renderer, activeTankShader);
+        }
+
+        shader.bind();
+        shader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
+        shader.setUniformMat4f("u_view", camera.getViewMatrix());
 
         // --- Render Muzzle Flashes ---
         if (!muzzleFlashes.isEmpty()) {
@@ -1611,6 +1748,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             if (entry.getValue() == tankTexture) continue; // already deleted above
             try { entry.getValue().delete(); } catch (Exception e) { logger.error("Error deleting a hull texture", e); }
         }
+        for (Texture t : hullMasksByType.values()) {
+            try { if (t != null) t.delete(); } catch (Exception ignored) {}
+        }
+        for (Texture t : turretMasksByType.values()) {
+            try { if (t != null) t.delete(); } catch (Exception ignored) {}
+        }
         for (Texture t : powerUpIconTextures.values()) {
             try { t.delete(); } catch (Exception e) { logger.error("Error deleting a power-up icon texture", e); }
         }
@@ -1625,6 +1768,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (scorchDecalTexture != null) scorchDecalTexture.delete(); } catch (Exception e) { logger.error("Error deleting scorchDecalTexture", e); }
         try { if (auraRingTexture != null) auraRingTexture.delete(); } catch (Exception e) { logger.error("Error deleting auraRingTexture", e); }
         try { if (exhaustTexture != null) exhaustTexture.delete(); } catch (Exception e) { logger.error("Error deleting exhaustTexture", e); }
+        try { if (tankShader != null && tankShader != shader) tankShader.delete(); } catch (Exception ignored) {}
+        try { if (shadowShader != null && shadowShader != shader) shadowShader.delete(); } catch (Exception ignored) {}
 
         try { audioManager.cleanup(); } catch (Exception e) { logger.error("Error cleaning up audioManager", e); }
 
@@ -1785,6 +1930,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         ClientBullet clientBullet = new ClientBullet(bulletData);
 
         bullets.add(clientBullet);
+
+        // Trigger recoil kickback animation on the firing tank
+        ClientTank shooter = tanks.get(ownerId);
+        if (shooter != null) {
+            shooter.triggerFiringRecoil();
+        }
 
         // Muzzle flash at the firing point, rotated to the shot direction
         if (effectsAtLeastLow() && !muzzleFlashFrameTextures.isEmpty()) {
@@ -1983,6 +2134,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 while (scorchDecals.size() > SCORCH_DECAL_CAP) {
                     scorchDecals.pollFirst();
                 }
+
+                // Spawn flying blowout turret effect
+                Texture turretTex = turretTexturesByType.get(targetTank.getTankType());
+                Texture turretMask = turretMasksByType.get(targetTank.getTankType());
+                flyingTurrets.add(new org.chrisgruber.nettank.client.game.effects.FlyingTurretEffect(
+                        targetTank.getPosition(), targetTank.getTurretRotation(), turretTex, turretMask,
+                        targetTank.getColor(), TankData.SIZE));
             }
         }
 

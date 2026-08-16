@@ -18,6 +18,16 @@ public class ClientTank extends ClientEntity {
     protected float alpha = 1.0f;
     protected float targetAlpha = 1.0f;
 
+    // Firing recoil animation (barrel kickback and recovery)
+    protected float recoilOffset = 0.0f;
+    protected static final float MAX_RECOIL_OFFSET = 5.5f;
+    protected static final float RECOIL_RECOVERY_SPEED = 32.0f;
+
+    // Track movement animation
+    protected float trackDistance = 0.0f;
+    protected final Vector2f lastTrackPosition = new Vector2f();
+    protected float lastTrackRotation = 0.0f;
+
     // Hit-confirm flash (white for normal hits, gold for crits) and respawn shimmer
     protected long hitFlashUntilMillis = 0;
     protected boolean hitFlashGold = false;
@@ -30,6 +40,8 @@ public class ClientTank extends ClientEntity {
         this.hitPoints = data.getHitPoints();
         this.turretRotation = data.getTurretRotation();
         this.tankType = data.getTankType();
+        this.lastTrackPosition.set(data.getPosition());
+        this.lastTrackRotation = data.getRotation();
     }
 
     public String getName() { return this.name; }
@@ -92,10 +104,32 @@ public class ClientTank extends ClientEntity {
         this.turretRotation = turretRotation;
     }
 
+    public void triggerFiringRecoil() {
+        this.recoilOffset = MAX_RECOIL_OFFSET;
+    }
+
+    public float getRecoilOffset() {
+        return this.recoilOffset;
+    }
+
+    public float getTrackDistance() {
+        return this.trackDistance;
+    }
+
+    public void updateDynamics(float deltaTime) {
+        if (recoilOffset > 0) {
+            recoilOffset = Math.max(0.0f, recoilOffset - RECOIL_RECOVERY_SPEED * deltaTime);
+        }
+        float moveDist = position.distance(lastTrackPosition);
+        float rotDelta = Math.abs(rotation - lastTrackRotation);
+        trackDistance += moveDist + rotDelta * 0.25f;
+        lastTrackPosition.set(position);
+        lastTrackRotation = rotation;
+    }
+
     @Override
     public void update(float deltaTime) {
-        // TODO: Client-side prediction or interpolation logic could go here
-        // For now, we rely solely on server updates via addOrUpdateTank/updateTankState
+        updateDynamics(deltaTime);
     }
 
     @Override
