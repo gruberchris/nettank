@@ -29,6 +29,7 @@ public class AssetPipelineRunner {
         new File(TEXTURES_DIR + "smoke").mkdirs();
         new File(TEXTURES_DIR + "effects").mkdirs();
         new File(TEXTURES_DIR + "powerups").mkdirs();
+        new File(TEXTURES_DIR + "ui").mkdirs();
         new File(SOUNDS_DIR).mkdirs();
 
         try {
@@ -36,6 +37,7 @@ public class AssetPipelineRunner {
             processTerrainAndFlora();
             processVfxAndParticles();
             processPowerUps();
+            processUIAssets();
             generateAudioClips();
             System.out.println("Asset Pipeline Completed Successfully!");
         } catch (Exception e) {
@@ -970,12 +972,475 @@ public class AssetPipelineRunner {
     }
 
     private static void writeWavToOggOrWav(byte[] wavData, String outputPath) throws IOException {
-        // If output path is .ogg, we can write the wav and/or convert using ffmpeg/afconvert/etc if present,
-        // or check what AudioManager decodes.
         File outFile = new File(outputPath);
         outFile.getParentFile().mkdirs();
         try (FileOutputStream fos = new FileOutputStream(outFile)) {
             fos.write(wavData);
         }
+    }
+
+    private static void processUIAssets() throws Exception {
+        System.out.println("Processing UI and HUD Assets...");
+        String uiDir = TEXTURES_DIR + "ui/";
+
+        // 1. Generate Unit Portraits
+        generateUnitPortrait("standard", TEXTURES_DIR + "tank.png", TEXTURES_DIR + "turret.png", "STANDARD", new Color(200, 160, 40), uiDir + "portrait_standard.png");
+        generateUnitPortrait("heavy", TEXTURES_DIR + "tank_heavy.png", TEXTURES_DIR + "turret_heavy.png", "HEAVY", new Color(190, 70, 50), uiDir + "portrait_heavy.png");
+        generateUnitPortrait("light", TEXTURES_DIR + "tank_light.png", TEXTURES_DIR + "turret_light.png", "LIGHT", new Color(60, 140, 220), uiDir + "portrait_light.png");
+        generateUnitPortrait("stealth", TEXTURES_DIR + "tank_stealth.png", TEXTURES_DIR + "turret_stealth.png", "STEALTH", new Color(130, 70, 190), uiDir + "portrait_stealth.png");
+
+        // 2. Generate Directional Armor Schematic & Masks
+        generateArmorSchematics(uiDir);
+
+        // 3. Generate HUD Panel Frame, Stat Bar Frames & Fills
+        generateHudPanelFrame(uiDir + "hud_panel_frame.png");
+        generateStatBarFrame(uiDir + "stat_bar_frame.png");
+        generateStatBarFill(uiDir + "stat_bar_fill.png");
+
+        // 4. Generate Ammo Shell Icon
+        generateAmmoShell(uiDir + "ammo_shell.png");
+
+        // 5. Generate Wax Ready Seals
+        generateWaxSeal(true, uiDir + "ready_seal_ready.png");
+        generateWaxSeal(false, uiDir + "ready_seal_unready.png");
+
+        // 6. Generate Victory / Defeat Banners
+        generateBanner(true, uiDir + "victory_banner.png");
+        generateBanner(false, uiDir + "defeat_banner.png");
+        System.out.println("UI Assets Generated.");
+    }
+
+    private static void generateUnitPortrait(String typeName, String hullPath, String turretPath,
+                                            String label, Color accentColor, String outputPath) throws Exception {
+        int size = 256;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        // Background: Dark slate/iron texture with radial lighting
+        RadialGradientPaint bgGrad = new RadialGradientPaint(
+                size / 2.0f, size * 0.45f, size * 0.65f,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(42, 48, 58), new Color(24, 28, 36), new Color(12, 14, 18)}
+        );
+        g.setPaint(bgGrad);
+        g.fillRect(0, 0, size, size);
+
+        // Grid lines / blueprint watermark in background
+        g.setColor(new Color(255, 255, 255, 12));
+        for (int i = 20; i < size; i += 20) {
+            g.drawLine(i, 0, i, size);
+            g.drawLine(0, i, size, i);
+        }
+
+        // Load tank hull & turret
+        File hullFile = new File(hullPath);
+        File turretFile = new File(turretPath);
+        if (hullFile.exists()) {
+            BufferedImage hull = ImageIO.read(hullFile);
+            BufferedImage turret = turretFile.exists() ? ImageIO.read(turretFile) : null;
+
+            // Draw hero vehicle at 3/4 isometric perspective
+            Graphics2D gVehicle = (Graphics2D) g.create();
+            gVehicle.translate(size / 2.0, size * 0.48);
+            gVehicle.rotate(Math.toRadians(-22));
+
+            int vSize = 150;
+            // Shadow
+            gVehicle.setColor(new Color(0, 0, 0, 140));
+            gVehicle.fillOval(-vSize / 2 + 10, -vSize / 2 + 14, vSize, vSize);
+
+            // Hull
+            gVehicle.drawImage(hull, -vSize / 2, -vSize / 2, vSize, vSize, null);
+
+            // Turret slightly offset rotation
+            if (turret != null) {
+                Graphics2D gTurret = (Graphics2D) gVehicle.create();
+                gTurret.rotate(Math.toRadians(12));
+                gTurret.drawImage(turret, -vSize / 2, -vSize / 2, vSize, vSize, null);
+                gTurret.dispose();
+            }
+            gVehicle.dispose();
+        }
+
+        // Inner shadow vignette
+        g.setPaint(new RadialGradientPaint(
+                size / 2.0f, size / 2.0f, size * 0.55f,
+                new float[]{0.6f, 1.0f},
+                new Color[]{new Color(0, 0, 0, 0), new Color(0, 0, 0, 180)}
+        ));
+        g.fillRect(0, 0, size, size);
+
+        // Ornate Gold/Bronze Beveled Border
+        int borderThickness = 12;
+        g.setPaint(new LinearGradientPaint(0, 0, size, size,
+                new float[]{0.0f, 0.3f, 0.7f, 1.0f},
+                new Color[]{new Color(235, 200, 95), new Color(170, 125, 40), new Color(245, 215, 120), new Color(130, 90, 25)}));
+        g.setStroke(new BasicStroke(borderThickness));
+        g.drawRect(borderThickness / 2, borderThickness / 2, size - borderThickness, size - borderThickness);
+
+        // Thin inner gold fillet
+        g.setColor(new Color(255, 230, 140, 200));
+        g.setStroke(new BasicStroke(2));
+        g.drawRect(borderThickness, borderThickness, size - borderThickness * 2, size - borderThickness * 2);
+
+        // Corner brackets / filigree
+        drawCornerBrackets(g, size, borderThickness);
+
+        // Bottom label plaque
+        int plaqueH = 34;
+        int plaqueY = size - borderThickness - plaqueH;
+        g.setColor(new Color(15, 18, 24, 230));
+        g.fillRect(borderThickness + 2, plaqueY, size - (borderThickness + 2) * 2, plaqueH);
+        g.setColor(new Color(210, 175, 75));
+        g.drawRect(borderThickness + 2, plaqueY, size - (borderThickness + 2) * 2, plaqueH);
+
+        // Label text
+        g.setFont(new Font("SansSerif", Font.BOLD, 16));
+        FontMetrics fm = g.getFontMetrics();
+        int textW = fm.stringWidth(label);
+        g.setColor(new Color(0, 0, 0, 180));
+        g.drawString(label, (size - textW) / 2 + 1, plaqueY + 23 + 1);
+        g.setColor(new Color(255, 235, 160));
+        g.drawString(label, (size - textW) / 2, plaqueY + 23);
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void drawCornerBrackets(Graphics2D g, int size, int b) {
+        g.setColor(new Color(255, 235, 150));
+        int cSize = 22;
+        // Top-left
+        g.fillRect(b - 2, b - 2, cSize, 5);
+        g.fillRect(b - 2, b - 2, 5, cSize);
+        // Top-right
+        g.fillRect(size - b - cSize + 2, b - 2, cSize, 5);
+        g.fillRect(size - b - 3, b - 2, 5, cSize);
+        // Bottom-left
+        g.fillRect(b - 2, size - b - 3, cSize, 5);
+        g.fillRect(b - 2, size - b - cSize + 2, 5, cSize);
+        // Bottom-right
+        g.fillRect(size - b - cSize + 2, size - b - 3, cSize, 5);
+        g.fillRect(size - b - 3, size - b - cSize + 2, 5, cSize);
+
+        // Rivets (bronze screws)
+        drawRivet(g, b + 5, b + 5);
+        drawRivet(g, size - b - 5, b + 5);
+        drawRivet(g, b + 5, size - b - 5);
+        drawRivet(g, size - b - 5, size - b - 5);
+    }
+
+    private static void drawRivet(Graphics2D g, int cx, int cy) {
+        g.setColor(new Color(40, 30, 15));
+        g.fillOval(cx - 3, cy - 3, 6, 6);
+        g.setColor(new Color(255, 220, 110));
+        g.fillOval(cx - 2, cy - 2, 4, 4);
+    }
+
+    private static void generateArmorSchematics(String uiDir) throws Exception {
+        int size = 128;
+
+        // 1. Tank Silhouette
+        BufferedImage sil = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D gSil = sil.createGraphics();
+        gSil.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Base dark metal chassis
+        gSil.setColor(new Color(30, 35, 45));
+        gSil.fillRoundRect(34, 22, 60, 84, 16, 16);
+
+        // Left & right tread tracks
+        gSil.setColor(new Color(20, 22, 28));
+        gSil.fillRoundRect(22, 16, 16, 96, 8, 8);
+        gSil.fillRoundRect(90, 16, 16, 96, 8, 8);
+
+        // Tread rungs
+        gSil.setColor(new Color(45, 50, 60));
+        for (int y = 20; y < 108; y += 8) {
+            gSil.drawLine(24, y, 36, y);
+            gSil.drawLine(92, y, 104, y);
+        }
+
+        // Turret ring & cannon guide
+        gSil.setColor(new Color(50, 58, 72));
+        gSil.fillOval(48, 48, 32, 32);
+        gSil.setColor(new Color(70, 82, 100));
+        gSil.drawOval(48, 48, 32, 32);
+        gSil.fillRect(61, 24, 6, 26); // Barrel
+
+        gSil.dispose();
+        ImageIO.write(sil, "PNG", new File(uiDir + "tank_silhouette.png"));
+
+        // 2. Front Armor Plate (top wedge)
+        BufferedImage front = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D gF = front.createGraphics();
+        gF.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        gF.setColor(Color.WHITE);
+        Polygon frontPoly = new Polygon(
+                new int[]{38, 64, 90, 84, 44},
+                new int[]{28, 18, 28, 40, 40},
+                5
+        );
+        gF.fillPolygon(frontPoly);
+        gF.dispose();
+        ImageIO.write(front, "PNG", new File(uiDir + "armor_front.png"));
+
+        // 3. Left Armor Plate (left skirt)
+        BufferedImage left = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D gL = left.createGraphics();
+        gL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        gL.setColor(Color.WHITE);
+        gL.fillRoundRect(18, 24, 14, 80, 6, 6);
+        gL.dispose();
+        ImageIO.write(left, "PNG", new File(uiDir + "armor_left.png"));
+
+        // 4. Right Armor Plate (right skirt)
+        BufferedImage right = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D gR = right.createGraphics();
+        gR.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        gR.setColor(Color.WHITE);
+        gR.fillRoundRect(96, 24, 14, 80, 6, 6);
+        gR.dispose();
+        ImageIO.write(right, "PNG", new File(uiDir + "armor_right.png"));
+
+        // 5. Rear Armor Plate (bottom deck)
+        BufferedImage rear = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D gB = rear.createGraphics();
+        gB.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        gB.setColor(Color.WHITE);
+        gB.fillRoundRect(38, 92, 52, 16, 6, 6);
+        gB.dispose();
+        ImageIO.write(rear, "PNG", new File(uiDir + "armor_rear.png"));
+    }
+
+    private static void generateHudPanelFrame(String outputPath) throws Exception {
+        int w = 256, h = 256;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Translucent dark slate background
+        g.setColor(new Color(14, 17, 24, 225));
+        g.fillRoundRect(4, 4, w - 8, h - 8, 12, 12);
+
+        // Beveled gold/bronze outer frame
+        g.setPaint(new LinearGradientPaint(0, 0, w, h,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(230, 195, 85), new Color(160, 115, 35), new Color(240, 210, 110)}));
+        g.setStroke(new BasicStroke(4));
+        g.drawRoundRect(4, 4, w - 8, h - 8, 12, 12);
+
+        // Inner dark groove
+        g.setColor(new Color(0, 0, 0, 160));
+        g.setStroke(new BasicStroke(2));
+        g.drawRoundRect(8, 8, w - 16, h - 16, 8, 8);
+
+        // Corner studs
+        drawRivet(g, 12, 12);
+        drawRivet(g, w - 12, 12);
+        drawRivet(g, 12, h - 12);
+        drawRivet(g, w - 12, h - 12);
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateStatBarFrame(String outputPath) throws Exception {
+        int w = 128, h = 32;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Dark background slot
+        g.setColor(new Color(10, 12, 16, 235));
+        g.fillRoundRect(2, 2, w - 4, h - 4, 6, 6);
+
+        // Embossed brass frame
+        g.setPaint(new LinearGradientPaint(0, 0, 0, h,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(240, 210, 110), new Color(160, 120, 40), new Color(210, 170, 70)}));
+        g.setStroke(new BasicStroke(3));
+        g.drawRoundRect(2, 2, w - 4, h - 4, 6, 6);
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateStatBarFill(String outputPath) throws Exception {
+        int w = 128, h = 32;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // White base fill for shader tinting with subtle 3D highlight
+        g.setPaint(new LinearGradientPaint(0, 0, 0, h,
+                new float[]{0.0f, 0.4f, 0.6f, 1.0f},
+                new Color[]{new Color(255, 255, 255, 240), new Color(220, 220, 220, 255), new Color(180, 180, 180, 255), new Color(130, 130, 130, 255)}));
+        g.fillRoundRect(3, 3, w - 6, h - 6, 4, 4);
+
+        // Top glossy specular streak
+        g.setColor(new Color(255, 255, 255, 160));
+        g.fillRect(4, 4, w - 8, h / 3);
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateAmmoShell(String outputPath) throws Exception {
+        int size = 64;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Shadow
+        g.setColor(new Color(0, 0, 0, 120));
+        g.fillRoundRect(22, 10, 24, 48, 10, 10);
+
+        // Brass Shell Casing (bottom 60%)
+        g.setPaint(new LinearGradientPaint(20, 0, 44, 0,
+                new float[]{0.0f, 0.3f, 0.7f, 1.0f},
+                new Color[]{new Color(245, 215, 110), new Color(255, 245, 190), new Color(210, 165, 45), new Color(140, 100, 20)}));
+        g.fillRoundRect(20, 24, 24, 34, 4, 4);
+
+        // Rim at base
+        g.fillRect(18, 54, 28, 5);
+
+        // Copper Warhead (top 40% pointed cone)
+        Polygon warhead = new Polygon(
+                new int[]{20, 32, 44},
+                new int[]{24, 6, 24},
+                3
+        );
+        g.setPaint(new LinearGradientPaint(20, 0, 44, 0,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(215, 105, 55), new Color(255, 175, 130), new Color(160, 60, 25)}));
+        g.fillPolygon(warhead);
+
+        // Driving band ring
+        g.setColor(new Color(180, 80, 35));
+        g.fillRect(20, 46, 24, 4);
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateWaxSeal(boolean ready, String outputPath) throws Exception {
+        int size = 128;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int cx = size / 2, cy = size / 2, r = 48;
+
+        // Shadow
+        g.setColor(new Color(0, 0, 0, 110));
+        g.fillOval(cx - r + 4, cy - r + 6, r * 2, r * 2);
+
+        // Scalloped / melted wax blob edge
+        g.setPaint(new RadialGradientPaint(cx - 10, cy - 10, r * 1.2f,
+                new float[]{0.0f, 0.7f, 1.0f},
+                ready
+                        ? new Color[]{new Color(235, 45, 45), new Color(180, 20, 20), new Color(105, 10, 10)}
+                        : new Color[]{new Color(110, 120, 135), new Color(65, 75, 90), new Color(35, 40, 50)}));
+
+        // Draw irregular melted perimeter
+        for (int angle = 0; angle < 360; angle += 15) {
+            double rad = Math.toRadians(angle);
+            int blobR = r + (int) (Math.sin(angle * 4.0) * 4);
+            int px = cx + (int) (Math.cos(rad) * blobR);
+            int py = cy + (int) (Math.sin(rad) * blobR);
+            g.fillOval(px - 14, py - 14, 28, 28);
+        }
+        g.fillOval(cx - r, cy - r, r * 2, r * 2);
+
+        // Inner stamped depression
+        g.setColor(new Color(0, 0, 0, 80));
+        g.drawOval(cx - r + 12, cy - r + 12, (r - 12) * 2, (r - 12) * 2);
+
+        if (ready) {
+            // Gold Laurel & Checkmark
+            g.setPaint(new LinearGradientPaint(0, 0, size, size,
+                    new float[]{0.0f, 1.0f},
+                    new Color[]{new Color(255, 240, 160), new Color(210, 165, 40)}));
+            // Checkmark
+            g.setStroke(new BasicStroke(7, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.drawLine(cx - 16, cy, cx - 4, cy + 14);
+            g.drawLine(cx - 4, cy + 14, cx + 18, cy - 12);
+        } else {
+            // Hourglass / pending
+            g.setColor(new Color(220, 230, 240, 220));
+            g.setStroke(new BasicStroke(5, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            Polygon topTri = new Polygon(new int[]{cx - 14, cx + 14, cx}, new int[]{cy - 16, cy - 16, cy}, 3);
+            Polygon botTri = new Polygon(new int[]{cx - 14, cx + 14, cx}, new int[]{cy + 16, cy + 16, cy}, 3);
+            g.drawPolygon(topTri);
+            g.drawPolygon(botTri);
+        }
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateBanner(boolean victory, String outputPath) throws Exception {
+        int w = 512, h = 128;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        // Ribbon Body with Fishtail ends
+        Polygon ribbon = new Polygon(
+                new int[]{20, 50, 462, 492, 462, 50},
+                new int[]{64, 20, 20, 64, 108, 108},
+                6
+        );
+
+        // Shadow
+        g.setColor(new Color(0, 0, 0, 130));
+        g.translate(4, 6);
+        g.fillPolygon(ribbon);
+        g.translate(-4, -6);
+
+        // Silk Fill
+        if (victory) {
+            g.setPaint(new LinearGradientPaint(0, 20, 0, 108,
+                    new float[]{0.0f, 0.4f, 0.6f, 1.0f},
+                    new Color[]{new Color(30, 75, 160), new Color(50, 110, 210), new Color(25, 60, 140), new Color(15, 35, 90)}));
+        } else {
+            g.setPaint(new LinearGradientPaint(0, 20, 0, 108,
+                    new float[]{0.0f, 0.4f, 0.6f, 1.0f},
+                    new Color[]{new Color(130, 25, 25), new Color(190, 45, 45), new Color(110, 20, 20), new Color(60, 10, 10)}));
+        }
+        g.fillPolygon(ribbon);
+
+        // Ornate Gold Border & Trim
+        g.setPaint(new LinearGradientPaint(0, 0, w, 0,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(250, 220, 100), new Color(255, 245, 180), new Color(210, 165, 45)}));
+        g.setStroke(new BasicStroke(5));
+        g.drawPolygon(ribbon);
+
+        // Inner gold line
+        g.setStroke(new BasicStroke(2));
+        g.drawRect(60, 26, w - 120, 76);
+
+        // Big Embroidered Text
+        String text = victory ? "VICTORY" : "DEFEAT";
+        g.setFont(new Font("Serif", Font.BOLD, 46));
+        FontMetrics fm = g.getFontMetrics();
+        int tw = fm.stringWidth(text);
+
+        // Gold 3D Text Shadow
+        g.setColor(new Color(0, 0, 0, 200));
+        g.drawString(text, (w - tw) / 2 + 2, 76 + 2);
+
+        g.setPaint(new LinearGradientPaint(0, 40, 0, 80,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(255, 245, 190), new Color(245, 210, 90), new Color(190, 145, 30)}));
+        g.drawString(text, (w - tw) / 2, 76);
+
+        g.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
     }
 }

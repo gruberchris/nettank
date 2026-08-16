@@ -335,8 +335,35 @@ public class UIManager {
     }
 
     /**
-     * Cleans up all resources used by the UIManager (Texture, Shader, VAO, VBO, EBO).
-     * Should be called when the UI is no longer needed (e.g., game shutdown).
+     * Draws a textured quad in UI pixel coordinates (origin at top-left).
+     */
+    public void drawTexture(Texture texture, float x, float y, float width, float height) {
+        drawTexture(texture, x, y, width, height, new Vector3f(1.0f, 1.0f, 1.0f), 1.0f);
+    }
+
+    /**
+     * Draws a textured quad in UI pixel coordinates with custom tint color and opacity.
+     */
+    public void drawTexture(Texture texture, float x, float y, float width, float height, Vector3f tint, float alpha) {
+        if (texture == null) return;
+        uiShader.bind();
+        texture.bind();
+        uiShader.setUniform4f("u_tintColor", tint.x, tint.y, tint.z, alpha);
+        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
+
+        glBindVertexArray(uiVaoId);
+        float drawX = x + width / 2.0f;
+        float drawY = y + height / 2.0f;
+        uiModelMatrix.identity().translate(drawX, drawY, 0).scale(width, height, 1);
+        uiShader.setUniformMat4f("u_model", uiModelMatrix);
+
+        glDrawElements(GL_TRIANGLES, INDICES_UI.length, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    /**
+     * Releases OpenGL resources (VAO, VBO, EBO, Shader) used by the UIManager.
+     * Note: Does not delete fontTexture as it's assumed to be managed elsewhere.
      */
     public void cleanup() {
         logger.debug("Cleaning up UIManager resources...");

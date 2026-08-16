@@ -69,6 +69,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private final Map<org.chrisgruber.nettank.common.entities.PowerUpType, Texture> powerUpIconTextures = new EnumMap<>(org.chrisgruber.nettank.common.entities.PowerUpType.class);
     private final List<org.chrisgruber.nettank.client.game.effects.FlyingTurretEffect> flyingTurrets = new CopyOnWriteArrayList<>();
 
+    // AoE2 HUD & Menu Textures
+    private Texture hudFrameTexture;
+    private Texture ammoShellTexture;
+    private Texture victoryBannerTexture;
+    private Texture defeatBannerTexture;
+    private final Map<org.chrisgruber.nettank.common.entities.TankType, Texture> uiPortraits = new EnumMap<>(org.chrisgruber.nettank.common.entities.TankType.class);
+
     // Effect textures (Phase 5/7 sprite sheets)
     private final List<Texture> muzzleFlashFrameTextures = new ArrayList<>();
     private final List<Texture> sparkFrameTextures = new ArrayList<>();
@@ -344,6 +351,21 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             scorchDecalTexture = new Texture("textures/effects/scorch.png");
             auraRingTexture = new Texture("textures/effects/aura_ring.png");
             exhaustTexture = new Texture("textures/effects/exhaust.png");
+
+            // AoE2 HUD & Menu Textures
+            logger.debug("Loading AoE2 HUD & Menu textures...");
+            try {
+                hudFrameTexture = new Texture("textures/ui/hud_panel_frame.png");
+                ammoShellTexture = new Texture("textures/ui/ammo_shell.png");
+                victoryBannerTexture = new Texture("textures/ui/victory_banner.png");
+                defeatBannerTexture = new Texture("textures/ui/defeat_banner.png");
+                uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.STANDARD, new Texture("textures/ui/portrait_standard.png"));
+                uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.HEAVY, new Texture("textures/ui/portrait_heavy.png"));
+                uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.LIGHT, new Texture("textures/ui/portrait_light.png"));
+                uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.STEALTH, new Texture("textures/ui/portrait_stealth.png"));
+            } catch (Exception e) {
+                logger.warn("Some UI textures could not be loaded: {}", e.getMessage());
+            }
 
             // Sound engine: OpenAL init is independent of OpenGL and never blocks the game
             // if no audio device is available (isInitialized() gates all playback).
@@ -1330,45 +1352,64 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             vignetteOverlay.draw(uiManager.getProjectionMatrix(), windowWidth, windowHeight, intensity);
         }
 
-        // --- Top-Left UI Elements ---
-        final float statusTextX = 10;
-        float currentY = 10; // Starting Y position
-        float lineSpacing = 5; // Space between UI elements
-        float textHeight = uiManager.getTextHeight(UI_TEXT_SCALE_STATUS);
-        float secondaryTextHeight = uiManager.getTextHeight(UI_TEXT_SCALE_SECONDARY_STATUS);
+        // --- Top-Left AoE2 Commander Console ---
+        final float consoleX = 12;
+        final float consoleY = 12;
+        final float consoleW = 295;
+        final float consoleH = 98;
 
-        // Render tank health and game state
         if (localTank != null && !isSpectating) {
-            // --- Render Health Bar (max HP comes from the chassis type) ---
-            if (healthBar != null) {
-                float healthBarWidth = 150;
-                float healthBarHeight = 22;
-                int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
-                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), maxHitPoints, statusTextX, currentY, healthBarWidth, healthBarHeight, uiManager);
-                currentY += healthBarHeight + lineSpacing;
+            // 1. Framed Console Backing
+            if (hudFrameTexture != null) {
+                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, consoleW, consoleH);
             }
 
-            uiManager.drawText("TANK: " + localTank.getTankType().name(), statusTextX, currentY, UI_TEXT_SCALE_NORMAL, Colors.WHITE);
-            currentY += uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + lineSpacing;
+            // 2. Unit Portrait
+            Texture portrait = uiPortraits.get(localTank.getTankType());
+            if (portrait != null) {
+                uiManager.drawTexture(portrait, consoleX + 10, consoleY + 11, 76, 76);
+            }
 
-            // --- Directional armor diagram beside the health bar ---
+            // 3. Health Bar
+            float hpBarX = consoleX + 96;
+            float hpBarY = consoleY + 12;
+            float hpBarW = 185;
+            float hpBarH = 22;
+            int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
+            if (healthBar != null) {
+                healthBar.draw(uiManager.getProjectionMatrix(), localTank.getHitPoints(), maxHitPoints, hpBarX, hpBarY, hpBarW, hpBarH, uiManager);
+            }
+
+            // 4. Directional Armor Diagram
             if (armorIndicator != null && localArmor[0] >= 0) {
                 var stats = localTank.getTankType().getDefaultStats();
                 int[] maxArmor = {stats.frontArmor(), stats.leftArmor(), stats.rightArmor(), stats.rearArmor()};
                 armorIndicator.draw(uiManager.getProjectionMatrix(), localArmor, maxArmor, armorHitFlashTimes,
-                        statusTextX + 170, 10, 54, uiManager);
+                        hpBarX + 4, hpBarY + 26, 40, uiManager);
             }
-            // -------------------------
+
+            // 5. Chassis & Kills Readout
+            String chassisText = localTank.getTankType().name();
+            uiManager.drawText(chassisText, hpBarX + 54, hpBarY + 28, 0.44f, new Vector3f(1.0f, 0.85f, 0.35f));
+            String killText = "KILLS: " + playerKills;
+            uiManager.drawText(killText, hpBarX + 54, hpBarY + 48, 0.42f, new Vector3f(1.0f, 0.38f, 0.3f));
+            String playersText = "ALIVE: " + tanks.size();
+            uiManager.drawText(playersText, hpBarX + 120, hpBarY + 48, 0.42f, new Vector3f(0.85f, 0.85f, 0.85f));
+
         } else if (isSpectating) {
-            uiManager.drawText("SPECTATING", statusTextX, currentY, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
-            currentY += textHeight + lineSpacing;
+            if (hudFrameTexture != null) {
+                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, 190, 50);
+            }
+            uiManager.drawText("SPECTATING", consoleX + 18, consoleY + 16, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
         } else {
-            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "LOADING...",
-                             statusTextX, currentY, UI_TEXT_SCALE_STATUS, Colors.WHITE);
-            currentY += textHeight + lineSpacing;
+            if (hudFrameTexture != null) {
+                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, 210, 50);
+            }
+            uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "WAR ROOM...",
+                    consoleX + 18, consoleY + 16, UI_TEXT_SCALE_STATUS, Colors.WHITE);
         }
 
-        // Render Timer
+        // --- Top-Center Match Timer Badge ---
         if (currentGameState == GameState.PLAYING && roundStartTimeMillis > 0) {
             long elapsedMillis = System.currentTimeMillis() - roundStartTimeMillis;
             long seconds = (elapsedMillis / 1000) % 60;
@@ -1376,42 +1417,49 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             long hours = (elapsedMillis / (1000 * 60 * 60)) % 24;
 
             String timeStr = (hours > 0)
-                ? String.format("TIME: %02d:%02d:%02d", hours, minutes, seconds)
-                : String.format("TIME: %02d:%02d", minutes, seconds);
+                ? String.format("TIME %02d:%02d:%02d", hours, minutes, seconds)
+                : String.format("TIME %02d:%02d", minutes, seconds);
 
-            uiManager.drawText(timeStr, statusTextX, currentY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
-            currentY += secondaryTextHeight + lineSpacing;
+            float timerW = 170;
+            float timerH = 34;
+            float timerX = (windowWidth - timerW) / 2.0f;
+            float timerY = 12;
+            if (hudFrameTexture != null) {
+                uiManager.drawTexture(hudFrameTexture, timerX, timerY, timerW, timerH);
+            }
+            float tw = uiManager.getTextWidth(timeStr, 0.48f);
+            uiManager.drawText(timeStr, timerX + (timerW - tw) / 2.0f, timerY + 10, 0.48f, new Vector3f(1.0f, 0.95f, 0.78f));
         }
 
-        // Render Player's Kills & Player Count
-        if (localTank != null && !isSpectating) {
-            uiManager.drawText("KILLS: %d".formatted(playerKills),
-                    statusTextX, currentY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.RED);
-            currentY += secondaryTextHeight + lineSpacing;
-
-            uiManager.drawText("PLAYERS: %d".formatted(tanks.size()),
-                             statusTextX, currentY, UI_TEXT_SCALE_SECONDARY_STATUS, Colors.WHITE);
-        }
-
-
-        // --- Bottom-Center and Right-Side UI ---
-        final float killFeedPaddingX = 10;
-        final float killFeedStartY = 10;
-        final float killFeedLineHeight = 20;
-
-        // Render weapon cooldown indicator (center bottom of screen)
+        // --- Bottom-Center Tactical Ammo / Reload HUD ---
         if (localTank != null && !isSpectating) {
             long cooldownRemaining = localTank.getCooldownRemaining();
+            float gaugeW = 230;
+            float gaugeH = 38;
+            float gaugeX = (windowWidth - gaugeW) / 2.0f;
+            float gaugeY = windowHeight - 48;
+
+            if (hudFrameTexture != null) {
+                uiManager.drawTexture(hudFrameTexture, gaugeX, gaugeY, gaugeW, gaugeH);
+            }
+            if (ammoShellTexture != null) {
+                uiManager.drawTexture(ammoShellTexture, gaugeX + 8, gaugeY + 5, 28, 28);
+            }
+
             if (cooldownRemaining > 0) {
-                String cooldownText = String.format("RELOADING: %.1fs", cooldownRemaining / 1000.0f);
-                float textWidth = uiManager.getTextWidth(cooldownText, UI_TEXT_SCALE_STATUS);
-                float x = (windowWidth - textWidth) / 2.0f;
-                float y = windowHeight - 40;
-                uiManager.drawText(cooldownText, x, y, UI_TEXT_SCALE_STATUS, Colors.WHITE);
+                String cooldownText = String.format("RELOADING %.1fS", cooldownRemaining / 1000.0f);
+                uiManager.drawText(cooldownText, gaugeX + 42, gaugeY + 12, 0.46f, new Vector3f(1.0f, 0.65f, 0.25f));
+            } else {
+                String readyText = "CANNON READY (SPACE)";
+                uiManager.drawText(readyText, gaugeX + 40, gaugeY + 12, 0.40f, new Vector3f(0.35f, 1.0f, 0.4f));
             }
         }
 
-        // Render Kill Feed Messages (top-right); fresh messages pop with a brief scale bounce
+        // --- Kill Feed Messages (Top-Right) ---
+        final float killFeedPaddingX = 14;
+        final float killFeedStartY = 14;
+        final float killFeedLineHeight = 22;
+
         long killFeedNow = System.currentTimeMillis();
         float currentKillFeedY = killFeedStartY;
         for (KillFeedMessage feedMessage : killFeedMessages) {
@@ -1457,6 +1505,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float textWidth = uiManager.getTextWidth(stateMessage, UI_TEXT_SCALE_ANNOUNCEMENT);
             float x = (windowWidth - textWidth) / 2.0f;
             uiManager.drawText(stateMessage, x, centerMessageY, UI_TEXT_SCALE_ANNOUNCEMENT, Colors.RED);
+        }
+
+        // --- Game Over / Match End Banners ---
+        if (currentGameState == GameState.ROUND_OVER) {
+            boolean won = localTank != null && localTank.getHitPoints() > 0;
+            Texture banner = won ? victoryBannerTexture : defeatBannerTexture;
+            if (banner != null) {
+                float bannerW = Math.min(512.0f, windowWidth * 0.75f);
+                float bannerH = bannerW * (128.0f / 512.0f);
+                float bx = (windowWidth - bannerW) / 2.0f;
+                float by = windowHeight * 0.28f;
+                uiManager.drawTexture(banner, bx, by, bannerW, bannerH);
+            }
         }
 
         // Active buff stack with countdowns (bottom-left)
@@ -1768,6 +1829,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (scorchDecalTexture != null) scorchDecalTexture.delete(); } catch (Exception e) { logger.error("Error deleting scorchDecalTexture", e); }
         try { if (auraRingTexture != null) auraRingTexture.delete(); } catch (Exception e) { logger.error("Error deleting auraRingTexture", e); }
         try { if (exhaustTexture != null) exhaustTexture.delete(); } catch (Exception e) { logger.error("Error deleting exhaustTexture", e); }
+        try { if (hudFrameTexture != null) hudFrameTexture.delete(); } catch (Exception ignored) {}
+        try { if (ammoShellTexture != null) ammoShellTexture.delete(); } catch (Exception ignored) {}
+        try { if (victoryBannerTexture != null) victoryBannerTexture.delete(); } catch (Exception ignored) {}
+        try { if (defeatBannerTexture != null) defeatBannerTexture.delete(); } catch (Exception ignored) {}
+        for (Texture p : uiPortraits.values()) {
+            try { if (p != null) p.delete(); } catch (Exception ignored) {}
+        }
         try { if (tankShader != null && tankShader != shader) tankShader.delete(); } catch (Exception ignored) {}
         try { if (shadowShader != null && shadowShader != shader) shadowShader.delete(); } catch (Exception ignored) {}
 
