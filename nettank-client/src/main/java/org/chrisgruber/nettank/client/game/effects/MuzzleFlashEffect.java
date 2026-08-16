@@ -7,7 +7,6 @@ import java.util.List;
 
 /**
  * Brief flash at the turret tip when a shot is fired, rotated to the fire direction.
- * PLACEHOLDER ART: reuses the first explosion frames until a muzzle flash sheet exists.
  */
 public class MuzzleFlashEffect {
 

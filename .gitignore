@@ -42,3 +42,6 @@ dependency-reduced-pom.xml
 **/*.log
 **/*.err
 **/*.versionsBackup
+
+### Imported art/asset source packs (not for distribution, extracted into resources) ###
+/assets-import/

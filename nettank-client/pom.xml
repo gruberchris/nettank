@@ -73,6 +73,10 @@
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-stb</artifactId> <!-- For image loading, etc. -->
         </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId> <!-- For sound effect playback -->
+        </dependency>
 
         <!-- === LWJGL Native Dependencies (Include ALL platforms you want to support) === -->
         <!-- Add natives for each core module -->
@@ -102,6 +106,12 @@
             <classifier>natives-windows</classifier>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId>
+            <classifier>natives-windows</classifier>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Linux x64 Natives -->
         <dependency>
@@ -125,6 +135,12 @@
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-stb</artifactId>
+            <classifier>natives-linux</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId>
             <classifier>natives-linux</classifier>
             <scope>runtime</scope>
         </dependency>
@@ -154,6 +170,12 @@
             <classifier>natives-macos</classifier>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId>
+            <classifier>natives-macos</classifier>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- macOS arm64 (Apple Silicon) Natives -->
         <dependency>
@@ -177,6 +199,12 @@
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-stb</artifactId>
+            <classifier>natives-macos-arm64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId>
             <classifier>natives-macos-arm64</classifier>
             <scope>runtime</scope>
         </dependency>
@@ -255,6 +283,7 @@
                     <include>**/*.vert</include>
                     <include>**/*.frag</include>
                     <include>**/*.png</include>
+                    <include>**/*.ogg</include>
                     <include>**/*.json</include>
                     <include>logback.xml</include>
                 </includes>
