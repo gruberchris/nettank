@@ -133,7 +133,7 @@ public class TankData extends Entity {
     public float getTurretTurnInput() { return turretTurnInput; }
 
     public void setTurretTurnInput(float turretTurnInput) {
-        this.turretTurnInput = Math.max(-1.0f, Math.min(1.0f, turretTurnInput));
+        this.turretTurnInput = Math.max(-2.0f, Math.min(2.0f, turretTurnInput));
     }
 
     // Set input flags (called by ClientHandler thread)

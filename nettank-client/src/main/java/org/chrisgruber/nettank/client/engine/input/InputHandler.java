@@ -27,6 +27,7 @@ public class InputHandler {
     private int keyRotateRight;
     private int keyTurretLeft;
     private int keyTurretRight;
+    private int keyTurretCenter;
     private int keyShoot;
     private int keyExit;
     
@@ -34,12 +35,14 @@ public class InputHandler {
     private int gamepadId = -1; // GLFW joystick ID (-1 means no gamepad)
     private boolean gamepadConnected = false;
     private boolean previousShootButton = false; // Track button state for press detection
+    private boolean previousTurretCenterButton = false;
     
     // Gamepad configuration (loaded from config)
     private int gamepadForwardAxis;
     private int gamepadBackwardAxis;
     private int gamepadRotateAxis;
     private int gamepadTurretAxis;
+    private int gamepadTurretCenterButton;
     private int gamepadShootButton;
     private float stickDeadzone;
     private float triggerThreshold;
@@ -68,6 +71,7 @@ public class InputHandler {
         keyRotateRight = InputConfig.stringToKeyCode(config.keyboard.rotateRight);
         keyTurretLeft = InputConfig.stringToKeyCode(config.keyboard.turretLeft);
         keyTurretRight = InputConfig.stringToKeyCode(config.keyboard.turretRight);
+        keyTurretCenter = InputConfig.stringToKeyCode(config.keyboard.turretCenter);
         keyShoot = InputConfig.stringToKeyCode(config.keyboard.shoot);
         keyExit = InputConfig.stringToKeyCode(config.keyboard.exit);
 
@@ -76,6 +80,7 @@ public class InputHandler {
         gamepadBackwardAxis = InputConfig.stringToGamepadAxis(config.gamepad.backward);
         gamepadRotateAxis = InputConfig.stringToGamepadAxis(config.gamepad.rotateAxis);
         gamepadTurretAxis = InputConfig.stringToGamepadAxis(config.gamepad.turretAxis);
+        gamepadTurretCenterButton = InputConfig.stringToGamepadButton(config.gamepad.turretCenter);
         gamepadShootButton = InputConfig.stringToGamepadButton(config.gamepad.shoot);
         
         // Load gamepad sensitivity settings
@@ -265,6 +270,36 @@ public class InputHandler {
         }
 
         return 0.0f;
+    }
+
+    /**
+     * Returns true if the turret auto-center hotkey/button is triggered this frame (default F or Right Thumb).
+     */
+    public boolean isTurretCenterPressed() {
+        if (isKeyPressed(keyTurretCenter)) {
+            return true;
+        }
+        if (gamepadConnected) {
+            boolean current = getGamepadButton(gamepadTurretCenterButton);
+            boolean pressed = current && !previousTurretCenterButton;
+            previousTurretCenterButton = current;
+            return pressed;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if active manual turret steering input (Q/E or stick) is currently held.
+     */
+    public boolean hasManualTurretInput() {
+        if (isKeyDown(keyTurretLeft) || isKeyDown(keyTurretRight)) {
+            return true;
+        }
+        if (gamepadConnected) {
+            float stickValue = getGamepadAxis(gamepadTurretAxis);
+            return Math.abs(stickValue) >= stickDeadzone;
+        }
+        return false;
     }
 
     /**

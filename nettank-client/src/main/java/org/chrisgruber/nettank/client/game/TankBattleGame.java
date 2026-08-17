@@ -196,6 +196,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean prevKeyA = false;
     private boolean prevKeyD = false;
     private float prevTurretTurn = 0.0f;
+    private boolean autoCenteringTurret = false;
 
     // Config
     public static final float VIEW_RANGE = 400.0f;
@@ -1468,6 +1469,12 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 String readyText = "120MM APFSDS // READY (SPACE)";
                 uiManager.drawText(readyText, gaugeX + 42, gaugeY + 13, 0.38f, new Vector3f(0.4f, 1.0f, 0.45f));
             }
+
+            if (autoCenteringTurret) {
+                String alignText = "TURRET AUTO-ALIGNING // 2X SPEED";
+                uiManager.drawText(alignText, gaugeX + (gaugeW - uiManager.getTextWidth(alignText, 0.35f)) / 2.0f,
+                        gaugeY - 18, 0.35f, new Vector3f(0.35f, 0.95f, 1.0f));
+            }
         }
 
         // --- Kill Feed Messages (Top-Right) ---
@@ -1726,7 +1733,33 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             boolean keyA = inputHandler.isRotateLeftPressed();
             boolean keyD = inputHandler.isRotateRightPressed();
             boolean keySpace = inputHandler.isShootPressed();
+
+            // Turret auto-travel / center to hull orientation (F key or Right Thumb click)
+            if (inputHandler.isTurretCenterPressed()) {
+                autoCenteringTurret = true;
+                audioManager.playSound("ui_select", 0.7f, 1.35f);
+            }
+
             float turretTurn = inputHandler.getTurretRotationInput();
+
+            if (autoCenteringTurret) {
+                // Manual input overrides and cancels auto-centering
+                if (inputHandler.hasManualTurretInput()) {
+                    autoCenteringTurret = false;
+                } else {
+                    float diff = (localTank.getRotation() - localTank.getTurretRotation()) % 360.0f;
+                    if (diff > 180.0f) diff -= 360.0f;
+                    if (diff < -180.0f) diff += 360.0f;
+
+                    if (Math.abs(diff) < 2.0f) {
+                        autoCenteringTurret = false;
+                        turretTurn = 0.0f;
+                    } else {
+                        // 2x speed: send -2.0f for CCW (turn left) or +2.0f for CW (turn right)
+                        turretTurn = (diff > 0) ? -2.0f : 2.0f;
+                    }
+                }
+            }
 
             // Quantize to the 2 decimals sent on the wire so analog jitter doesn't spam sends
             float quantizedTurretTurn = Math.round(turretTurn * 100.0f) / 100.0f;
@@ -2016,6 +2049,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
             tank.setHitPoints(tank.getTankType().getDefaultStats().maxHitPoints());
             tank.startRespawnShimmer();
+            if (tank == localTank) {
+                autoCenteringTurret = false;
+            }
         }
 
         logger.trace("Updating tank state for player ID: {}. Existing state is x: {}, y: {}, rotation: {}", id, tank.getPosition().x(), tank.getPosition().y(), tank.getRotation());

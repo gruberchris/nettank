@@ -178,21 +178,23 @@ public class TankSelectionScreen {
         float barX = x + 375;
         float barVisualWidth = 170;
         float valueX = barX + barVisualWidth + 14;
-        float barY = y + 130;
-        float barHeight = 16;
-        float barSpacing = 34;
+        float barY = y + 118;
+        float barHeight = 15;
+        float barSpacing = 28;
 
         drawStatBar(projectionMatrix, uiManager, "HULL INTEGRITY", stats.maxHitPoints() / 6.0f,
                 stats.maxHitPoints() + " HP", labelX, barX, barVisualWidth, valueX, barY, barHeight, new Vector3f(0.35f, 0.95f, 0.35f));
         drawStatBar(projectionMatrix, uiManager, "COMBAT SPEED", stats.moveSpeed() / 140.0f,
                 String.format("%.0f KM/H", stats.moveSpeed() * 0.45f), labelX, barX, barVisualWidth, valueX, barY + barSpacing, barHeight, new Vector3f(0.3f, 0.7f, 1.0f));
+        drawStatBar(projectionMatrix, uiManager, "TURRET SPEED", stats.turretTurnSpeed() / 140.0f,
+                String.format("%.0f DEG/S", stats.turretTurnSpeed()), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 2, barHeight, new Vector3f(0.4f, 0.85f, 0.95f));
         drawStatBar(projectionMatrix, uiManager, "FIREPOWER (KE)", stats.bulletDamage() / 2.0f,
-                stats.bulletDamage() + " KE", labelX, barX, barVisualWidth, valueX, barY + barSpacing * 2, barHeight, new Vector3f(1.0f, 0.35f, 0.3f));
+                stats.bulletDamage() + " KE", labelX, barX, barVisualWidth, valueX, barY + barSpacing * 3, barHeight, new Vector3f(1.0f, 0.35f, 0.3f));
         drawStatBar(projectionMatrix, uiManager, "CYCLE TIME", 1400.0f / stats.shootCooldownMs(),
-                String.format("%.1fS", stats.shootCooldownMs() / 1000.0f), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 3, barHeight, new Vector3f(1.0f, 0.75f, 0.25f));
+                String.format("%.1fS", stats.shootCooldownMs() / 1000.0f), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 4, barHeight, new Vector3f(1.0f, 0.75f, 0.25f));
 
         // Per-side composite armor distribution
-        float armorY = barY + barSpacing * 4;
+        float armorY = barY + barSpacing * 5;
         uiManager.drawText("COMPOSITE", labelX, armorY, 0.42f, new Vector3f(0.95f, 0.85f, 0.5f));
         String[] sideLabels = {"F:", "L:", "R:", "B:"};
         ArmorSide[] sides = {ArmorSide.FRONT, ArmorSide.LEFT, ArmorSide.RIGHT, ArmorSide.REAR};
@@ -207,7 +209,7 @@ public class TankSelectionScreen {
 
         // Player roster with military chevron badges
         float rosterX = x + 35;
-        float rosterY = y + 285;
+        float rosterY = y + 295;
         uiManager.drawText("OPERATORS IN SQUADRON", rosterX, rosterY, 0.44f, new Vector3f(0.55f, 0.95f, 0.65f));
         rosterY += 24;
 
@@ -243,7 +245,7 @@ public class TankSelectionScreen {
                 y + panelHeight() - 65, 0.54f,
                 confirmed ? new Vector3f(0.4f, 1.0f, 0.4f) : new Vector3f(1.0f, 0.9f, 0.45f));
 
-        String controls = "NAVIGATE: A/D OR CONTROLLER DPAD // CONFIRM: SPACE OR (A)";
+        String controls = "NAVIGATE: A/D OR CONTROLLER DPAD // CONFIRM: SPACE OR (A) // AUTO-ALIGN: F";
         uiManager.drawText(controls, x + (panelWidth() - uiManager.getTextWidth(controls, 0.36f)) / 2.0f,
                 y + panelHeight() - 36, 0.36f, new Vector3f(0.65f, 0.7f, 0.75f));
     }
