@@ -102,10 +102,19 @@ public class TankSelectionScreen {
 
     public static String roleBlurb(TankType type) {
         return switch (type) {
-            case STANDARD -> "BALANCED MAIN BATTLE TANK";
-            case HEAVY -> "TWIN-CANNON DREADNOUGHT - WEAK REAR";
-            case LIGHT -> "FAST SCOUT - HIGH MOBILITY & RAPID FIRE";
-            case STEALTH -> "AMBUSH STRIKER - CLOAKS WHEN STATIONARY";
+            case STANDARD -> "MAIN BATTLE TANK - 120MM SMOOTHBORE // HEAVY CHOBHAM GLACIS";
+            case HEAVY -> "TWIN-CANNON ASSAULT DREADNOUGHT // URBAN SURVIVAL KIT // WEAK REAR";
+            case LIGHT -> "ARMORED 8X8 SCOUT // 25MM BUSHMASTER AUTOCANNON // HIGH SPEED";
+            case STEALTH -> "ADVANCED CLOAKED VEHICLE // THERMAL MASKING WHEN STATIONARY";
+        };
+    }
+
+    public static String militaryDesignation(TankType type) {
+        return switch (type) {
+            case STANDARD -> "M1A2 ABRAMS MBT";
+            case HEAVY -> "M1A2 TUSK II HEAVY";
+            case LIGHT -> "LAV-25 STRYKER";
+            case STEALTH -> "SHADOW STALKER";
         };
     }
 
@@ -152,39 +161,39 @@ public class TankSelectionScreen {
                     portraitCenterY(screenHeight) - pSize / 2.0f, pSize, pSize);
         }
 
-        String title = "WAR COUNCIL - CHOOSE YOUR CHASSIS";
-        uiManager.drawText(title, x + (panelWidth() - uiManager.getTextWidth(title, 0.75f)) / 2.0f, y + 20, 0.75f,
-                new Vector3f(1.0f, 0.92f, 0.75f));
+        String title = "US ARMED FORCES - VEHICLE DEPLOYMENT BRIEFING";
+        uiManager.drawText(title, x + (panelWidth() - uiManager.getTextWidth(title, 0.68f)) / 2.0f, y + 20, 0.68f,
+                new Vector3f(0.55f, 0.95f, 0.65f));
 
-        String typeName = "<   " + selectedType.name() + "   >";
-        uiManager.drawText(typeName, x + (panelWidth() - uiManager.getTextWidth(typeName, 1.1f)) / 2.0f, y + 54, 1.1f,
-                new Vector3f(1.0f, 0.84f, 0.28f));
+        String typeName = "<   " + militaryDesignation(selectedType) + "   >";
+        uiManager.drawText(typeName, x + (panelWidth() - uiManager.getTextWidth(typeName, 1.0f)) / 2.0f, y + 54, 1.0f,
+                new Vector3f(1.0f, 0.88f, 0.35f));
 
         String blurb = roleBlurb(selectedType);
-        uiManager.drawText(blurb, x + (panelWidth() - uiManager.getTextWidth(blurb, 0.44f)) / 2.0f, y + 94, 0.44f,
-                new Vector3f(0.85f, 0.85f, 0.88f));
+        uiManager.drawText(blurb, x + (panelWidth() - uiManager.getTextWidth(blurb, 0.40f)) / 2.0f, y + 94, 0.40f,
+                new Vector3f(0.85f, 0.88f, 0.92f));
 
         // Stat bars on the right half of the panel
-        float labelX = x + 260;
-        float barX = x + 370;
-        float barVisualWidth = 175;
+        float labelX = x + 255;
+        float barX = x + 375;
+        float barVisualWidth = 170;
         float valueX = barX + barVisualWidth + 14;
         float barY = y + 130;
         float barHeight = 16;
         float barSpacing = 34;
 
-        drawStatBar(projectionMatrix, uiManager, "HP", stats.maxHitPoints() / 6.0f,
-                String.valueOf(stats.maxHitPoints()), labelX, barX, barVisualWidth, valueX, barY, barHeight, new Vector3f(0.35f, 0.95f, 0.35f));
-        drawStatBar(projectionMatrix, uiManager, "SPEED", stats.moveSpeed() / 140.0f,
-                String.format("%.0f", stats.moveSpeed()), labelX, barX, barVisualWidth, valueX, barY + barSpacing, barHeight, new Vector3f(0.3f, 0.65f, 1.0f));
-        drawStatBar(projectionMatrix, uiManager, "DAMAGE", stats.bulletDamage() / 2.0f,
-                String.valueOf(stats.bulletDamage()), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 2, barHeight, new Vector3f(1.0f, 0.3f, 0.25f));
-        drawStatBar(projectionMatrix, uiManager, "RELOAD", 1400.0f / stats.shootCooldownMs(),
-                String.format("%.1fS", stats.shootCooldownMs() / 1000.0f), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 3, barHeight, new Vector3f(1.0f, 0.7f, 0.2f));
+        drawStatBar(projectionMatrix, uiManager, "HULL INTEGRITY", stats.maxHitPoints() / 6.0f,
+                stats.maxHitPoints() + " HP", labelX, barX, barVisualWidth, valueX, barY, barHeight, new Vector3f(0.35f, 0.95f, 0.35f));
+        drawStatBar(projectionMatrix, uiManager, "COMBAT SPEED", stats.moveSpeed() / 140.0f,
+                String.format("%.0f KM/H", stats.moveSpeed() * 0.45f), labelX, barX, barVisualWidth, valueX, barY + barSpacing, barHeight, new Vector3f(0.3f, 0.7f, 1.0f));
+        drawStatBar(projectionMatrix, uiManager, "FIREPOWER (KE)", stats.bulletDamage() / 2.0f,
+                stats.bulletDamage() + " KE", labelX, barX, barVisualWidth, valueX, barY + barSpacing * 2, barHeight, new Vector3f(1.0f, 0.35f, 0.3f));
+        drawStatBar(projectionMatrix, uiManager, "CYCLE TIME", 1400.0f / stats.shootCooldownMs(),
+                String.format("%.1fS", stats.shootCooldownMs() / 1000.0f), labelX, barX, barVisualWidth, valueX, barY + barSpacing * 3, barHeight, new Vector3f(1.0f, 0.75f, 0.25f));
 
-        // Per-side armor distribution
+        // Per-side composite armor distribution
         float armorY = barY + barSpacing * 4;
-        uiManager.drawText("ARMOR", labelX, armorY, 0.45f, new Vector3f(0.95f, 0.85f, 0.5f));
+        uiManager.drawText("COMPOSITE", labelX, armorY, 0.42f, new Vector3f(0.95f, 0.85f, 0.5f));
         String[] sideLabels = {"F:", "L:", "R:", "B:"};
         ArmorSide[] sides = {ArmorSide.FRONT, ArmorSide.LEFT, ArmorSide.RIGHT, ArmorSide.REAR};
         for (int i = 0; i < sides.length; i++) {
@@ -196,10 +205,10 @@ public class TankSelectionScreen {
                     new Vector3f(0.9f, 0.9f, 0.9f));
         }
 
-        // Player roster with ready seals
+        // Player roster with military chevron badges
         float rosterX = x + 35;
         float rosterY = y + 285;
-        uiManager.drawText("COMMANDERS READY", rosterX, rosterY, 0.46f, new Vector3f(1.0f, 0.85f, 0.4f));
+        uiManager.drawText("OPERATORS IN SQUADRON", rosterX, rosterY, 0.44f, new Vector3f(0.55f, 0.95f, 0.65f));
         rosterY += 24;
 
         int maxRosterRows = 5;
@@ -216,11 +225,11 @@ public class TankSelectionScreen {
                 uiManager.drawTexture(seal, rosterX, rosterY - 2, 18, 18);
             }
 
-            String name = entry.isLocal() ? entry.name() + " (YOU)" : entry.name();
+            String name = entry.isLocal() ? entry.name() + " [YOU]" : entry.name();
             uiManager.drawText(name, rosterX + 24, rosterY, 0.38f,
                     entry.isLocal() ? new Vector3f(1.0f, 0.88f, 0.35f) : new Vector3f(0.88f, 0.88f, 0.88f));
 
-            String state = entry.ready() ? "READY" : "SELECTING...";
+            String state = entry.ready() ? "DEPLOYED" : "SELECTING...";
             uiManager.drawText(state, rosterX + 165, rosterY, 0.38f,
                     entry.ready() ? new Vector3f(0.4f, 1.0f, 0.4f) : new Vector3f(0.95f, 0.6f, 0.2f));
 
@@ -229,14 +238,14 @@ public class TankSelectionScreen {
         }
 
         // Confirmation + controls
-        String readyLine = confirmed ? "STATUS: READY FOR BATTLE! (SPACE TO CANCEL)" : "PRESS SPACE / (A) TO READY UP";
-        uiManager.drawText(readyLine, x + (panelWidth() - uiManager.getTextWidth(readyLine, 0.58f)) / 2.0f,
-                y + panelHeight() - 65, 0.58f,
-                confirmed ? new Vector3f(0.35f, 1.0f, 0.35f) : new Vector3f(1.0f, 0.9f, 0.5f));
+        String readyLine = confirmed ? "STATUS: OPERATOR DEPLOYED // READY (SPACE TO CANCEL)" : "PRESS SPACE / (A) TO CONFIRM LOADOUT";
+        uiManager.drawText(readyLine, x + (panelWidth() - uiManager.getTextWidth(readyLine, 0.54f)) / 2.0f,
+                y + panelHeight() - 65, 0.54f,
+                confirmed ? new Vector3f(0.4f, 1.0f, 0.4f) : new Vector3f(1.0f, 0.9f, 0.45f));
 
-        String controls = "LEFT / RIGHT OR CONTROLLER DPAD TO SELECT CHASSIS";
-        uiManager.drawText(controls, x + (panelWidth() - uiManager.getTextWidth(controls, 0.38f)) / 2.0f,
-                y + panelHeight() - 36, 0.38f, new Vector3f(0.7f, 0.7f, 0.7f));
+        String controls = "NAVIGATE: A/D OR CONTROLLER DPAD // CONFIRM: SPACE OR (A)";
+        uiManager.drawText(controls, x + (panelWidth() - uiManager.getTextWidth(controls, 0.36f)) / 2.0f,
+                y + panelHeight() - 36, 0.36f, new Vector3f(0.65f, 0.7f, 0.75f));
     }
 
     private void drawStatBar(Matrix4f projectionMatrix, UIManager uiManager, String label, float fraction,

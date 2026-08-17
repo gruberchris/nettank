@@ -768,60 +768,51 @@ public class AssetPipelineRunner {
         return img;
     }
 
-    private static BufferedImage generatePowerupCrate(String type, int size) {
-        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g2 = img.createGraphics();
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-        // Metallic supply crate body
-        g2.setColor(new Color(45, 52, 58));
-        g2.fillRoundRect(4, 4, size - 8, size - 8, 8, 8);
-
-        // Steel frame borders & rivets
-        g2.setColor(new Color(85, 95, 105));
-        g2.drawRoundRect(4, 4, size - 8, size - 8, 8, 8);
-        g2.drawRect(8, 8, size - 16, size - 16);
-
-        // Holographic insignia icon in center
-        Color iconColor = Color.YELLOW;
-        if (type.contains("speed")) iconColor = new Color(50, 180, 255);
-        else if (type.contains("damage")) iconColor = new Color(255, 60, 40);
-        else if (type.contains("reload")) iconColor = new Color(255, 160, 30);
-        else if (type.contains("repair") || type.contains("armor")) iconColor = new Color(40, 220, 80);
-
-        g2.setColor(iconColor);
-        g2.fillOval(size / 2 - 7, size / 2 - 7, 14, 14);
-
-        g2.setColor(Color.WHITE);
-        g2.fillOval(size / 2 - 3, size / 2 - 3, 6, 6);
-
-        g2.dispose();
-        return img;
-    }
-
-    // --- High-Fidelity Audio Synthesizer ---
+    // --- High-Fidelity Military Audio Synthesizer ---
 
     private static byte[] synthesizeCannonShot() {
         int sampleRate = 44100;
-        float duration = 0.65f;
+        float duration = 0.95f;
         int numSamples = (int) (sampleRate * duration);
         short[] samples = new short[numSamples];
-        Random rand = new Random(123);
+        Random rand = new Random(345);
 
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
-            // 1. Sub-bass boom: 65Hz decaying frequency with exponential volume drop
-            float freq = 65.0f * (float) Math.exp(-t * 8.0);
-            float subBass = (float) Math.sin(2.0 * Math.PI * freq * t) * (float) Math.exp(-t * 6.0);
 
-            // 2. High-pressure supersonic shockwave noise burst (first 60ms)
-            float noise = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 35.0);
+            // 1. Initial High-Pressure Concussion Wave (0..25ms) - Heavy distorted saturation punch
+            float shockwave = 0.0f;
+            if (t < 0.04f) {
+                float env = (float) Math.exp(-t * 80.0);
+                float noise = (rand.nextFloat() * 2.0f - 1.0f);
+                shockwave = (float) Math.tanh((noise * 3.5f + (float) Math.sin(2.0 * Math.PI * 180.0 * t) * 2.0f)) * env;
+            }
 
-            // 3. Metallic breech snap at 400Hz
-            float metallic = (float) Math.sin(2.0 * Math.PI * 380.0 * t) * (float) Math.exp(-t * 18.0) * 0.35f;
+            // 2. 120mm Smoothbore Barrel Resonant Body (45Hz sub-bass thump + 88Hz harmonic)
+            float subBass = (float) (Math.sin(2.0 * Math.PI * 45.0 * t) * 0.75 + Math.sin(2.0 * Math.PI * 88.0 * t) * 0.4)
+                    * (float) Math.exp(-t * 5.5);
+            // Non-linear soft saturation on low-end
+            subBass = (float) Math.tanh(subBass * 1.8f);
 
-            float mix = (subBass * 0.65f + noise * 0.55f + metallic * 0.25f);
-            mix = Math.max(-1.0f, Math.min(1.0f, mix));
+            // 3. Supersonic Projectile Crack & Muzzle Gas Expansion (Broadband filtered rumble)
+            float gasRumble = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 6.5) * 0.55f;
+
+            // 4. Mechanical Breech Autoloader Slam (Dual transients at 20ms and 85ms)
+            float breech = 0.0f;
+            if (t >= 0.02f && t < 0.06f) {
+                float bt = t - 0.02f;
+                breech += (float) Math.sin(2.0 * Math.PI * 520.0 * bt) * (float) Math.exp(-bt * 60.0) * 0.45f;
+            }
+            if (t >= 0.08f && t < 0.14f) {
+                float bt = t - 0.08f;
+                breech += (float) Math.sin(2.0 * Math.PI * 740.0 * bt) * (float) Math.exp(-bt * 50.0) * 0.35f;
+            }
+
+            // 5. Open-Range Acoustic Reverberation Tail (Deep rolling exterior tail)
+            float reverb = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 2.8) * 0.25f;
+
+            float mix = (shockwave * 0.6f + subBass * 0.75f + gasRumble * 0.4f + breech * 0.3f + reverb * 0.2f);
+            mix = Math.max(-1.0f, Math.min(1.0f, mix * 1.25f));
             samples[i] = (short) (mix * 32767);
         }
         return createWavBytes(samples, sampleRate);
@@ -829,20 +820,41 @@ public class AssetPipelineRunner {
 
     private static byte[] synthesizeExplosion() {
         int sampleRate = 44100;
-        float duration = 1.1f;
+        float duration = 1.35f;
         int numSamples = (int) (sampleRate * duration);
         short[] samples = new short[numSamples];
-        Random rand = new Random(456);
+        Random rand = new Random(876);
 
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
-            // Heavy rolling explosion: low frequency rumble + filtered noise
-            float rumble = (float) Math.sin(2.0 * Math.PI * 45.0 * t) * (float) Math.exp(-t * 3.5);
-            float noise = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 4.0);
-            float snap = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 28.0) * 0.6f;
 
-            float mix = (rumble * 0.6f + noise * 0.5f + snap * 0.4f);
-            mix = Math.max(-1.0f, Math.min(1.0f, mix));
+            // Multi-stage catastrophic ammo detonation:
+            // Blast 1 (t=0s, initial hull rupture)
+            float b1 = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 5.0) * 0.7f;
+            float sub1 = (float) Math.sin(2.0 * Math.PI * 38.0 * t) * (float) Math.exp(-t * 4.0) * 0.8f;
+
+            // Blast 2 (t=0.08s, internal ammo carousel cookoff)
+            float b2 = 0.0f;
+            if (t >= 0.08f) {
+                float t2 = t - 0.08f;
+                b2 = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t2 * 6.0) * 0.75f;
+            }
+
+            // Blast 3 (t=0.22s, tertiary turret blowout)
+            float b3 = 0.0f;
+            if (t >= 0.22f) {
+                float t3 = t - 0.22f;
+                b3 = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t3 * 4.5) * 0.6f;
+            }
+
+            // Low frequency ground shockwave rumble
+            float rumble = (float) Math.sin(2.0 * Math.PI * 28.0 * t) * (float) Math.exp(-t * 2.2) * 0.6f;
+
+            // Metal tearing & shrapnel debris
+            float debris = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 2.5) * 0.35f;
+
+            float mix = (b1 + sub1 + b2 + b3 + rumble + debris) * 0.42f;
+            mix = (float) Math.tanh(mix * 1.5f);
             samples[i] = (short) (mix * 32767);
         }
         return createWavBytes(samples, sampleRate);
@@ -850,22 +862,26 @@ public class AssetPipelineRunner {
 
     private static byte[] synthesizeHitClang(boolean crit) {
         int sampleRate = 44100;
-        float duration = crit ? 0.45f : 0.28f;
+        float duration = crit ? 0.55f : 0.35f;
         int numSamples = (int) (sampleRate * duration);
         short[] samples = new short[numSamples];
-        Random rand = new Random(789);
-
-        float f1 = crit ? 1200.0f : 850.0f;
-        float f2 = crit ? 2400.0f : 1600.0f;
+        Random rand = new Random(982);
 
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
-            float tone1 = (float) Math.sin(2.0 * Math.PI * f1 * t) * (float) Math.exp(-t * 14.0);
-            float tone2 = (float) Math.sin(2.0 * Math.PI * f2 * t) * (float) Math.exp(-t * 22.0) * 0.6f;
-            float spark = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 45.0) * 0.4f;
 
-            float mix = (tone1 * 0.5f + tone2 * 0.35f + spark * 0.35f);
-            mix = Math.max(-1.0f, Math.min(1.0f, mix));
+            // 1. High-Velocity Tungsten Penetrator Impact Thud (180Hz dense kinetic transient)
+            float thud = (float) Math.sin(2.0 * Math.PI * (crit ? 140.0 : 190.0) * t) * (float) Math.exp(-t * 18.0) * 0.8f;
+            thud = (float) Math.tanh(thud * 2.0f);
+
+            // 2. Explosive Reactive Armor (ERA) Detonation Crack (Broadband high-energy crack)
+            float eraCrack = (rand.nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 45.0) * 0.7f;
+
+            // 3. Steel Spall & Armor Plate Groan (Low-mid resonance)
+            float steelRes = (float) Math.sin(2.0 * Math.PI * (crit ? 320.0 : 480.0) * t) * (float) Math.exp(-t * 12.0) * 0.35f;
+
+            float mix = (thud * 0.55f + eraCrack * 0.55f + steelRes * 0.3f);
+            mix = Math.max(-1.0f, Math.min(1.0f, mix * 1.15f));
             samples[i] = (short) (mix * 32767);
         }
         return createWavBytes(samples, sampleRate);
@@ -873,21 +889,33 @@ public class AssetPipelineRunner {
 
     private static byte[] synthesizeEngineLoop() {
         int sampleRate = 44100;
-        float duration = 1.0f; // 1 second seamless loop
+        float duration = 2.0f; // 2 second seamless loop
         int numSamples = (int) (sampleRate * duration);
         short[] samples = new short[numSamples];
-        Random rand = new Random(101);
+        Random rand = new Random(654);
 
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
-            // 4-cylinder diesel engine pulses at 28Hz and 56Hz harmonic
-            float p1 = (float) Math.sin(2.0 * Math.PI * 28.0 * t);
-            float p2 = (float) Math.sin(2.0 * Math.PI * 56.0 * t) * 0.5f;
-            float p3 = (float) Math.sin(2.0 * Math.PI * 112.0 * t) * 0.25f;
-            float mechanicalNoise = (rand.nextFloat() * 2.0f - 1.0f) * 0.12f;
 
-            float mix = (p1 * 0.45f + p2 * 0.3f + p3 * 0.15f + mechanicalNoise);
-            mix = Math.max(-1.0f, Math.min(1.0f, mix));
+            // Modern Military Tank Engine (Honeywell AGT1500 Gas Turbine & Heavy Turbo-Diesel)
+            // 1. Dual Turbine Compressor Whines (~1420Hz & ~2130Hz) with gentle vibrato modulation
+            float vibrato = (float) Math.sin(2.0 * Math.PI * 4.0 * t) * 8.0f;
+            float turbineWhine1 = (float) Math.sin(2.0 * Math.PI * (1420.0 + vibrato) * t) * 0.18f;
+            float turbineWhine2 = (float) Math.sin(2.0 * Math.PI * (2130.0 + vibrato * 1.5) * t) * 0.12f;
+
+            // 2. Turbocharger Air Intake Rush (Filtered pink/brown noise)
+            float airRush = (rand.nextFloat() * 2.0f - 1.0f) * 0.22f;
+
+            // 3. Heavy Engine Block Combustion & Chassis Shudder (36Hz fundamental + 72Hz harmonic)
+            float dieselPulse1 = (float) Math.sin(2.0 * Math.PI * 36.0 * t) * 0.45f;
+            float dieselPulse2 = (float) Math.sin(2.0 * Math.PI * 72.0 * t) * 0.30f;
+            float dieselPulse3 = (float) Math.sin(2.0 * Math.PI * 108.0 * t) * 0.15f;
+
+            // 4. Mechanical Track & Final Drive Whir
+            float trackDrive = (float) Math.sin(2.0 * Math.PI * 220.0 * t) * 0.10f;
+
+            float mix = (turbineWhine1 + turbineWhine2 + airRush + dieselPulse1 + dieselPulse2 + dieselPulse3 + trackDrive);
+            mix = Math.max(-1.0f, Math.min(1.0f, mix * 0.95f));
             samples[i] = (short) (mix * 32767);
         }
         return createWavBytes(samples, sampleRate);
@@ -895,18 +923,19 @@ public class AssetPipelineRunner {
 
     private static byte[] synthesizePowerupChime() {
         int sampleRate = 44100;
-        float duration = 0.55f;
+        float duration = 0.45f;
         int numSamples = (int) (sampleRate * duration);
         short[] samples = new short[numSamples];
 
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
-            // Arpeggiated chord 587Hz (D5) -> 880Hz (A5) -> 1174Hz (D6)
-            float freq = t < 0.15f ? 587.33f : (t < 0.3f ? 880.0f : 1174.66f);
-            float chime = (float) Math.sin(2.0 * Math.PI * freq * t) * (float) Math.exp(-t * 4.0);
-            float harmonic = (float) Math.sin(4.0 * Math.PI * freq * t) * 0.3f * (float) Math.exp(-t * 5.0);
+            // Tactical radio comms target lock chirp: 1100Hz -> 1760Hz rapid military chirp
+            float freq = t < 0.08f ? 1100.0f : (t < 0.18f ? 1480.0f : 1760.0f);
+            float tone = (float) Math.sin(2.0 * Math.PI * freq * t) * (float) Math.exp(-t * 6.0);
+            float harmonic = (float) Math.sin(4.0 * Math.PI * freq * t) * 0.3f * (float) Math.exp(-t * 8.0);
+            float squelch = (new Random((long)(t * 10000)).nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 25.0) * 0.15f;
 
-            float mix = (chime * 0.7f + harmonic * 0.3f);
+            float mix = (tone * 0.65f + harmonic * 0.25f + squelch);
             samples[i] = (short) (mix * 32767);
         }
         return createWavBytes(samples, sampleRate);
@@ -919,8 +948,11 @@ public class AssetPipelineRunner {
 
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
-            float tone = (float) Math.sin(2.0 * Math.PI * frequency * t) * (float) Math.exp(-t * (1.0f / duration * 4.0f));
-            samples[i] = (short) (tone * 32767);
+            // Rugged mil-spec toggle switch clack
+            float tone = (float) Math.sin(2.0 * Math.PI * frequency * t) * (float) Math.exp(-t * (1.0f / duration * 5.0f));
+            float clickImpulse = (new Random((long)(t * 20000)).nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 60.0) * 0.4f;
+            float mix = (tone * 0.65f + clickImpulse * 0.4f);
+            samples[i] = (short) (mix * 32767);
         }
         return createWavBytes(samples, sampleRate);
     }
@@ -939,13 +971,13 @@ public class AssetPipelineRunner {
 
             // fmt chunk
             baos.write("fmt ".getBytes());
-            writeIntLittleEndian(baos, 16); // subchunk1 size
-            writeShortLittleEndian(baos, (short) 1); // PCM format
-            writeShortLittleEndian(baos, (short) 1); // mono
+            writeIntLittleEndian(baos, 16);
+            writeShortLittleEndian(baos, (short) 1);
+            writeShortLittleEndian(baos, (short) 1);
             writeIntLittleEndian(baos, sampleRate);
             writeIntLittleEndian(baos, byteRate);
-            writeShortLittleEndian(baos, (short) 2); // block align
-            writeShortLittleEndian(baos, (short) 16); // bits per sample
+            writeShortLittleEndian(baos, (short) 2);
+            writeShortLittleEndian(baos, (short) 16);
 
             // data chunk
             baos.write("data".getBytes());
@@ -979,35 +1011,191 @@ public class AssetPipelineRunner {
         }
     }
 
+    // --- High-Contrast Tactical Power-Up Crate Icons ---
+
+    private static BufferedImage generatePowerupCrate(String type, int size) {
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        // Heavy Military Ammo Crate Colors based on type
+        Color primaryColor;
+        Color accentColor;
+        String badgeText;
+        String subText;
+
+        if (type.equals("damage_2x")) {
+            primaryColor = new Color(140, 25, 20); // Crimson Ordnance
+            accentColor = new Color(255, 180, 40); // Hazard Yellow
+            badgeText = "2X";
+            subText = "AP";
+        } else if (type.equals("damage_3x")) {
+            primaryColor = new Color(180, 20, 20);
+            accentColor = new Color(255, 220, 60);
+            badgeText = "3X";
+            subText = "AP";
+        } else if (type.equals("speed_2x")) {
+            primaryColor = new Color(20, 65, 120); // Tactical Cyan/Blue
+            accentColor = new Color(50, 210, 255);
+            badgeText = "2X";
+            subText = "SPD";
+        } else if (type.equals("speed_3x")) {
+            primaryColor = new Color(15, 85, 155);
+            accentColor = new Color(80, 240, 255);
+            badgeText = "3X";
+            subText = "SPD";
+        } else if (type.equals("reload_2x")) {
+            primaryColor = new Color(145, 80, 15); // Tactical Amber/Orange
+            accentColor = new Color(255, 190, 40);
+            badgeText = "2X";
+            subText = "LOAD";
+        } else if (type.equals("reload_3x")) {
+            primaryColor = new Color(180, 95, 15);
+            accentColor = new Color(255, 215, 60);
+            badgeText = "3X";
+            subText = "LOAD";
+        } else if (type.equals("repair_hp")) {
+            primaryColor = new Color(25, 85, 40); // Army Medic Green
+            accentColor = new Color(75, 235, 100);
+            badgeText = "+HP";
+            subText = "MED";
+        } else if (type.equals("repair_armor")) {
+            primaryColor = new Color(40, 55, 75); // Ballistic Kevlar Slate
+            accentColor = new Color(100, 190, 255);
+            badgeText = "+ARM";
+            subText = "DEF";
+        } else { // unlimited_ammo
+            primaryColor = new Color(85, 30, 110); // Special Munitions Purple
+            accentColor = new Color(245, 200, 50);
+            badgeText = "MAX";
+            subText = "AMMO";
+        }
+
+        // Crate Drop Shadow
+        g.setColor(new Color(0, 0, 0, 140));
+        g.fillRoundRect(6, 8, size - 12, size - 12, 10, 10);
+
+        // Mil-Spec Crate Body
+        g.setPaint(new LinearGradientPaint(0, 4, 0, size - 4,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{primaryColor.brighter(), primaryColor, primaryColor.darker()}));
+        g.fillRoundRect(4, 4, size - 8, size - 8, 8, 8);
+
+        // Crate Corner Protective Brackets
+        g.setColor(new Color(30, 35, 40));
+        g.fillRect(4, 4, 12, 4);
+        g.fillRect(4, 4, 4, 12);
+        g.fillRect(size - 16, 4, 12, 4);
+        g.fillRect(size - 8, 4, 4, 12);
+        g.fillRect(4, size - 8, 12, 4);
+        g.fillRect(4, size - 16, 4, 12);
+        g.fillRect(size - 16, size - 8, 12, 4);
+        g.fillRect(size - 8, size - 16, 4, 12);
+
+        // High-Contrast Center Tactical Placard
+        int pSize = size - 18;
+        g.setColor(new Color(15, 18, 22, 240));
+        g.fillRoundRect(9, 9, pSize, pSize, 6, 6);
+        g.setColor(accentColor);
+        g.setStroke(new BasicStroke(2));
+        g.drawRoundRect(9, 9, pSize, pSize, 6, 6);
+
+        // Specific Tactical Iconography
+        if (type.equals("repair_hp")) {
+            // Bright Red/White Medic Cross
+            g.setColor(Color.WHITE);
+            g.fillRect(size / 2 - 12, size / 2 - 12, 24, 24);
+            g.setColor(new Color(220, 30, 30));
+            g.fillRect(size / 2 - 3, size / 2 - 10, 6, 20);
+            g.fillRect(size / 2 - 10, size / 2 - 3, 20, 6);
+        } else if (type.equals("repair_armor")) {
+            // Ballistic Shield
+            Polygon shield = new Polygon(
+                    new int[]{size / 2 - 12, size / 2 + 12, size / 2 + 12, size / 2, size / 2 - 12},
+                    new int[]{size / 2 - 12, size / 2 - 12, size / 2 + 2, size / 2 + 12, size / 2 + 2},
+                    5
+            );
+            g.setColor(new Color(60, 160, 255));
+            g.fillPolygon(shield);
+            g.setColor(Color.WHITE);
+            g.setStroke(new BasicStroke(2));
+            g.drawPolygon(shield);
+        } else if (type.startsWith("speed")) {
+            // Dual High-Velocity Propulsion Chevrons >>
+            g.setColor(accentColor);
+            g.setStroke(new BasicStroke(3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_MITER));
+            g.drawLine(size / 2 - 8, size / 2 - 10, size / 2 - 1, size / 2 - 3);
+            g.drawLine(size / 2 - 1, size / 2 - 3, size / 2 - 8, size / 2 + 4);
+            g.drawLine(size / 2, size / 2 - 10, size / 2 + 7, size / 2 - 3);
+            g.drawLine(size / 2 + 7, size / 2 - 3, size / 2, size / 2 + 4);
+        } else if (type.startsWith("damage")) {
+            // APFSDS Sabot Dart
+            g.setColor(accentColor);
+            Polygon dart = new Polygon(
+                    new int[]{size / 2, size / 2 + 6, size / 2 + 2, size / 2 + 2, size / 2 - 2, size / 2 - 2, size / 2 - 6},
+                    new int[]{size / 2 - 13, size / 2 - 3, size / 2 - 3, size / 2 + 5, size / 2 + 5, size / 2 - 3, size / 2 - 3},
+                    7
+            );
+            g.fillPolygon(dart);
+        } else if (type.startsWith("reload")) {
+            // Autoloader Twin Shells
+            g.setColor(accentColor);
+            g.fillRoundRect(size / 2 - 8, size / 2 - 12, 6, 16, 3, 3);
+            g.fillRoundRect(size / 2 + 2, size / 2 - 12, 6, 16, 3, 3);
+        } else {
+            // Infinity Ammo Symbol
+            g.setColor(accentColor);
+            g.setFont(new Font("SansSerif", Font.BOLD, 18));
+            FontMetrics fm = g.getFontMetrics();
+            int iw = fm.stringWidth("∞");
+            g.drawString("∞", (size - iw) / 2, size / 2 + 1);
+        }
+
+        // Bold Stencil Subtext at bottom of crate
+        g.setFont(new Font("SansSerif", Font.BOLD, 11));
+        FontMetrics fm = g.getFontMetrics();
+        int bw = fm.stringWidth(badgeText + " " + subText);
+        g.setColor(new Color(0, 0, 0, 220));
+        g.drawString(badgeText + " " + subText, (size - bw) / 2 + 1, size - 8 + 1);
+        g.setColor(accentColor);
+        g.drawString(badgeText + " " + subText, (size - bw) / 2, size - 8);
+
+        g.dispose();
+        return img;
+    }
+
+    // --- US Army / USMC Tactical Military UI & HUD Assets ---
+
     private static void processUIAssets() throws Exception {
-        System.out.println("Processing UI and HUD Assets...");
+        System.out.println("Processing US Military Tactical UI and HUD Assets...");
         String uiDir = TEXTURES_DIR + "ui/";
 
-        // 1. Generate Unit Portraits
-        generateUnitPortrait("standard", TEXTURES_DIR + "tank.png", TEXTURES_DIR + "turret.png", "STANDARD", new Color(200, 160, 40), uiDir + "portrait_standard.png");
-        generateUnitPortrait("heavy", TEXTURES_DIR + "tank_heavy.png", TEXTURES_DIR + "turret_heavy.png", "HEAVY", new Color(190, 70, 50), uiDir + "portrait_heavy.png");
-        generateUnitPortrait("light", TEXTURES_DIR + "tank_light.png", TEXTURES_DIR + "turret_light.png", "LIGHT", new Color(60, 140, 220), uiDir + "portrait_light.png");
-        generateUnitPortrait("stealth", TEXTURES_DIR + "tank_stealth.png", TEXTURES_DIR + "turret_stealth.png", "STEALTH", new Color(130, 70, 190), uiDir + "portrait_stealth.png");
+        // 1. Generate Tactical Vehicle Briefing Placards
+        generateUnitPortrait("standard", TEXTURES_DIR + "tank.png", TEXTURES_DIR + "turret.png", "M1A2 ABRAMS MBT", new Color(200, 160, 40), uiDir + "portrait_standard.png");
+        generateUnitPortrait("heavy", TEXTURES_DIR + "tank_heavy.png", TEXTURES_DIR + "turret_heavy.png", "M1A2 TUSK HEAVY", new Color(190, 70, 50), uiDir + "portrait_heavy.png");
+        generateUnitPortrait("light", TEXTURES_DIR + "tank_light.png", TEXTURES_DIR + "turret_light.png", "LAV-25 STRYKER", new Color(60, 140, 220), uiDir + "portrait_light.png");
+        generateUnitPortrait("stealth", TEXTURES_DIR + "tank_stealth.png", TEXTURES_DIR + "turret_stealth.png", "SHADOW STALKER", new Color(130, 70, 190), uiDir + "portrait_stealth.png");
 
-        // 2. Generate Directional Armor Schematic & Masks
+        // 2. Generate Modern Composite Armor Schematic & Masks
         generateArmorSchematics(uiDir);
 
-        // 3. Generate HUD Panel Frame, Stat Bar Frames & Fills
+        // 3. Generate Mil-Spec HUD Frames & Energy Bars
         generateHudPanelFrame(uiDir + "hud_panel_frame.png");
         generateStatBarFrame(uiDir + "stat_bar_frame.png");
         generateStatBarFill(uiDir + "stat_bar_fill.png");
 
-        // 4. Generate Ammo Shell Icon
+        // 4. Generate 120mm APFSDS Sabot Projectile Icon
         generateAmmoShell(uiDir + "ammo_shell.png");
 
-        // 5. Generate Wax Ready Seals
-        generateWaxSeal(true, uiDir + "ready_seal_ready.png");
-        generateWaxSeal(false, uiDir + "ready_seal_unready.png");
+        // 5. Generate Military Status Chevron Badges
+        generateMilBadge(true, uiDir + "ready_seal_ready.png");
+        generateMilBadge(false, uiDir + "ready_seal_unready.png");
 
-        // 6. Generate Victory / Defeat Banners
-        generateBanner(true, uiDir + "victory_banner.png");
-        generateBanner(false, uiDir + "defeat_banner.png");
-        System.out.println("UI Assets Generated.");
+        // 6. Generate Tactical Mission Status Placards
+        generateMilBanner(true, uiDir + "victory_banner.png");
+        generateMilBanner(false, uiDir + "defeat_banner.png");
+        System.out.println("US Military Tactical UI Assets Generated.");
     }
 
     private static void generateUnitPortrait(String typeName, String hullPath, String turretPath,
@@ -1018,21 +1206,23 @@ public class AssetPipelineRunner {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        // Background: Dark slate/iron texture with radial lighting
-        RadialGradientPaint bgGrad = new RadialGradientPaint(
-                size / 2.0f, size * 0.45f, size * 0.65f,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{new Color(42, 48, 58), new Color(24, 28, 36), new Color(12, 14, 18)}
-        );
-        g.setPaint(bgGrad);
+        // Background: Tactical Carbon Slate with FLIR Grid
+        g.setColor(new Color(18, 22, 26));
         g.fillRect(0, 0, size, size);
 
-        // Grid lines / blueprint watermark in background
-        g.setColor(new Color(255, 255, 255, 12));
-        for (int i = 20; i < size; i += 20) {
+        // Green FLIR Rangefinder Grid
+        g.setColor(new Color(40, 90, 60, 45));
+        for (int i = 16; i < size; i += 16) {
             g.drawLine(i, 0, i, size);
             g.drawLine(0, i, size, i);
         }
+
+        // Circular Tactical Scope Reticle
+        g.setColor(new Color(60, 140, 90, 60));
+        g.drawOval(size / 2 - 80, size / 2 - 80, 160, 160);
+        g.drawOval(size / 2 - 50, size / 2 - 50, 100, 100);
+        g.drawLine(size / 2, size / 2 - 90, size / 2, size / 2 + 90);
+        g.drawLine(size / 2 - 90, size / 2, size / 2 + 90, size / 2);
 
         // Load tank hull & turret
         File hullFile = new File(hullPath);
@@ -1041,20 +1231,19 @@ public class AssetPipelineRunner {
             BufferedImage hull = ImageIO.read(hullFile);
             BufferedImage turret = turretFile.exists() ? ImageIO.read(turretFile) : null;
 
-            // Draw hero vehicle at 3/4 isometric perspective
             Graphics2D gVehicle = (Graphics2D) g.create();
-            gVehicle.translate(size / 2.0, size * 0.48);
+            gVehicle.translate(size / 2.0, size * 0.46);
             gVehicle.rotate(Math.toRadians(-22));
 
             int vSize = 150;
             // Shadow
-            gVehicle.setColor(new Color(0, 0, 0, 140));
+            gVehicle.setColor(new Color(0, 0, 0, 160));
             gVehicle.fillOval(-vSize / 2 + 10, -vSize / 2 + 14, vSize, vSize);
 
             // Hull
             gVehicle.drawImage(hull, -vSize / 2, -vSize / 2, vSize, vSize, null);
 
-            // Turret slightly offset rotation
+            // Turret
             if (turret != null) {
                 Graphics2D gTurret = (Graphics2D) gVehicle.create();
                 gTurret.rotate(Math.toRadians(12));
@@ -1064,79 +1253,53 @@ public class AssetPipelineRunner {
             gVehicle.dispose();
         }
 
-        // Inner shadow vignette
-        g.setPaint(new RadialGradientPaint(
-                size / 2.0f, size / 2.0f, size * 0.55f,
-                new float[]{0.6f, 1.0f},
-                new Color[]{new Color(0, 0, 0, 0), new Color(0, 0, 0, 180)}
-        ));
-        g.fillRect(0, 0, size, size);
+        // Tactical Coyote Tan / Olive Drab Mil-Spec Beveled Border
+        int b = 10;
+        g.setColor(new Color(55, 62, 50));
+        g.fillRect(0, 0, size, b);
+        g.fillRect(0, size - b, size, b);
+        g.fillRect(0, 0, b, size);
+        g.fillRect(size - b, 0, b, size);
 
-        // Ornate Gold/Bronze Beveled Border
-        int borderThickness = 12;
-        g.setPaint(new LinearGradientPaint(0, 0, size, size,
-                new float[]{0.0f, 0.3f, 0.7f, 1.0f},
-                new Color[]{new Color(235, 200, 95), new Color(170, 125, 40), new Color(245, 215, 120), new Color(130, 90, 25)}));
-        g.setStroke(new BasicStroke(borderThickness));
-        g.drawRect(borderThickness / 2, borderThickness / 2, size - borderThickness, size - borderThickness);
-
-        // Thin inner gold fillet
-        g.setColor(new Color(255, 230, 140, 200));
-        g.setStroke(new BasicStroke(2));
-        g.drawRect(borderThickness, borderThickness, size - borderThickness * 2, size - borderThickness * 2);
-
-        // Corner brackets / filigree
-        drawCornerBrackets(g, size, borderThickness);
-
-        // Bottom label plaque
-        int plaqueH = 34;
-        int plaqueY = size - borderThickness - plaqueH;
-        g.setColor(new Color(15, 18, 24, 230));
-        g.fillRect(borderThickness + 2, plaqueY, size - (borderThickness + 2) * 2, plaqueH);
+        // Corner Tactical Reticle Brackets
         g.setColor(new Color(210, 175, 75));
-        g.drawRect(borderThickness + 2, plaqueY, size - (borderThickness + 2) * 2, plaqueH);
+        g.setStroke(new BasicStroke(3));
+        // Top-left
+        g.drawLine(b + 2, b + 2, b + 20, b + 2);
+        g.drawLine(b + 2, b + 2, b + 2, b + 20);
+        // Top-right
+        g.drawLine(size - b - 20, b + 2, size - b - 2, b + 2);
+        g.drawLine(size - b - 2, b + 2, size - b - 2, b + 20);
+        // Bottom-left
+        g.drawLine(b + 2, size - b - 2, b + 20, size - b - 2);
+        g.drawLine(b + 2, size - b - 20, b + 2, size - b - 2);
+        // Bottom-right
+        g.drawLine(size - b - 20, size - b - 2, size - b - 2, size - b - 2);
+        g.drawLine(size - b - 2, size - b - 20, size - b - 2, size - b - 2);
 
-        // Label text
-        g.setFont(new Font("SansSerif", Font.BOLD, 16));
+        // MIL-STD Header Plaque
+        g.setColor(new Color(10, 14, 18, 240));
+        g.fillRect(b + 2, b + 4, size - (b + 2) * 2, 22);
+        g.setColor(new Color(75, 180, 115));
+        g.setFont(new Font("Monospaced", Font.BOLD, 11));
+        g.drawString("US ARMED FORCES // ARMOR PLACARD", b + 8, b + 19);
+
+        // Bottom Designation Plaque
+        int plaqueH = 34;
+        int plaqueY = size - b - plaqueH - 2;
+        g.setColor(new Color(12, 16, 20, 245));
+        g.fillRect(b + 2, plaqueY, size - (b + 2) * 2, plaqueH);
+        g.setColor(new Color(210, 175, 75));
+        g.drawRect(b + 2, plaqueY, size - (b + 2) * 2, plaqueH);
+
+        g.setFont(new Font("SansSerif", Font.BOLD, 15));
         FontMetrics fm = g.getFontMetrics();
         int textW = fm.stringWidth(label);
-        g.setColor(new Color(0, 0, 0, 180));
-        g.drawString(label, (size - textW) / 2 + 1, plaqueY + 23 + 1);
-        g.setColor(new Color(255, 235, 160));
-        g.drawString(label, (size - textW) / 2, plaqueY + 23);
+        g.setColor(new Color(255, 220, 110));
+        g.drawString(label, (size - textW) / 2, plaqueY + 22);
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));
-    }
-
-    private static void drawCornerBrackets(Graphics2D g, int size, int b) {
-        g.setColor(new Color(255, 235, 150));
-        int cSize = 22;
-        // Top-left
-        g.fillRect(b - 2, b - 2, cSize, 5);
-        g.fillRect(b - 2, b - 2, 5, cSize);
-        // Top-right
-        g.fillRect(size - b - cSize + 2, b - 2, cSize, 5);
-        g.fillRect(size - b - 3, b - 2, 5, cSize);
-        // Bottom-left
-        g.fillRect(b - 2, size - b - 3, cSize, 5);
-        g.fillRect(b - 2, size - b - cSize + 2, 5, cSize);
-        // Bottom-right
-        g.fillRect(size - b - cSize + 2, size - b - 3, cSize, 5);
-        g.fillRect(size - b - 3, size - b - cSize + 2, 5, cSize);
-
-        // Rivets (bronze screws)
-        drawRivet(g, b + 5, b + 5);
-        drawRivet(g, size - b - 5, b + 5);
-        drawRivet(g, b + 5, size - b - 5);
-        drawRivet(g, size - b - 5, size - b - 5);
-    }
-
-    private static void drawRivet(Graphics2D g, int cx, int cy) {
-        g.setColor(new Color(40, 30, 15));
-        g.fillOval(cx - 3, cy - 3, 6, 6);
-        g.setColor(new Color(255, 220, 110));
-        g.fillOval(cx - 2, cy - 2, 4, 4);
     }
 
     private static void generateArmorSchematics(String uiDir) throws Exception {
@@ -1147,70 +1310,78 @@ public class AssetPipelineRunner {
         Graphics2D gSil = sil.createGraphics();
         gSil.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Base dark metal chassis
-        gSil.setColor(new Color(30, 35, 45));
-        gSil.fillRoundRect(34, 22, 60, 84, 16, 16);
+        // Modern Chobham Composite Hull
+        gSil.setColor(new Color(26, 32, 38));
+        gSil.fillRoundRect(34, 20, 60, 88, 12, 12);
 
-        // Left & right tread tracks
-        gSil.setColor(new Color(20, 22, 28));
-        gSil.fillRoundRect(22, 16, 16, 96, 8, 8);
-        gSil.fillRoundRect(90, 16, 16, 96, 8, 8);
+        // Treads & Mud Flaps
+        gSil.setColor(new Color(16, 20, 24));
+        gSil.fillRoundRect(20, 14, 16, 100, 6, 6);
+        gSil.fillRoundRect(92, 14, 16, 100, 6, 6);
 
-        // Tread rungs
-        gSil.setColor(new Color(45, 50, 60));
-        for (int y = 20; y < 108; y += 8) {
-            gSil.drawLine(24, y, 36, y);
-            gSil.drawLine(92, y, 104, y);
+        // Tread Rungs
+        gSil.setColor(new Color(40, 48, 56));
+        for (int y = 18; y < 112; y += 7) {
+            gSil.drawLine(22, y, 34, y);
+            gSil.drawLine(94, y, 106, y);
         }
 
-        // Turret ring & cannon guide
-        gSil.setColor(new Color(50, 58, 72));
-        gSil.fillOval(48, 48, 32, 32);
-        gSil.setColor(new Color(70, 82, 100));
-        gSil.drawOval(48, 48, 32, 32);
-        gSil.fillRect(61, 24, 6, 26); // Barrel
+        // Modern Abrams Turret Silhouette
+        gSil.setColor(new Color(42, 50, 60));
+        Polygon turretPoly = new Polygon(
+                new int[]{46, 64, 82, 80, 48},
+                new int[]{44, 38, 44, 82, 82},
+                5
+        );
+        gSil.fillPolygon(turretPoly);
+        gSil.setColor(new Color(60, 72, 85));
+        gSil.drawPolygon(turretPoly);
+
+        // 120mm Gun Barrel & Muzzle Brake
+        gSil.fillRect(62, 18, 5, 24);
+        gSil.fillRect(60, 16, 9, 4);
 
         gSil.dispose();
         ImageIO.write(sil, "PNG", new File(uiDir + "tank_silhouette.png"));
 
-        // 2. Front Armor Plate (top wedge)
+        // 2. Front Armor Plate (Upper & Lower Glacis)
         BufferedImage front = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D gF = front.createGraphics();
         gF.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         gF.setColor(Color.WHITE);
         Polygon frontPoly = new Polygon(
-                new int[]{38, 64, 90, 84, 44},
-                new int[]{28, 18, 28, 40, 40},
+                new int[]{36, 64, 92, 86, 42},
+                new int[]{26, 16, 26, 38, 38},
                 5
         );
         gF.fillPolygon(frontPoly);
         gF.dispose();
         ImageIO.write(front, "PNG", new File(uiDir + "armor_front.png"));
 
-        // 3. Left Armor Plate (left skirt)
+        // 3. Left Armor Plate (Left Heavy Skirts & Hull ERA)
         BufferedImage left = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D gL = left.createGraphics();
         gL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         gL.setColor(Color.WHITE);
-        gL.fillRoundRect(18, 24, 14, 80, 6, 6);
+        gL.fillRoundRect(18, 22, 14, 84, 4, 4);
         gL.dispose();
         ImageIO.write(left, "PNG", new File(uiDir + "armor_left.png"));
 
-        // 4. Right Armor Plate (right skirt)
+        // 4. Right Armor Plate (Right Heavy Skirts & Hull ERA)
         BufferedImage right = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D gR = right.createGraphics();
         gR.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         gR.setColor(Color.WHITE);
-        gR.fillRoundRect(96, 24, 14, 80, 6, 6);
+        gR.fillRoundRect(96, 22, 14, 84, 4, 4);
         gR.dispose();
         ImageIO.write(right, "PNG", new File(uiDir + "armor_right.png"));
 
-        // 5. Rear Armor Plate (bottom deck)
+        // 5. Rear Armor Plate (Engine Deck & Bustle)
         BufferedImage rear = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D gB = rear.createGraphics();
         gB.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         gB.setColor(Color.WHITE);
-        gB.fillRoundRect(38, 92, 52, 16, 6, 6);
+        gB.fillRoundRect(36, 92, 56, 16, 4, 4);
         gB.dispose();
         ImageIO.write(rear, "PNG", new File(uiDir + "armor_rear.png"));
     }
@@ -1221,27 +1392,38 @@ public class AssetPipelineRunner {
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Translucent dark slate background
-        g.setColor(new Color(14, 17, 24, 225));
-        g.fillRoundRect(4, 4, w - 8, h - 8, 12, 12);
+        // Translucent Tactical Mil-Spec Carbon Slate
+        g.setColor(new Color(12, 16, 20, 230));
+        g.fillRoundRect(4, 4, w - 8, h - 8, 8, 8);
 
-        // Beveled gold/bronze outer frame
-        g.setPaint(new LinearGradientPaint(0, 0, w, h,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{new Color(230, 195, 85), new Color(160, 115, 35), new Color(240, 210, 110)}));
-        g.setStroke(new BasicStroke(4));
-        g.drawRoundRect(4, 4, w - 8, h - 8, 12, 12);
+        // Tactical Olive/Tan Beveled Border
+        g.setColor(new Color(60, 72, 55));
+        g.setStroke(new BasicStroke(3));
+        g.drawRoundRect(4, 4, w - 8, h - 8, 8, 8);
 
-        // Inner dark groove
-        g.setColor(new Color(0, 0, 0, 160));
+        // Mil-Spec Tactical Corner Reticles
+        g.setColor(new Color(220, 180, 60));
         g.setStroke(new BasicStroke(2));
-        g.drawRoundRect(8, 8, w - 16, h - 16, 8, 8);
+        int c = 18;
+        // Top-left
+        g.drawLine(6, 6, 6 + c, 6);
+        g.drawLine(6, 6, 6, 6 + c);
+        // Top-right
+        g.drawLine(w - 6 - c, 6, w - 6, 6);
+        g.drawLine(w - 6, 6, w - 6, 6 + c);
+        // Bottom-left
+        g.drawLine(6, h - 6, 6 + c, h - 6);
+        g.drawLine(6, h - 6 - c, 6, h - 6);
+        // Bottom-right
+        g.drawLine(w - 6 - c, h - 6, w - 6, h - 6);
+        g.drawLine(w - 6, h - 6 - c, w - 6, h - 6);
 
-        // Corner studs
-        drawRivet(g, 12, 12);
-        drawRivet(g, w - 12, 12);
-        drawRivet(g, 12, h - 12);
-        drawRivet(g, w - 12, h - 12);
+        // Subtle Night-Vision Green telemetry tick marks
+        g.setColor(new Color(65, 180, 100, 120));
+        for (int x = 30; x < w - 30; x += 15) {
+            g.drawLine(x, 6, x, 9);
+            g.drawLine(x, h - 9, x, h - 6);
+        }
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));
@@ -1254,15 +1436,19 @@ public class AssetPipelineRunner {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         // Dark background slot
-        g.setColor(new Color(10, 12, 16, 235));
-        g.fillRoundRect(2, 2, w - 4, h - 4, 6, 6);
+        g.setColor(new Color(8, 11, 14, 245));
+        g.fillRoundRect(2, 2, w - 4, h - 4, 4, 4);
 
-        // Embossed brass frame
-        g.setPaint(new LinearGradientPaint(0, 0, 0, h,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{new Color(240, 210, 110), new Color(160, 120, 40), new Color(210, 170, 70)}));
-        g.setStroke(new BasicStroke(3));
-        g.drawRoundRect(2, 2, w - 4, h - 4, 6, 6);
+        // Tactical HUD Bracket Frame
+        g.setColor(new Color(80, 95, 80));
+        g.setStroke(new BasicStroke(2));
+        g.drawRoundRect(2, 2, w - 4, h - 4, 4, 4);
+
+        // Segmented Tick Markers
+        g.setColor(new Color(40, 50, 45));
+        for (int x = 16; x < w - 8; x += 12) {
+            g.drawLine(x, 4, x, h - 4);
+        }
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));
@@ -1274,15 +1460,17 @@ public class AssetPipelineRunner {
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // White base fill for shader tinting with subtle 3D highlight
+        // Modern High-Contrast Solid Gradient Fill with Segment Divisions
         g.setPaint(new LinearGradientPaint(0, 0, 0, h,
-                new float[]{0.0f, 0.4f, 0.6f, 1.0f},
-                new Color[]{new Color(255, 255, 255, 240), new Color(220, 220, 220, 255), new Color(180, 180, 180, 255), new Color(130, 130, 130, 255)}));
-        g.fillRoundRect(3, 3, w - 6, h - 6, 4, 4);
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(255, 255, 255, 255), new Color(225, 225, 225, 255), new Color(175, 175, 175, 255)}));
+        g.fillRect(3, 3, w - 6, h - 6);
 
-        // Top glossy specular streak
-        g.setColor(new Color(255, 255, 255, 160));
-        g.fillRect(4, 4, w - 8, h / 3);
+        // Segment grooves
+        g.setColor(new Color(0, 0, 0, 140));
+        for (int x = 16; x < w - 6; x += 12) {
+            g.fillRect(x, 3, 2, h - 6);
+        }
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));
@@ -1294,151 +1482,138 @@ public class AssetPipelineRunner {
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Shadow
-        g.setColor(new Color(0, 0, 0, 120));
-        g.fillRoundRect(22, 10, 24, 48, 10, 10);
-
-        // Brass Shell Casing (bottom 60%)
+        // 120mm APFSDS (Armor-Piercing Fin-Stabilized Discarding Sabot) Modern Tank Round
+        // Brass Cartridge Base (bottom 50%)
         g.setPaint(new LinearGradientPaint(20, 0, 44, 0,
                 new float[]{0.0f, 0.3f, 0.7f, 1.0f},
-                new Color[]{new Color(245, 215, 110), new Color(255, 245, 190), new Color(210, 165, 45), new Color(140, 100, 20)}));
-        g.fillRoundRect(20, 24, 24, 34, 4, 4);
+                new Color[]{new Color(230, 190, 75), new Color(255, 240, 160), new Color(190, 145, 40), new Color(130, 90, 20)}));
+        g.fillRoundRect(22, 28, 20, 30, 2, 2);
+        g.fillRect(20, 55, 24, 4); // Cartridge Rim
 
-        // Rim at base
-        g.fillRect(18, 54, 28, 5);
+        // Black/Carbon Sabot Shoe Petals (middle 25%)
+        g.setColor(new Color(35, 40, 48));
+        Polygon sabot = new Polygon(
+                new int[]{22, 32, 42, 38, 26},
+                new int[]{28, 20, 28, 32, 32},
+                5
+        );
+        g.fillPolygon(sabot);
 
-        // Copper Warhead (top 40% pointed cone)
-        Polygon warhead = new Polygon(
-                new int[]{20, 32, 44},
-                new int[]{24, 6, 24},
+        // Needle-Sharp Tungsten Penetrator Dart (top)
+        g.setPaint(new LinearGradientPaint(29, 0, 35, 0,
+                new float[]{0.0f, 0.5f, 1.0f},
+                new Color[]{new Color(220, 230, 240), new Color(255, 255, 255), new Color(160, 175, 190)}));
+        Polygon dart = new Polygon(
+                new int[]{30, 32, 34},
+                new int[]{20, 4, 20},
                 3
         );
-        g.setPaint(new LinearGradientPaint(20, 0, 44, 0,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{new Color(215, 105, 55), new Color(255, 175, 130), new Color(160, 60, 25)}));
-        g.fillPolygon(warhead);
-
-        // Driving band ring
-        g.setColor(new Color(180, 80, 35));
-        g.fillRect(20, 46, 24, 4);
+        g.fillPolygon(dart);
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));
     }
 
-    private static void generateWaxSeal(boolean ready, String outputPath) throws Exception {
+    private static void generateMilBadge(boolean ready, String outputPath) throws Exception {
         int size = 128;
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        int cx = size / 2, cy = size / 2, r = 48;
+        int cx = size / 2, cy = size / 2;
+
+        // Tactical Military Rank / Status Patch (Hexagonal Shield)
+        Polygon patch = new Polygon(
+                new int[]{cx - 44, cx + 44, cx + 52, cx, cx - 52},
+                new int[]{cy - 40, cy - 40, cy + 20, cy + 46, cy + 20},
+                5
+        );
 
         // Shadow
-        g.setColor(new Color(0, 0, 0, 110));
-        g.fillOval(cx - r + 4, cy - r + 6, r * 2, r * 2);
+        g.setColor(new Color(0, 0, 0, 120));
+        g.translate(3, 4);
+        g.fillPolygon(patch);
+        g.translate(-3, -4);
 
-        // Scalloped / melted wax blob edge
-        g.setPaint(new RadialGradientPaint(cx - 10, cy - 10, r * 1.2f,
-                new float[]{0.0f, 0.7f, 1.0f},
-                ready
-                        ? new Color[]{new Color(235, 45, 45), new Color(180, 20, 20), new Color(105, 10, 10)}
-                        : new Color[]{new Color(110, 120, 135), new Color(65, 75, 90), new Color(35, 40, 50)}));
-
-        // Draw irregular melted perimeter
-        for (int angle = 0; angle < 360; angle += 15) {
-            double rad = Math.toRadians(angle);
-            int blobR = r + (int) (Math.sin(angle * 4.0) * 4);
-            int px = cx + (int) (Math.cos(rad) * blobR);
-            int py = cy + (int) (Math.sin(rad) * blobR);
-            g.fillOval(px - 14, py - 14, 28, 28);
+        // Patch Background
+        if (ready) {
+            g.setColor(new Color(20, 60, 32)); // Tactical Army Green
+        } else {
+            g.setColor(new Color(55, 45, 25)); // Standby Amber/Brown
         }
-        g.fillOval(cx - r, cy - r, r * 2, r * 2);
+        g.fillPolygon(patch);
 
-        // Inner stamped depression
-        g.setColor(new Color(0, 0, 0, 80));
-        g.drawOval(cx - r + 12, cy - r + 12, (r - 12) * 2, (r - 12) * 2);
+        // Stitched Border
+        g.setColor(ready ? new Color(75, 225, 110) : new Color(240, 175, 50));
+        g.setStroke(new BasicStroke(3));
+        g.drawPolygon(patch);
 
         if (ready) {
-            // Gold Laurel & Checkmark
-            g.setPaint(new LinearGradientPaint(0, 0, size, size,
-                    new float[]{0.0f, 1.0f},
-                    new Color[]{new Color(255, 240, 160), new Color(210, 165, 40)}));
-            // Checkmark
-            g.setStroke(new BasicStroke(7, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g.drawLine(cx - 16, cy, cx - 4, cy + 14);
-            g.drawLine(cx - 4, cy + 14, cx + 18, cy - 12);
+            // Military Rank Triple Chevrons (US Army Sergeant/Staff Chevrons)
+            g.setColor(new Color(255, 225, 90));
+            g.setStroke(new BasicStroke(5, BasicStroke.CAP_ROUND, BasicStroke.JOIN_MITER));
+            for (int dy = -16; dy <= 8; dy += 12) {
+                g.drawLine(cx - 22, cy + dy, cx, cy + dy + 10);
+                g.drawLine(cx, cy + dy + 10, cx + 22, cy + dy);
+            }
         } else {
-            // Hourglass / pending
-            g.setColor(new Color(220, 230, 240, 220));
-            g.setStroke(new BasicStroke(5, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            Polygon topTri = new Polygon(new int[]{cx - 14, cx + 14, cx}, new int[]{cy - 16, cy - 16, cy}, 3);
-            Polygon botTri = new Polygon(new int[]{cx - 14, cx + 14, cx}, new int[]{cy + 16, cy + 16, cy}, 3);
-            g.drawPolygon(topTri);
-            g.drawPolygon(botTri);
+            // Standby Radar Reticle
+            g.setColor(new Color(240, 180, 60));
+            g.setStroke(new BasicStroke(3));
+            g.drawOval(cx - 18, cy - 18, 36, 36);
+            g.drawLine(cx, cy - 24, cx, cy + 24);
+            g.drawLine(cx - 24, cy, cx + 24, cy);
         }
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));
     }
 
-    private static void generateBanner(boolean victory, String outputPath) throws Exception {
+    private static void generateMilBanner(boolean victory, String outputPath) throws Exception {
         int w = 512, h = 128;
         BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        // Ribbon Body with Fishtail ends
-        Polygon ribbon = new Polygon(
-                new int[]{20, 50, 462, 492, 462, 50},
-                new int[]{64, 20, 20, 64, 108, 108},
-                6
-        );
+        // Mil-Spec Mission Status Placard
+        g.setColor(new Color(0, 0, 0, 160));
+        g.fillRect(14, 18, w - 28, h - 36);
 
-        // Shadow
-        g.setColor(new Color(0, 0, 0, 130));
-        g.translate(4, 6);
-        g.fillPolygon(ribbon);
-        g.translate(-4, -6);
+        // Background Slate
+        g.setColor(new Color(16, 20, 25, 245));
+        g.fillRect(10, 14, w - 20, h - 28);
 
-        // Silk Fill
-        if (victory) {
-            g.setPaint(new LinearGradientPaint(0, 20, 0, 108,
-                    new float[]{0.0f, 0.4f, 0.6f, 1.0f},
-                    new Color[]{new Color(30, 75, 160), new Color(50, 110, 210), new Color(25, 60, 140), new Color(15, 35, 90)}));
-        } else {
-            g.setPaint(new LinearGradientPaint(0, 20, 0, 108,
-                    new float[]{0.0f, 0.4f, 0.6f, 1.0f},
-                    new Color[]{new Color(130, 25, 25), new Color(190, 45, 45), new Color(110, 20, 20), new Color(60, 10, 10)}));
-        }
-        g.fillPolygon(ribbon);
+        // Tactical Hazard / Victory Accent Header & Footer
+        Color accentColor = victory ? new Color(60, 200, 100) : new Color(230, 45, 45);
+        g.setColor(accentColor);
+        g.fillRect(10, 14, w - 20, 6);
+        g.fillRect(10, h - 20, w - 20, 6);
 
-        // Ornate Gold Border & Trim
-        g.setPaint(new LinearGradientPaint(0, 0, w, 0,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{new Color(250, 220, 100), new Color(255, 245, 180), new Color(210, 165, 45)}));
-        g.setStroke(new BasicStroke(5));
-        g.drawPolygon(ribbon);
-
-        // Inner gold line
+        // Tactical Border
         g.setStroke(new BasicStroke(2));
-        g.drawRect(60, 26, w - 120, 76);
+        g.drawRect(10, 14, w - 20, h - 28);
 
-        // Big Embroidered Text
-        String text = victory ? "VICTORY" : "DEFEAT";
-        g.setFont(new Font("Serif", Font.BOLD, 46));
+        // Main Status Headline
+        String headline = victory ? "MISSION ACCOMPLISHED" : "MISSION FAILED";
+        g.setFont(new Font("SansSerif", Font.BOLD, 32));
         FontMetrics fm = g.getFontMetrics();
-        int tw = fm.stringWidth(text);
+        int tw = fm.stringWidth(headline);
 
-        // Gold 3D Text Shadow
-        g.setColor(new Color(0, 0, 0, 200));
-        g.drawString(text, (w - tw) / 2 + 2, 76 + 2);
+        g.setColor(new Color(0, 0, 0, 220));
+        g.drawString(headline, (w - tw) / 2 + 2, 58 + 2);
+        g.setColor(victory ? new Color(255, 235, 120) : new Color(255, 90, 80));
+        g.drawString(headline, (w - tw) / 2, 58);
 
-        g.setPaint(new LinearGradientPaint(0, 40, 0, 80,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{new Color(255, 245, 190), new Color(245, 210, 90), new Color(190, 145, 30)}));
-        g.drawString(text, (w - tw) / 2, 76);
+        // Subtext / Sector Classification
+        String sub = victory ? "// ALL HOSTILE TARGETS NEUTRALIZED -- SECTOR SECURED //"
+                             : "// CHASSIS COMBAT CASUALTY -- EVACUATE COMBAT ZONE //";
+        g.setFont(new Font("Monospaced", Font.BOLD, 13));
+        FontMetrics fmSub = g.getFontMetrics();
+        int stw = fmSub.stringWidth(sub);
+        g.setColor(new Color(200, 210, 220));
+        g.drawString(sub, (w - stw) / 2, 84);
 
         g.dispose();
         ImageIO.write(img, "PNG", new File(outputPath));

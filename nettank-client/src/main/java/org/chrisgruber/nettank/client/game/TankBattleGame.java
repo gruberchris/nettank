@@ -18,6 +18,7 @@ import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
 import org.chrisgruber.nettank.client.game.world.ClientGameMap;
 import org.chrisgruber.nettank.common.entities.BulletData;
+import org.chrisgruber.nettank.common.entities.PowerUpType;
 import org.chrisgruber.nettank.common.entities.TankData;
 import org.chrisgruber.nettank.common.util.Colors;
 import org.chrisgruber.nettank.common.util.GameState;
@@ -699,9 +700,23 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             case DAMAGE -> new Vector3f(1.0f, 0.25f, 0.2f);
             case RELOAD -> new Vector3f(1.0f, 0.6f, 0.1f);
             case SPEED -> new Vector3f(0.25f, 0.55f, 1.0f);
-            case AMMO -> new Vector3f(0.2f, 0.95f, 0.95f);
-            case ARMOR -> new Vector3f(0.3f, 0.9f, 0.3f);
-            case HEALTH -> new Vector3f(1.0f, 0.5f, 0.8f);
+            case AMMO -> new Vector3f(0.9f, 0.7f, 1.0f);
+            case ARMOR -> new Vector3f(0.35f, 0.85f, 1.0f);
+            case HEALTH -> new Vector3f(0.4f, 1.0f, 0.45f);
+        };
+    }
+
+    public static String powerUpTacticalLabel(PowerUpType type) {
+        return switch (type) {
+            case DAMAGE_2X -> "[2X AP SABOT]";
+            case DAMAGE_3X -> "[3X AP SABOT]";
+            case SPEED_2X -> "[2X TURBO SPD]";
+            case SPEED_3X -> "[3X TURBO SPD]";
+            case RELOAD_2X -> "[2X AUTOLOAD]";
+            case RELOAD_3X -> "[3X AUTOLOAD]";
+            case REPAIR_HP -> "[+HP FIELD MEDIC]";
+            case REPAIR_ARMOR -> "[+ARMOR REPAIR]";
+            case UNLIMITED_AMMO -> "[MAX MUNITIONS]";
         };
     }
 
@@ -967,11 +982,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
                         POWERUP_RENDER_SIZE * 2.0f, POWERUP_RENDER_SIZE * 2.0f, 0f, shader);
 
-                // Icon
+                // Icon (render crisp in full color)
                 Texture icon = powerUpIconTextures.get(powerUp.type());
                 if (icon != null) {
                     icon.bind();
-                    shader.setUniform4f("u_tintColor", color, 1.0f);
+                    shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
                     renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
                             POWERUP_RENDER_SIZE, POWERUP_RENDER_SIZE, 0f, shader);
                 }
@@ -1352,11 +1367,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             vignetteOverlay.draw(uiManager.getProjectionMatrix(), windowWidth, windowHeight, intensity);
         }
 
-        // --- Top-Left AoE2 Commander Console ---
+        // --- Top-Left US Military Commander Console ---
         final float consoleX = 12;
         final float consoleY = 12;
-        final float consoleW = 295;
-        final float consoleH = 98;
+        final float consoleW = 310;
+        final float consoleH = 100;
 
         if (localTank != null && !isSpectating) {
             // 1. Framed Console Backing
@@ -1367,13 +1382,13 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // 2. Unit Portrait
             Texture portrait = uiPortraits.get(localTank.getTankType());
             if (portrait != null) {
-                uiManager.drawTexture(portrait, consoleX + 10, consoleY + 11, 76, 76);
+                uiManager.drawTexture(portrait, consoleX + 10, consoleY + 11, 78, 78);
             }
 
             // 3. Health Bar
-            float hpBarX = consoleX + 96;
+            float hpBarX = consoleX + 98;
             float hpBarY = consoleY + 12;
-            float hpBarW = 185;
+            float hpBarW = 195;
             float hpBarH = 22;
             int maxHitPoints = localTank.getTankType().getDefaultStats().maxHitPoints();
             if (healthBar != null) {
@@ -1385,25 +1400,25 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 var stats = localTank.getTankType().getDefaultStats();
                 int[] maxArmor = {stats.frontArmor(), stats.leftArmor(), stats.rightArmor(), stats.rearArmor()};
                 armorIndicator.draw(uiManager.getProjectionMatrix(), localArmor, maxArmor, armorHitFlashTimes,
-                        hpBarX + 4, hpBarY + 26, 40, uiManager);
+                        hpBarX + 4, hpBarY + 26, 42, uiManager);
             }
 
             // 5. Chassis & Kills Readout
-            String chassisText = localTank.getTankType().name();
-            uiManager.drawText(chassisText, hpBarX + 54, hpBarY + 28, 0.44f, new Vector3f(1.0f, 0.85f, 0.35f));
+            String chassisText = org.chrisgruber.nettank.client.engine.ui.TankSelectionScreen.militaryDesignation(localTank.getTankType());
+            uiManager.drawText(chassisText, hpBarX + 54, hpBarY + 28, 0.42f, new Vector3f(1.0f, 0.88f, 0.35f));
             String killText = "KILLS: " + playerKills;
-            uiManager.drawText(killText, hpBarX + 54, hpBarY + 48, 0.42f, new Vector3f(1.0f, 0.38f, 0.3f));
-            String playersText = "ALIVE: " + tanks.size();
-            uiManager.drawText(playersText, hpBarX + 120, hpBarY + 48, 0.42f, new Vector3f(0.85f, 0.85f, 0.85f));
+            uiManager.drawText(killText, hpBarX + 54, hpBarY + 48, 0.40f, new Vector3f(1.0f, 0.38f, 0.3f));
+            String playersText = "SQUAD: " + tanks.size();
+            uiManager.drawText(playersText, hpBarX + 126, hpBarY + 48, 0.40f, new Vector3f(0.85f, 0.88f, 0.92f));
 
         } else if (isSpectating) {
             if (hudFrameTexture != null) {
-                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, 190, 50);
+                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, 200, 50);
             }
             uiManager.drawText("SPECTATING", consoleX + 18, consoleY + 16, UI_TEXT_SCALE_STATUS, Colors.YELLOW);
         } else {
             if (hudFrameTexture != null) {
-                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, 210, 50);
+                uiManager.drawTexture(hudFrameTexture, consoleX, consoleY, 220, 50);
             }
             uiManager.drawText(currentGameState == GameState.CONNECTING ? "CONNECTING..." : "WAR ROOM...",
                     consoleX + 18, consoleY + 16, UI_TEXT_SCALE_STATUS, Colors.WHITE);
@@ -1417,41 +1432,41 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             long hours = (elapsedMillis / (1000 * 60 * 60)) % 24;
 
             String timeStr = (hours > 0)
-                ? String.format("TIME %02d:%02d:%02d", hours, minutes, seconds)
-                : String.format("TIME %02d:%02d", minutes, seconds);
+                ? String.format("TIME %02d:%02d:%02d // UTC", hours, minutes, seconds)
+                : String.format("TIME %02d:%02d // UTC", minutes, seconds);
 
-            float timerW = 170;
+            float timerW = 210;
             float timerH = 34;
             float timerX = (windowWidth - timerW) / 2.0f;
             float timerY = 12;
             if (hudFrameTexture != null) {
                 uiManager.drawTexture(hudFrameTexture, timerX, timerY, timerW, timerH);
             }
-            float tw = uiManager.getTextWidth(timeStr, 0.48f);
-            uiManager.drawText(timeStr, timerX + (timerW - tw) / 2.0f, timerY + 10, 0.48f, new Vector3f(1.0f, 0.95f, 0.78f));
+            float tw = uiManager.getTextWidth(timeStr, 0.42f);
+            uiManager.drawText(timeStr, timerX + (timerW - tw) / 2.0f, timerY + 10, 0.42f, new Vector3f(0.6f, 0.95f, 0.7f));
         }
 
         // --- Bottom-Center Tactical Ammo / Reload HUD ---
         if (localTank != null && !isSpectating) {
             long cooldownRemaining = localTank.getCooldownRemaining();
-            float gaugeW = 230;
-            float gaugeH = 38;
+            float gaugeW = 260;
+            float gaugeH = 40;
             float gaugeX = (windowWidth - gaugeW) / 2.0f;
-            float gaugeY = windowHeight - 48;
+            float gaugeY = windowHeight - 50;
 
             if (hudFrameTexture != null) {
                 uiManager.drawTexture(hudFrameTexture, gaugeX, gaugeY, gaugeW, gaugeH);
             }
             if (ammoShellTexture != null) {
-                uiManager.drawTexture(ammoShellTexture, gaugeX + 8, gaugeY + 5, 28, 28);
+                uiManager.drawTexture(ammoShellTexture, gaugeX + 8, gaugeY + 4, 32, 32);
             }
 
             if (cooldownRemaining > 0) {
-                String cooldownText = String.format("RELOADING %.1fS", cooldownRemaining / 1000.0f);
-                uiManager.drawText(cooldownText, gaugeX + 42, gaugeY + 12, 0.46f, new Vector3f(1.0f, 0.65f, 0.25f));
+                String cooldownText = String.format("AUTOLOADER // %.1fS", cooldownRemaining / 1000.0f);
+                uiManager.drawText(cooldownText, gaugeX + 44, gaugeY + 13, 0.44f, new Vector3f(1.0f, 0.65f, 0.25f));
             } else {
-                String readyText = "CANNON READY (SPACE)";
-                uiManager.drawText(readyText, gaugeX + 40, gaugeY + 12, 0.40f, new Vector3f(0.35f, 1.0f, 0.4f));
+                String readyText = "120MM APFSDS // READY (SPACE)";
+                uiManager.drawText(readyText, gaugeX + 42, gaugeY + 13, 0.38f, new Vector3f(0.4f, 1.0f, 0.45f));
             }
         }
 
@@ -1532,6 +1547,23 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 uiManager.drawText(line, 10, buffY, UI_TEXT_SCALE_NORMAL,
                         powerUpCategoryColor(buff.type().getCategory()));
                 buffY -= uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + 6.0f;
+            }
+        }
+
+        // Floating tactical label directly above in-world powerup pickups
+        if (!powerUps.isEmpty() && camera != null) {
+            float viewWidth = camera.getViewRight() - camera.getViewLeft();
+            float viewHeight = camera.getViewTop() - camera.getViewBottom();
+            for (ClientPowerUp powerUp : powerUps.values()) {
+                float screenX = (powerUp.position().x - camera.getViewLeft()) / viewWidth * windowWidth;
+                float screenY = (camera.getViewTop() - powerUp.position().y) / viewHeight * windowHeight;
+                if (screenX < -50 || screenX > windowWidth + 50 || screenY < -50 || screenY > windowHeight + 50) continue;
+
+                String label = powerUpTacticalLabel(powerUp.type());
+                float scale = 0.35f;
+                float tw = uiManager.getTextWidth(label, scale);
+                Vector3f color = powerUpCategoryColor(powerUp.type().getCategory());
+                uiManager.drawText(label, screenX - tw / 2.0f, screenY - 26, scale, color);
             }
         }
 
