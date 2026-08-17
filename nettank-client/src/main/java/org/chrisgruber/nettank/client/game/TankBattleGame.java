@@ -1,5 +1,6 @@
 package org.chrisgruber.nettank.client.game;
 
+import org.chrisgruber.nettank.client.engine.audio.AudioManager;
 import org.chrisgruber.nettank.client.engine.core.GameEngine;
 import org.chrisgruber.nettank.client.engine.graphics.Camera;
 import org.chrisgruber.nettank.client.engine.graphics.Renderer;
@@ -88,7 +89,6 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     // Sound engine
     private final org.chrisgruber.nettank.client.engine.audio.AudioManager audioManager =
             new org.chrisgruber.nettank.client.engine.audio.AudioManager();
-    private boolean engineSoundActive = false;
 
     // Terrain Textures
     private Texture summerGrassTexture;
@@ -379,7 +379,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             audioManager.loadSound("ui_select", "sounds/ui_select.ogg");
             audioManager.loadSound("ui_confirm", "sounds/ui_confirm.ogg");
             audioManager.loadSound("countdown_tick", "sounds/countdown_tick.ogg");
-            audioManager.loadEngineLoop("sounds/engine_loop.ogg");
+            audioManager.loadEngineLoops("sounds/engine_idle.ogg", "sounds/engine_forward.ogg", "sounds/engine_reverse.ogg");
 
             // --- Load Individual Explosion Frames ---
             logger.debug("Loading explosion frame textures...");
@@ -1758,12 +1758,23 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 inputHandler.resetKey(GLFW_KEY_SPACE); // Consume press event
             }
 
-            // Local tank's engine hum: active while moving, pitch/gain nudged by direction
-            engineSoundActive = keyW || keyS;
-            audioManager.setEngineLoopActive(engineSoundActive, keyS && !keyW ? 0.6f : 0.8f, keyS && !keyW ? 0.9f : 1.0f);
-        } else if (engineSoundActive) {
-            engineSoundActive = false;
-            audioManager.setEngineLoopActive(false, 0f, 1f);
+            // Modern Military Tank Engine Audio: IDLE when stopped, FORWARD when moving ahead, REVERSE when backing up
+            if (localTank != null && localTank.getHitPoints() > 0 && currentGameState == GameState.PLAYING) {
+                if (keyW) {
+                    audioManager.setEngineState(AudioManager.EngineState.FORWARD, 1.0f);
+                } else if (keyS) {
+                    audioManager.setEngineState(AudioManager.EngineState.REVERSE, 1.0f);
+                } else if (keyA || keyD) {
+                    // Pivot steering rev
+                    audioManager.setEngineState(AudioManager.EngineState.FORWARD, 0.9f);
+                } else {
+                    audioManager.setEngineState(AudioManager.EngineState.IDLE, 1.0f);
+                }
+            } else {
+                audioManager.setEngineState(AudioManager.EngineState.OFF, 0f);
+            }
+        } else {
+            audioManager.setEngineState(AudioManager.EngineState.OFF, 0f);
         }
     }
 

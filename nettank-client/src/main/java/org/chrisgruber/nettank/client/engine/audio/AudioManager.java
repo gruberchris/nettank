@@ -45,7 +45,17 @@ public class AudioManager {
     private final int[] sourcePool = new int[SOURCE_POOL_SIZE];
     private int nextSource = 0;
 
+    public enum EngineState {
+        OFF,
+        IDLE,
+        FORWARD,
+        REVERSE
+    }
+
     private int engineSource = 0;
+    private int engineIdleSource = 0;
+    private int engineForwardSource = 0;
+    private int engineReverseSource = 0;
     private boolean engineLoaded = false;
     private float listenerX = 0f;
     private float listenerY = 0f;
@@ -74,9 +84,23 @@ public class AudioManager {
                 sourcePool[i] = alGenSources();
                 configureDistanceModel(sourcePool[i]);
             }
+
+            // Dedicated looping engine sources
             engineSource = alGenSources();
             configureDistanceModel(engineSource);
             alSourcei(engineSource, AL_LOOPING, AL_TRUE);
+
+            engineIdleSource = alGenSources();
+            configureDistanceModel(engineIdleSource);
+            alSourcei(engineIdleSource, AL_LOOPING, AL_TRUE);
+
+            engineForwardSource = alGenSources();
+            configureDistanceModel(engineForwardSource);
+            alSourcei(engineForwardSource, AL_LOOPING, AL_TRUE);
+
+            engineReverseSource = alGenSources();
+            configureDistanceModel(engineReverseSource);
+            alSourcei(engineReverseSource, AL_LOOPING, AL_TRUE);
 
             initialized = true;
             logger.info("AudioManager initialized (device: {})", defaultDeviceName);
@@ -148,65 +172,69 @@ public class AudioManager {
                 IntBuffer channelsBuffer = stack.mallocInt(1);
                 IntBuffer sampleRateBuffer = stack.mallocInt(1);
 
-                ShortBuffer pcm = stb_vorbis_decode_memory(audioData, channelsBuffer, sampleRateBuffer);
-                if (pcm == null) {
-                    logger.error("Failed to decode audio resource: {}", classpathOgg);
+                ShortBuffer rawAudio = stb_vorbis_decode_memory(audioData, channelsBuffer, sampleRateBuffer);
+                if (rawAudio == null) {
+                    logger.error("Failed to decode OGG Vorbis sound from {}", classpathOgg);
                     return;
                 }
+
                 int channels = channelsBuffer.get(0);
                 int sampleRate = sampleRateBuffer.get(0);
                 int format = channels == 1 ? AL_FORMAT_MONO16 : AL_FORMAT_STEREO16;
 
                 int bufferId = alGenBuffers();
-                alBufferData(bufferId, format, pcm, sampleRate);
-                MemoryUtil.memFree(pcm);
+                alBufferData(bufferId, format, rawAudio, sampleRate);
+                MemoryUtil.nmemFree(MemoryUtil.memAddress(rawAudio));
 
                 soundBuffers.put(name, bufferId);
                 logger.debug("Loaded OGG sound '{}' from {} ({} Hz, {} ch)", name, classpathOgg, sampleRate, channels);
             }
-        } catch (IOException e) {
-            logger.error("Failed to load sound '{}' from {}", name, classpathOgg, e);
+        } catch (Exception e) {
+            logger.error("Failed to load sound resource: {}", classpathOgg, e);
         }
     }
 
-    /** Plays a registered clip at a world position with distance attenuation. */
-    public void playSoundAt(String name, float x, float y) {
-        playSoundAt(name, x, y, 1.0f, 1.0f);
-    }
-
-    public void playSoundAt(String name, float x, float y, float gain, float pitch) {
+    /** Plays a registered sound at a 2D world position. Distance attenuation applies. */
+    public void playSound(String name, float worldX, float worldY, float gain, float pitch) {
         if (!initialized) return;
         Integer bufferId = soundBuffers.get(name);
-        if (bufferId == null) {
-            logger.warn("Attempted to play unregistered sound '{}'", name);
-            return;
-        }
+        if (bufferId == null) return;
+
         int source = sourcePool[nextSource];
         nextSource = (nextSource + 1) % SOURCE_POOL_SIZE;
 
         alSourceStop(source);
         alSourcei(source, AL_BUFFER, bufferId);
-        alSource3f(source, AL_POSITION, x, y, 0f);
+        alSourcei(source, AL_LOOPING, AL_FALSE);
         alSourcef(source, AL_GAIN, gain);
         alSourcef(source, AL_PITCH, pitch);
+        alSource3f(source, AL_POSITION, worldX, worldY, 0f);
         alSourcePlay(source);
     }
 
-    /** Plays a registered clip with no world position (UI sounds, always at full volume). */
+    public void playSoundAt(String name, float x, float y) {
+        playSound(name, x, y, 1.0f, 1.0f);
+    }
+
+    public void playSoundAt(String name, float x, float y, float gain, float pitch) {
+        playSound(name, x, y, gain, pitch);
+    }
+
+    /** Plays a UI / non-spatial sound at the listener's position (no attenuation). */
+    public void playSound(String name, float gain, float pitch) {
+        playSound(name, listenerX, listenerY, gain, pitch);
+    }
+
+    /** Convenience overload matching default volume and pitch. */
     public void playSound(String name) {
         playSound(name, 1.0f, 1.0f);
     }
 
-    public void playSound(String name, float gain, float pitch) {
-        if (!initialized) return;
-        playSoundAt(name, listenerX, listenerY, gain, pitch);
-    }
-
-    /** Call once per frame with the local player's position so distance attenuation is correct. */
+    /** Updates the listener (camera/player) position for spatial attenuation. */
     public void setListenerPosition(float x, float y) {
-        listenerX = x;
-        listenerY = y;
         if (!initialized) return;
+        this.listenerX = x;
+        this.listenerY = y;
         alListener3f(AL_POSITION, x, y, 0f);
     }
 
@@ -235,14 +263,103 @@ public class AudioManager {
         }
     }
 
+    /** Loads the 3 modern military engine loops: idle, forward high-power, reverse gear. */
+    public void loadEngineLoops(String idlePath, String forwardPath, String reversePath) {
+        if (!initialized) return;
+        loadSound("__engine_idle", idlePath);
+        loadSound("__engine_forward", forwardPath);
+        loadSound("__engine_reverse", reversePath);
+
+        Integer idleBuf = soundBuffers.get("__engine_idle");
+        Integer fwdBuf = soundBuffers.get("__engine_forward");
+        Integer revBuf = soundBuffers.get("__engine_reverse");
+
+        if (idleBuf != null) alSourcei(engineIdleSource, AL_BUFFER, idleBuf);
+        if (fwdBuf != null) alSourcei(engineForwardSource, AL_BUFFER, fwdBuf);
+        if (revBuf != null) alSourcei(engineReverseSource, AL_BUFFER, revBuf);
+
+        if (idleBuf != null || fwdBuf != null || revBuf != null) {
+            engineLoaded = true;
+        }
+    }
+
+    /** Updates the modern military engine state: OFF, IDLE, FORWARD, or REVERSE. */
+    public void setEngineState(EngineState state, float speedFactor) {
+        if (!initialized || !engineLoaded) return;
+
+        alSource3f(engineIdleSource, AL_POSITION, listenerX, listenerY, 0f);
+        alSource3f(engineForwardSource, AL_POSITION, listenerX, listenerY, 0f);
+        alSource3f(engineReverseSource, AL_POSITION, listenerX, listenerY, 0f);
+
+        switch (state) {
+            case OFF -> {
+                alSourcef(engineIdleSource, AL_GAIN, 0f);
+                alSourcef(engineForwardSource, AL_GAIN, 0f);
+                alSourcef(engineReverseSource, AL_GAIN, 0f);
+                if (alGetSourcei(engineIdleSource, AL_SOURCE_STATE) == AL_PLAYING) alSourceStop(engineIdleSource);
+                if (alGetSourcei(engineForwardSource, AL_SOURCE_STATE) == AL_PLAYING) alSourceStop(engineForwardSource);
+                if (alGetSourcei(engineReverseSource, AL_SOURCE_STATE) == AL_PLAYING) alSourceStop(engineReverseSource);
+            }
+            case IDLE -> {
+                ensurePlaying(engineIdleSource);
+                alSourcef(engineIdleSource, AL_GAIN, 0.52f);
+                alSourcef(engineIdleSource, AL_PITCH, 1.0f);
+
+                alSourcef(engineForwardSource, AL_GAIN, 0f);
+                alSourcef(engineReverseSource, AL_GAIN, 0f);
+            }
+            case FORWARD -> {
+                ensurePlaying(engineForwardSource);
+                ensurePlaying(engineIdleSource);
+
+                float pitch = Math.max(0.88f, Math.min(1.30f, 1.0f + (speedFactor - 1.0f) * 0.20f));
+                alSourcef(engineForwardSource, AL_GAIN, 0.82f);
+                alSourcef(engineForwardSource, AL_PITCH, pitch);
+
+                alSourcef(engineIdleSource, AL_GAIN, 0.12f);
+                alSourcef(engineReverseSource, AL_GAIN, 0f);
+            }
+            case REVERSE -> {
+                ensurePlaying(engineReverseSource);
+                ensurePlaying(engineIdleSource);
+
+                alSourcef(engineReverseSource, AL_GAIN, 0.78f);
+                alSourcef(engineReverseSource, AL_PITCH, 0.95f);
+
+                alSourcef(engineIdleSource, AL_GAIN, 0.12f);
+                alSourcef(engineForwardSource, AL_GAIN, 0f);
+            }
+        }
+    }
+
+    private void ensurePlaying(int source) {
+        if (source != 0 && alGetSourcei(source, AL_SOURCE_STATE) != AL_PLAYING) {
+            alSourcePlay(source);
+        }
+    }
+
     public void cleanup() {
         if (!initialized) return;
         for (int source : sourcePool) {
             alSourceStop(source);
             alDeleteSources(source);
         }
-        alSourceStop(engineSource);
-        alDeleteSources(engineSource);
+        if (engineSource != 0) {
+            alSourceStop(engineSource);
+            alDeleteSources(engineSource);
+        }
+        if (engineIdleSource != 0) {
+            alSourceStop(engineIdleSource);
+            alDeleteSources(engineIdleSource);
+        }
+        if (engineForwardSource != 0) {
+            alSourceStop(engineForwardSource);
+            alDeleteSources(engineForwardSource);
+        }
+        if (engineReverseSource != 0) {
+            alSourceStop(engineReverseSource);
+            alDeleteSources(engineReverseSource);
+        }
         for (int bufferId : soundBuffers.values()) {
             alDeleteBuffers(bufferId);
         }
