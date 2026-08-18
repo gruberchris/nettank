@@ -324,6 +324,7 @@ public class GameClient implements Runnable {
                         logger.error("Malformed ROUND_OVER message: {}", e.getMessage());
                     }
                 }
+                case NetworkProtocol.PONG -> logger.trace("Received PONG from server");
                 case NetworkProtocol.RESPAWN -> {
                     try {
                         var msg = NetworkMessage.Respawn.parse(parts);

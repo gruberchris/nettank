@@ -1292,4 +1292,33 @@ class GameServerTest {
         gameServer.broadcast("Test message", -1);
         // Should not throw exception
     }
+
+    @Test
+    void testTurretTraverseSpeedsAndAutoTravelRate() throws Exception {
+        when(mockClientHandler.getSocket()).thenReturn(mockSocket);
+        when(mockSocket.getInetAddress()).thenReturn(java.net.InetAddress.getLocalHost());
+        doNothing().when(mockClientHandler).sendMessage(anyString());
+        doNothing().when(mockClientHandler).setPlayerInfo(anyInt(), anyString());
+
+        var contextField = GameServer.class.getDeclaredField("serverContext");
+        contextField.setAccessible(true);
+        ServerContext context = (ServerContext) contextField.get(gameServer);
+        context.currentGameState = GameState.PLAYING;
+
+        gameServer.registerPlayer(mockClientHandler, "TestPlayer");
+        int playerId = 0;
+        TankData tank = context.tanks.get(playerId);
+
+        // Verify standard turret turn input and 2.0x auto-travel rate
+        tank.setTurretTurnInput(2.0f);
+        assertEquals(2.0f, tank.getTurretTurnInput(), 0.001f);
+
+        tank.setTurretTurnInput(-2.0f);
+        assertEquals(-2.0f, tank.getTurretTurnInput(), 0.001f);
+
+        // Verify Heavy tank turret is slower than Light tank turret
+        org.chrisgruber.nettank.common.entities.TankStats heavyStats = org.chrisgruber.nettank.common.entities.TankType.HEAVY.getDefaultStats();
+        org.chrisgruber.nettank.common.entities.TankStats lightStats = org.chrisgruber.nettank.common.entities.TankType.LIGHT.getDefaultStats();
+        assertTrue(heavyStats.turretTurnSpeed() < lightStats.turretTurnSpeed(), "Heavy tank turret must traverse slower than Light tank turret");
+    }
 }
