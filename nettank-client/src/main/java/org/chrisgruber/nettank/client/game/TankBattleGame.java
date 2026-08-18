@@ -381,6 +381,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             audioManager.loadSound("ui_confirm", "sounds/ui_confirm.ogg");
             audioManager.loadSound("countdown_tick", "sounds/countdown_tick.ogg");
             audioManager.loadEngineLoops("sounds/engine_idle.ogg", "sounds/engine_forward.ogg", "sounds/engine_reverse.ogg");
+            audioManager.loadTurretRotateLoop("sounds/turret_rotate.ogg");
 
             // --- Load Individual Explosion Frames ---
             logger.debug("Loading explosion frame textures...");
@@ -1803,11 +1804,25 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 } else {
                     audioManager.setEngineState(AudioManager.EngineState.IDLE, 1.0f);
                 }
+
+                // Motorized Armored Turret Traverse Sound
+                boolean isTurretTurning = autoCenteringTurret || Math.abs(quantizedTurretTurn) > 0.05f;
+                if (isTurretTurning) {
+                    if (autoCenteringTurret) {
+                        audioManager.setTurretRotateState(true, 1.25f, 0.70f); // 2x fast auto-align
+                    } else {
+                        audioManager.setTurretRotateState(true, 1.0f, 0.55f); // manual traverse
+                    }
+                } else {
+                    audioManager.setTurretRotateState(false, 1.0f, 0f);
+                }
             } else {
                 audioManager.setEngineState(AudioManager.EngineState.OFF, 0f);
+                audioManager.setTurretRotateState(false, 1.0f, 0f);
             }
         } else {
             audioManager.setEngineState(AudioManager.EngineState.OFF, 0f);
+            audioManager.setTurretRotateState(false, 1.0f, 0f);
         }
     }
 

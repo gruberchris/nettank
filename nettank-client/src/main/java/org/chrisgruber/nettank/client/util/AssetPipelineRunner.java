@@ -330,7 +330,11 @@ public class AssetPipelineRunner {
         byte[] reverseWav = synthesizeEngineReverse();
         writeWavToOggOrWav(reverseWav, SOUNDS_DIR + "engine_reverse.ogg");
 
-        // 5. Tactical Supply Crate Pickup (Crisp high-tech energy chime)
+        // 5. Motorized Armored Turret Traverse Sound (Planetary gear motor + bearing race rumble)
+        byte[] turretWav = synthesizeTurretRotate();
+        writeWavToOggOrWav(turretWav, SOUNDS_DIR + "turret_rotate.ogg");
+
+        // 6. Tactical Supply Crate Pickup (Crisp high-tech energy chime)
         byte[] pickupWav = synthesizePowerupChime();
         writeWavToOggOrWav(pickupWav, SOUNDS_DIR + "powerup_pickup.ogg");
 
@@ -916,24 +920,23 @@ public class AssetPipelineRunner {
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
 
-            // 1. Deep Engine Block Throb (28Hz, 56Hz, 84Hz integer harmonic cycles in 2.0s)
-            float p1 = (float) Math.sin(2.0 * Math.PI * 28.0 * t) * 0.45f;
-            float p2 = (float) Math.sin(2.0 * Math.PI * 56.0 * t) * 0.30f;
-            float p3 = (float) Math.sin(2.0 * Math.PI * 84.0 * t) * 0.15f;
+            // 1. Deep Asymmetrical Diesel Combustion Pulse Train (22 firings/sec)
+            float firingFreq = 22.0f;
+            float pulsePhase = (t * firingFreq) % 1.0f;
+            float combustion = (float) (Math.exp(-pulsePhase * 5.5) * Math.sin(pulsePhase * 2.0 * Math.PI * 2.0));
 
-            // 2. Soft Gas Turbine Compressor Whisper & Air Intake (1020Hz & 1530Hz)
-            float turbineVibrato = (float) Math.sin(2.0 * Math.PI * 3.0 * t) * 4.0f;
-            float tw1 = (float) Math.sin(2.0 * Math.PI * (1020.0 + turbineVibrato) * t) * 0.08f;
-            float tw2 = (float) Math.sin(2.0 * Math.PI * (1530.0 + turbineVibrato * 1.5) * t) * 0.04f;
+            // 2. Sub-bass chassis vibration (26Hz fundamental + 52Hz harmonic)
+            float subBass = (float) (0.45 * Math.sin(2.0 * Math.PI * 26.0 * t) + 0.28 * Math.sin(2.0 * Math.PI * 52.0 * t));
 
-            // 3. Gentle air induction hiss
-            float airHiss = (rand.nextFloat() * 2.0f - 1.0f) * 0.14f;
+            // 3. Gentle air induction breathing hiss
+            float airBreathe = (rand.nextFloat() * 2.0f - 1.0f) * 0.16f;
 
-            // 4. Low Chassis Shudder Sub-Bass (24Hz)
-            float subRumble = (float) Math.sin(2.0 * Math.PI * 24.0 * t) * 0.25f;
+            // 4. Soft gas turbine whisper (980Hz)
+            float turbineWhisper = (float) (0.06 * Math.sin(2.0 * Math.PI * 980.0 * t));
 
-            float mix = (p1 + p2 + p3 + tw1 + tw2 + airHiss + subRumble) * 0.85f;
-            samples[i] = (short) (Math.max(-1.0f, Math.min(1.0f, mix)) * 32767);
+            float raw = (combustion * 0.50f + subBass * 0.45f + airBreathe + turbineWhisper);
+            float saturated = (float) Math.tanh(raw * 1.10f);
+            samples[i] = (short) (Math.max(-1.0f, Math.min(1.0f, saturated)) * 32767);
         }
         makeSeamlessLoop(samples, sampleRate, 0.08f);
         return createWavBytes(samples, sampleRate);
@@ -949,24 +952,32 @@ public class AssetPipelineRunner {
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
 
-            // 1. High-Throttle Gas Turbine Howl (Twin screaming compressor stages 1680Hz & 2520Hz with load modulation)
-            float throttleVibrato = (float) Math.sin(2.0 * Math.PI * 6.0 * t) * 12.0f;
-            float turbine1 = (float) Math.sin(2.0 * Math.PI * (1680.0 + throttleVibrato) * t) * 0.22f;
-            float turbine2 = (float) Math.sin(2.0 * Math.PI * (2520.0 + throttleVibrato * 1.5) * t) * 0.14f;
+            // 1. Asymmetrical High-RPM Combustion Pulse Train (48 pulses/sec)
+            float firingFreq = 48.0f;
+            float pulsePhase = (t * firingFreq) % 1.0f;
+            float combustion = (float) (Math.exp(-pulsePhase * 6.5) * Math.sin(pulsePhase * 2.0 * Math.PI * 2.2));
 
-            // 2. High-Pressure Turbo Induction Roar (Broadband air rush with soft saturation)
-            float airRoar = (rand.nextFloat() * 2.0f - 1.0f) * 0.28f;
+            // 2. Sub-bass chassis vibration (32Hz fundamental + 64Hz harmonic)
+            float subBass = (float) (0.42 * Math.sin(2.0 * Math.PI * 32.0 * t) + 0.28 * Math.sin(2.0 * Math.PI * 64.0 * t));
 
-            // 3. High-RPM Powerpack Combustion Pulses (46Hz fundamental + 92Hz + 138Hz harmonics)
-            float c1 = (float) Math.sin(2.0 * Math.PI * 46.0 * t) * 0.40f;
-            float c2 = (float) Math.sin(2.0 * Math.PI * 92.0 * t) * 0.28f;
-            float c3 = (float) Math.sin(2.0 * Math.PI * 138.0 * t) * 0.18f;
+            // 3. Steel Track Pin Squeak (Iconic "Driving Tank" squeal: resonant metallic track pin friction)
+            float trackLinkRate = 16.0f; // 16 links per second passing sprocket
+            float pinEnvelope = (float) Math.pow(Math.max(0.0, Math.sin(2.0 * Math.PI * trackLinkRate * t)), 4.0);
+            float pinPitchMod = (float) (3000.0 + 450.0 * Math.sin(2.0 * Math.PI * 8.0 * t));
+            float trackSqueak = (float) Math.sin(2.0 * Math.PI * pinPitchMod * t) * pinEnvelope * 0.26f;
 
-            // 4. Drive Sprocket & Track Pin High-Speed Whir (310Hz)
-            float trackWhir = (float) Math.sin(2.0 * Math.PI * 310.0 * t) * 0.12f;
+            // 4. Steel Track Link Impact Thuds (Guide horns striking drive sprocket & road wheels)
+            float linkImpactEnv = (float) Math.pow(Math.max(0.0, Math.sin(2.0 * Math.PI * trackLinkRate * t)), 8.0);
+            float linkImpact = (float) Math.sin(2.0 * Math.PI * 185.0 * t) * linkImpactEnv * 0.32f;
 
-            float raw = (turbine1 + turbine2 + airRoar + c1 + c2 + c3 + trackWhir);
-            // Non-linear powerpack saturation
+            // 5. Sand & Gravel Ground Displacement Crunch (Filtered tread noise modulated with track rate)
+            float groundNoise = (rand.nextFloat() * 2.0f - 1.0f);
+            float sandCrunch = groundNoise * (float) (0.24 * (0.6 + 0.4 * Math.sin(2.0 * Math.PI * trackLinkRate * t)));
+
+            // 6. Turbocharger & Gas Turbine Induction Whine
+            float turbine = (float) (0.16 * Math.sin(2.0 * Math.PI * 1580.0 * t) + 0.10 * Math.sin(2.0 * Math.PI * 2370.0 * t));
+
+            float raw = (combustion * 0.45f + subBass * 0.35f + trackSqueak + linkImpact + sandCrunch + turbine);
             float saturated = (float) Math.tanh(raw * 1.35f);
             samples[i] = (short) (Math.max(-1.0f, Math.min(1.0f, saturated)) * 32767);
         }
@@ -984,22 +995,59 @@ public class AssetPipelineRunner {
         for (int i = 0; i < numSamples; i++) {
             float t = i / (float) sampleRate;
 
-            // 1. Heavy Transmission Planetary Gearbox Reverse Whine (680Hz & 1020Hz meshing teeth)
-            float gearFlutter = (float) Math.sin(2.0 * Math.PI * 5.0 * t) * 6.0f;
-            float gearWhine1 = (float) Math.sin(2.0 * Math.PI * (680.0 + gearFlutter) * t) * 0.24f;
-            float gearWhine2 = (float) Math.sin(2.0 * Math.PI * (1020.0 + gearFlutter * 1.5) * t) * 0.15f;
+            // 1. Asymmetrical Low-Gear High-Torque Combustion Pulse Train (32 pulses/sec)
+            float firingFreq = 32.0f;
+            float pulsePhase = (t * firingFreq) % 1.0f;
+            float combustion = (float) (Math.exp(-pulsePhase * 6.0) * Math.sin(pulsePhase * 2.0 * Math.PI * 2.0));
 
-            // 2. Moderate Throttle Turbine Whine (1240Hz)
-            float turbine = (float) Math.sin(2.0 * Math.PI * 1240.0 * t) * 0.12f;
+            // 2. Sub-bass heavy load vibration (30Hz + 60Hz)
+            float subBass = (float) (0.44 * Math.sin(2.0 * Math.PI * 30.0 * t) + 0.26 * Math.sin(2.0 * Math.PI * 60.0 * t));
 
-            // 3. Heavy Low-Gear Mechanical Load Pulses (34Hz & 68Hz deep engine strain)
-            float c1 = (float) Math.sin(2.0 * Math.PI * 34.0 * t) * 0.44f;
-            float c2 = (float) Math.sin(2.0 * Math.PI * 68.0 * t) * 0.26f;
+            // 3. Heavy Transmission Planetary Reverse Gearbox Whine (640Hz & 960Hz mechanical meshing teeth)
+            float gearWhine = (float) (0.28 * Math.sin(2.0 * Math.PI * 640.0 * t) + 0.16 * Math.sin(2.0 * Math.PI * 960.0 * t));
 
-            // 4. Low-Speed Steel Track Clatter & Friction
-            float trackClatter = (float) Math.sin(2.0 * Math.PI * 180.0 * t) * 0.14f + (rand.nextFloat() * 2.0f - 1.0f) * 0.18f;
+            // 4. Low-Speed Steel Track Clatter & Slower Pin Impact (10 links/sec)
+            float trackLinkRate = 10.0f;
+            float trackClank = (float) Math.sin(2.0 * Math.PI * 150.0 * t) * (float) Math.pow(Math.max(0.0, Math.sin(2.0 * Math.PI * trackLinkRate * t)), 6.0) * 0.28f;
 
-            float raw = (gearWhine1 + gearWhine2 + turbine + c1 + c2 + trackClatter);
+            // 5. Sand & Gravel Ground Displacement
+            float groundNoise = (rand.nextFloat() * 2.0f - 1.0f);
+            float sandCrunch = groundNoise * (float) (0.20 * (0.6 + 0.4 * Math.sin(2.0 * Math.PI * trackLinkRate * t)));
+
+            float raw = (combustion * 0.40f + subBass * 0.40f + gearWhine + trackClank + sandCrunch);
+            float saturated = (float) Math.tanh(raw * 1.25f);
+            samples[i] = (short) (Math.max(-1.0f, Math.min(1.0f, saturated)) * 32767);
+        }
+        makeSeamlessLoop(samples, sampleRate, 0.08f);
+        return createWavBytes(samples, sampleRate);
+    }
+
+    private static byte[] synthesizeTurretRotate() {
+        int sampleRate = 44100;
+        float duration = 2.0f;
+        int numSamples = (int) (sampleRate * duration);
+        short[] samples = new short[numSamples];
+        Random rand = new Random(456);
+
+        for (int i = 0; i < numSamples; i++) {
+            float t = i / (float) sampleRate;
+
+            // 1. High-Torque Electro-Hydraulic Planetary Drive Motor Whine (520Hz + 1040Hz + 1560Hz)
+            float motorRipple = (float) (1.0 + 0.12 * Math.sin(2.0 * Math.PI * 18.0 * t));
+            float motorWhine = (float) (0.30 * Math.sin(2.0 * Math.PI * 520.0 * t) +
+                                       0.18 * Math.sin(2.0 * Math.PI * 1040.0 * t) +
+                                       0.08 * Math.sin(2.0 * Math.PI * 1560.0 * t)) * motorRipple;
+
+            // 2. Turret Ring Bearing Race Rumble (Deep hull mechanical groan: 95Hz & 190Hz)
+            float bearingRace = (float) (0.32 * Math.sin(2.0 * Math.PI * 95.0 * t) + 0.18 * Math.sin(2.0 * Math.PI * 190.0 * t));
+
+            // 3. Metallic Turret Ring Friction & Churning Grease (Filtered noise pulsed with race revolution)
+            float ringFriction = (rand.nextFloat() * 2.0f - 1.0f) * (float) (0.18 * (0.7 + 0.3 * Math.sin(2.0 * Math.PI * 36.0 * t)));
+
+            // 4. Ring Gear Tooth Meshing Ticks (380Hz mechanical engagement ticks pulsed at 36Hz)
+            float toothTick = (float) Math.sin(2.0 * Math.PI * 380.0 * t) * (float) Math.pow(Math.max(0.0, Math.sin(2.0 * Math.PI * 36.0 * t)), 6.0) * 0.16f;
+
+            float raw = (motorWhine + bearingRace + ringFriction + toothTick);
             float saturated = (float) Math.tanh(raw * 1.25f);
             samples[i] = (short) (Math.max(-1.0f, Math.min(1.0f, saturated)) * 32767);
         }

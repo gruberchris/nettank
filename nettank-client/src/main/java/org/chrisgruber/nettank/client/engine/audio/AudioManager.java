@@ -56,7 +56,9 @@ public class AudioManager {
     private int engineIdleSource = 0;
     private int engineForwardSource = 0;
     private int engineReverseSource = 0;
+    private int turretRotateSource = 0;
     private boolean engineLoaded = false;
+    private boolean turretRotateLoaded = false;
     private float listenerX = 0f;
     private float listenerY = 0f;
 
@@ -101,6 +103,11 @@ public class AudioManager {
             engineReverseSource = alGenSources();
             configureDistanceModel(engineReverseSource);
             alSourcei(engineReverseSource, AL_LOOPING, AL_TRUE);
+
+            // Dedicated looping turret traverse source
+            turretRotateSource = alGenSources();
+            configureDistanceModel(turretRotateSource);
+            alSourcei(turretRotateSource, AL_LOOPING, AL_TRUE);
 
             initialized = true;
             logger.info("AudioManager initialized (device: {})", defaultDeviceName);
@@ -332,6 +339,33 @@ public class AudioManager {
         }
     }
 
+    /** Loads the looping motorized turret traverse sound effect. */
+    public void loadTurretRotateLoop(String classpathOgg) {
+        if (!initialized) return;
+        loadSound("__turret_rotate", classpathOgg);
+        Integer bufferId = soundBuffers.get("__turret_rotate");
+        if (bufferId != null && turretRotateSource != 0) {
+            alSourcei(turretRotateSource, AL_BUFFER, bufferId);
+            turretRotateLoaded = true;
+        }
+    }
+
+    /** Updates the turret rotation audio state (active when rotating). */
+    public void setTurretRotateState(boolean rotating, float pitch, float gain) {
+        if (!initialized || !turretRotateLoaded || turretRotateSource == 0) return;
+        alSource3f(turretRotateSource, AL_POSITION, listenerX, listenerY, 0f);
+        if (rotating) {
+            alSourcef(turretRotateSource, AL_GAIN, gain);
+            alSourcef(turretRotateSource, AL_PITCH, pitch);
+            ensurePlaying(turretRotateSource);
+        } else {
+            int state = alGetSourcei(turretRotateSource, AL_SOURCE_STATE);
+            if (state == AL_PLAYING) {
+                alSourceStop(turretRotateSource);
+            }
+        }
+    }
+
     private void ensurePlaying(int source) {
         if (source != 0 && alGetSourcei(source, AL_SOURCE_STATE) != AL_PLAYING) {
             alSourcePlay(source);
@@ -359,6 +393,10 @@ public class AudioManager {
         if (engineReverseSource != 0) {
             alSourceStop(engineReverseSource);
             alDeleteSources(engineReverseSource);
+        }
+        if (turretRotateSource != 0) {
+            alSourceStop(turretRotateSource);
+            alDeleteSources(turretRotateSource);
         }
         for (int bufferId : soundBuffers.values()) {
             alDeleteBuffers(bufferId);
