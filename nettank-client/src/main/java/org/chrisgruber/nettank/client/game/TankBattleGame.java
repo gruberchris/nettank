@@ -71,11 +71,14 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private final Map<org.chrisgruber.nettank.common.entities.PowerUpType, Texture> powerUpIconTextures = new EnumMap<>(org.chrisgruber.nettank.common.entities.PowerUpType.class);
     private final List<org.chrisgruber.nettank.client.game.effects.FlyingTurretEffect> flyingTurrets = new CopyOnWriteArrayList<>();
 
-    // AoE2 HUD & Menu Textures
+    // Military HUD & Tactical Telemetry Textures
     private Texture hudFrameTexture;
     private Texture ammoShellTexture;
     private Texture victoryBannerTexture;
     private Texture defeatBannerTexture;
+    private Texture azimuthDialTexture;
+    private Texture azimuthChassisTexture;
+    private Texture azimuthNeedleTexture;
     private final Map<org.chrisgruber.nettank.common.entities.TankType, Texture> uiPortraits = new EnumMap<>(org.chrisgruber.nettank.common.entities.TankType.class);
 
     // Effect textures (Phase 5/7 sprite sheets)
@@ -361,6 +364,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 ammoShellTexture = new Texture("textures/ui/ammo_shell.png");
                 victoryBannerTexture = new Texture("textures/ui/victory_banner.png");
                 defeatBannerTexture = new Texture("textures/ui/defeat_banner.png");
+                azimuthDialTexture = new Texture("textures/ui/azimuth_dial.png");
+                azimuthChassisTexture = new Texture("textures/ui/azimuth_chassis.png");
+                azimuthNeedleTexture = new Texture("textures/ui/azimuth_needle.png");
                 uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.STANDARD, new Texture("textures/ui/portrait_standard.png"));
                 uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.HEAVY, new Texture("textures/ui/portrait_heavy.png"));
                 uiPortraits.put(org.chrisgruber.nettank.common.entities.TankType.LIGHT, new Texture("textures/ui/portrait_light.png"));
@@ -1476,6 +1482,59 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 uiManager.drawText(alignText, gaugeX + (gaugeW - uiManager.getTextWidth(alignText, 0.35f)) / 2.0f,
                         gaugeY - 18, 0.35f, new Vector3f(0.35f, 0.95f, 1.0f));
             }
+
+            // --- Bottom-Left Cockpit Azimuth Compass / Turret Heading Indicator ---
+            float azDialSize = 80;
+            float azPanelW = 156;
+            float azPanelH = 92;
+            float azX = 14;
+            float azY = windowHeight - azPanelH - 12;
+
+            if (hudFrameTexture != null) {
+                uiManager.drawTexture(hudFrameTexture, azX, azY, azPanelW, azPanelH);
+            }
+
+            if (azimuthDialTexture != null) {
+                uiManager.drawTexture(azimuthDialTexture, azX + 6, azY + (azPanelH - azDialSize) / 2.0f, azDialSize, azDialSize);
+            }
+
+            float dialCenterX = azX + 6 + azDialSize / 2.0f;
+            float dialCenterY = azY + azPanelH / 2.0f;
+            float spriteSize = 40;
+
+            // Draw Hull Chassis schematic at localTank rotation
+            if (azimuthChassisTexture != null) {
+                uiManager.drawRotatedTexture(azimuthChassisTexture, dialCenterX - spriteSize / 2.0f, dialCenterY - spriteSize / 2.0f,
+                        spriteSize, spriteSize, localTank.getRotation(), new Vector3f(0.85f, 0.90f, 0.85f), 0.75f);
+            }
+
+            // Draw Turret Needle at localTank turretRotation
+            if (azimuthNeedleTexture != null) {
+                Vector3f needleColor = autoCenteringTurret ? new Vector3f(0.35f, 0.95f, 1.0f) : new Vector3f(0.2f, 1.0f, 0.5f);
+                uiManager.drawRotatedTexture(azimuthNeedleTexture, dialCenterX - spriteSize / 2.0f, dialCenterY - spriteSize / 2.0f,
+                        spriteSize, spriteSize, localTank.getTurretRotation(), needleColor, 1.0f);
+            }
+
+            // Telemetry Readouts
+            float textX = azX + azDialSize + 12;
+            int turretDeg = (int) ((localTank.getTurretRotation() % 360 + 360) % 360);
+            int relDiff = (int) (((localTank.getTurretRotation() - localTank.getRotation()) % 360 + 360) % 360);
+            if (relDiff > 180) relDiff -= 360;
+
+            uiManager.drawText("BEARING", textX, azY + 12, 0.34f, new Vector3f(0.6f, 0.85f, 0.65f));
+            String azDegStr = String.format("%03d°", turretDeg);
+            uiManager.drawText(azDegStr, textX, azY + 26, 0.44f, new Vector3f(0.95f, 0.95f, 0.95f));
+
+            if (autoCenteringTurret) {
+                uiManager.drawText("ALIGNING", textX, azY + 48, 0.32f, new Vector3f(0.35f, 0.95f, 1.0f));
+            } else if (Math.abs(relDiff) <= 2) {
+                uiManager.drawText("LOCKED", textX, azY + 48, 0.32f, new Vector3f(0.3f, 1.0f, 0.4f));
+            } else {
+                String relStr = String.format("REL:%+d°", relDiff);
+                uiManager.drawText(relStr, textX, azY + 48, 0.32f, new Vector3f(1.0f, 0.80f, 0.3f));
+            }
+
+            uiManager.drawText("AUTO [F]", textX, azY + 68, 0.30f, new Vector3f(0.65f, 0.70f, 0.75f));
         }
 
         // --- Kill Feed Messages (Top-Right) ---
@@ -1924,6 +1983,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (ammoShellTexture != null) ammoShellTexture.delete(); } catch (Exception ignored) {}
         try { if (victoryBannerTexture != null) victoryBannerTexture.delete(); } catch (Exception ignored) {}
         try { if (defeatBannerTexture != null) defeatBannerTexture.delete(); } catch (Exception ignored) {}
+        try { if (azimuthDialTexture != null) azimuthDialTexture.delete(); } catch (Exception ignored) {}
+        try { if (azimuthChassisTexture != null) azimuthChassisTexture.delete(); } catch (Exception ignored) {}
+        try { if (azimuthNeedleTexture != null) azimuthNeedleTexture.delete(); } catch (Exception ignored) {}
         for (Texture p : uiPortraits.values()) {
             try { if (p != null) p.delete(); } catch (Exception ignored) {}
         }

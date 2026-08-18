@@ -66,9 +66,10 @@ public class AssetPipelineRunner {
             BufferedImage raw = ImageIO.read(stdTurretFile);
             BufferedImage isolated = isolateChromaKey(raw, new Color(0, 255, 0), 95);
             BufferedImage cropped = cropAndCenter(isolated, 128, 128, 0);
-            ImageIO.write(cropped, "PNG", new File(TEXTURES_DIR + "turret.png"));
+            BufferedImage enhanced = enhanceTurretSilhouette(cropped, "standard");
+            ImageIO.write(enhanced, "PNG", new File(TEXTURES_DIR + "turret.png"));
 
-            BufferedImage mask = generateTurretTeamMask(cropped);
+            BufferedImage mask = generateTurretTeamMask(enhanced);
             ImageIO.write(mask, "PNG", new File(TEXTURES_DIR + "turret_mask.png"));
         }
 
@@ -90,9 +91,10 @@ public class AssetPipelineRunner {
             BufferedImage raw = ImageIO.read(heavyTurretFile);
             BufferedImage isolated = isolateChromaKey(raw, new Color(0, 255, 0), 95);
             BufferedImage cropped = cropAndCenter(isolated, 128, 128, 0);
-            ImageIO.write(cropped, "PNG", new File(TEXTURES_DIR + "turret_heavy.png"));
+            BufferedImage enhanced = enhanceTurretSilhouette(cropped, "heavy");
+            ImageIO.write(enhanced, "PNG", new File(TEXTURES_DIR + "turret_heavy.png"));
 
-            BufferedImage mask = generateTurretTeamMask(cropped);
+            BufferedImage mask = generateTurretTeamMask(enhanced);
             ImageIO.write(mask, "PNG", new File(TEXTURES_DIR + "turret_heavy_mask.png"));
         }
 
@@ -114,9 +116,10 @@ public class AssetPipelineRunner {
             BufferedImage raw = ImageIO.read(lightTurretFile);
             BufferedImage isolated = isolateChromaKey(raw, new Color(0, 255, 0), 95);
             BufferedImage cropped = cropAndCenter(isolated, 128, 128, 0);
-            ImageIO.write(cropped, "PNG", new File(TEXTURES_DIR + "turret_light.png"));
+            BufferedImage enhanced = enhanceTurretSilhouette(cropped, "light");
+            ImageIO.write(enhanced, "PNG", new File(TEXTURES_DIR + "turret_light.png"));
 
-            BufferedImage mask = generateTurretTeamMask(cropped);
+            BufferedImage mask = generateTurretTeamMask(enhanced);
             ImageIO.write(mask, "PNG", new File(TEXTURES_DIR + "turret_light_mask.png"));
         }
 
@@ -138,9 +141,10 @@ public class AssetPipelineRunner {
             BufferedImage raw = ImageIO.read(stealthTurretFile);
             BufferedImage isolated = isolateChromaKey(raw, new Color(0, 255, 0), 95);
             BufferedImage cropped = cropAndCenter(isolated, 128, 128, 0);
-            ImageIO.write(cropped, "PNG", new File(TEXTURES_DIR + "turret_stealth.png"));
+            BufferedImage enhanced = enhanceTurretSilhouette(cropped, "stealth");
+            ImageIO.write(enhanced, "PNG", new File(TEXTURES_DIR + "turret_stealth.png"));
 
-            BufferedImage mask = generateTurretTeamMask(cropped);
+            BufferedImage mask = generateTurretTeamMask(enhanced);
             ImageIO.write(mask, "PNG", new File(TEXTURES_DIR + "turret_stealth_mask.png"));
         }
     }
@@ -431,6 +435,112 @@ public class AssetPipelineRunner {
         }
         g2.dispose();
         return mask;
+    }
+
+    private static BufferedImage enhanceTurretSilhouette(BufferedImage src, String type) {
+        int w = src.getWidth(), h = src.getHeight();
+        BufferedImage dest = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = dest.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.drawImage(src, 0, 0, null);
+
+        int cx = w / 2; // 64
+
+        if ("standard".equalsIgnoreCase(type)) {
+            // M1A2 Abrams 120mm M256 Smoothbore Main Gun Barrel & Bore Evacuator
+            // 1. Dark outline backing for max terrain contrast
+            g2.setColor(new Color(15, 18, 15, 240));
+            g2.fillRect(cx - 5, 4, 10, 56);
+
+            // 2. Gunmetal barrel body
+            GradientPaint barrelGrad = new GradientPaint(cx - 3, 0, new Color(55, 62, 58), cx + 3, 0, new Color(90, 100, 92));
+            g2.setPaint(barrelGrad);
+            g2.fillRect(cx - 3, 6, 6, 52);
+
+            // 3. Fume Extractor / Bore Evacuator (High-contrast military identification collar)
+            g2.setColor(new Color(20, 22, 20, 255));
+            g2.fillRoundRect(cx - 8, 26, 16, 18, 4, 4);
+            GradientPaint fumeGrad = new GradientPaint(cx - 7, 0, new Color(225, 215, 190), cx + 7, 0, new Color(145, 135, 115));
+            g2.setPaint(fumeGrad);
+            g2.fillRoundRect(cx - 7, 27, 14, 16, 3, 3);
+            // Black tactical identifier chevron rings
+            g2.setColor(new Color(30, 30, 30, 240));
+            g2.fillRect(cx - 7, 31, 14, 2);
+            g2.fillRect(cx - 7, 37, 14, 2);
+
+            // 4. Muzzle Brake & Bore Tip
+            g2.setColor(new Color(25, 28, 25));
+            g2.fillRoundRect(cx - 5, 4, 10, 8, 2, 2);
+            g2.setColor(new Color(210, 210, 200));
+            g2.fillRect(cx - 4, 8, 8, 2); // Highlight ring
+            g2.setColor(new Color(5, 5, 5));
+            g2.fillOval(cx - 2, 4, 4, 3); // Muzzle opening
+        } else if ("heavy".equalsIgnoreCase(type)) {
+            // M1A2 TUSK II Twin Heavy Cannons
+            int[] barrelX = {cx - 11, cx + 11};
+            for (int bx : barrelX) {
+                g2.setColor(new Color(15, 18, 15, 240));
+                g2.fillRect(bx - 4, 2, 8, 56);
+
+                GradientPaint bGrad = new GradientPaint(bx - 3, 0, new Color(60, 65, 60), bx + 3, 0, new Color(95, 105, 95));
+                g2.setPaint(bGrad);
+                g2.fillRect(bx - 2, 4, 5, 52);
+
+                // Fume extractor
+                g2.setColor(new Color(20, 20, 20, 255));
+                g2.fillRoundRect(bx - 6, 22, 12, 16, 3, 3);
+                g2.setColor(new Color(225, 200, 140)); // Heavy brass / desert camo band
+                g2.fillRect(bx - 5, 23, 10, 14);
+                g2.setColor(new Color(30, 30, 30));
+                g2.fillRect(bx - 5, 28, 10, 2);
+
+                // Heavy slotted muzzle brake
+                g2.setColor(new Color(25, 28, 25));
+                g2.fillRoundRect(bx - 5, 2, 11, 8, 2, 2);
+                g2.setColor(new Color(210, 200, 180));
+                g2.fillRect(bx - 4, 6, 9, 2);
+                g2.setColor(new Color(5, 5, 5));
+                g2.fillOval(bx - 2, 2, 4, 3);
+            }
+        } else if ("light".equalsIgnoreCase(type)) {
+            // LAV-25 Stryker 25mm Bushmaster Rapid Autocannon
+            g2.setColor(new Color(15, 18, 15, 240));
+            g2.fillRect(cx - 3, 4, 6, 58);
+
+            GradientPaint bGrad = new GradientPaint(cx - 2, 0, new Color(70, 78, 72), cx + 2, 0, new Color(115, 125, 118));
+            g2.setPaint(bGrad);
+            g2.fillRect(cx - 2, 6, 4, 54);
+
+            // Fluted flash suppressor & bore tip
+            g2.setColor(new Color(25, 28, 25));
+            g2.fillRoundRect(cx - 4, 4, 8, 8, 2, 2);
+            g2.setColor(new Color(230, 230, 220)); // Bright high-viz flash ring
+            g2.fillRect(cx - 3, 8, 6, 2);
+            g2.setColor(new Color(5, 5, 5));
+            g2.fillOval(cx - 2, 4, 4, 3);
+        } else if ("stealth".equalsIgnoreCase(type)) {
+            // Shadow Stalker Faceted Radar-Absorbent Cannon Shroud
+            int[] xPoints = {cx - 5, cx + 5, cx + 8, cx - 8};
+            int[] yPoints = {6, 6, 58, 58};
+            g2.setColor(new Color(12, 14, 12, 245));
+            g2.fillPolygon(xPoints, yPoints, 4);
+
+            GradientPaint sGrad = new GradientPaint(cx - 4, 0, new Color(38, 44, 40), cx + 4, 0, new Color(75, 85, 78));
+            g2.setPaint(sGrad);
+            int[] xIn = {cx - 4, cx + 4, cx + 6, cx - 6};
+            int[] yIn = {8, 8, 56, 56};
+            g2.fillPolygon(xIn, yIn, 4);
+
+            // High-contrast tactical night-vision green alignment chevron
+            g2.setColor(new Color(80, 230, 140, 255));
+            g2.fillRect(cx - 4, 24, 8, 3);
+            g2.fillRect(cx - 3, 30, 6, 2);
+            g2.setColor(new Color(5, 5, 5));
+            g2.fillOval(cx - 2, 6, 4, 3);
+        }
+
+        g2.dispose();
+        return dest;
     }
 
     private static BufferedImage generateTurretTeamMask(BufferedImage turret) {
@@ -1329,7 +1439,120 @@ public class AssetPipelineRunner {
         // 6. Generate Tactical Mission Status Placards
         generateMilBanner(true, uiDir + "victory_banner.png");
         generateMilBanner(false, uiDir + "defeat_banner.png");
+
+        // 7. Generate Tactical Cockpit Turret Azimuth Compass Dial & Needle
+        generateAzimuthDial(uiDir + "azimuth_dial.png");
+        generateAzimuthChassis(uiDir + "azimuth_chassis.png");
+        generateAzimuthNeedle(uiDir + "azimuth_needle.png");
         System.out.println("US Military Tactical UI Assets Generated.");
+    }
+
+    private static void generateAzimuthDial(String outputPath) throws Exception {
+        int size = 96;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = img.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        int cx = size / 2, cy = size / 2;
+        int r = 44;
+
+        // 1. Carbon dial background
+        g2.setColor(new Color(16, 20, 24, 235));
+        g2.fillOval(cx - r, cy - r, r * 2, r * 2);
+
+        // 2. Beveled border ring
+        g2.setColor(new Color(55, 75, 60, 240));
+        g2.setStroke(new BasicStroke(2.0f));
+        g2.drawOval(cx - r, cy - r, r * 2, r * 2);
+
+        // 3. Inner radar range ring
+        g2.setColor(new Color(35, 60, 45, 160));
+        g2.setStroke(new BasicStroke(1.0f));
+        g2.drawOval(cx - 28, cy - 28, 56, 56);
+        g2.drawOval(cx - 14, cy - 14, 28, 28);
+
+        // 4. Azimuth tick marks (every 10 deg small, every 30 deg large)
+        for (int deg = 0; deg < 360; deg += 10) {
+            double rad = Math.toRadians(deg - 90);
+            boolean isMajor = (deg % 30 == 0);
+            int len = isMajor ? 6 : 3;
+            int x1 = (int) (cx + Math.cos(rad) * (r - 2));
+            int y1 = (int) (cy + Math.sin(rad) * (r - 2));
+            int x2 = (int) (cx + Math.cos(rad) * (r - 2 - len));
+            int y2 = (int) (cy + Math.sin(rad) * (r - 2 - len));
+
+            g2.setColor(isMajor ? new Color(120, 220, 150, 230) : new Color(60, 120, 80, 170));
+            g2.setStroke(new BasicStroke(isMajor ? 1.5f : 1.0f));
+            g2.drawLine(x1, y1, x2, y2);
+        }
+
+        // 5. Cardinal Labels (N, E, S, W)
+        g2.setFont(new Font("Monospaced", Font.BOLD, 10));
+        g2.setColor(new Color(160, 245, 180));
+        g2.drawString("N", cx - 3, cy - r + 13);
+        g2.setColor(new Color(110, 170, 130));
+        g2.drawString("S", cx - 3, cy + r - 5);
+        g2.drawString("E", cx + r - 12, cy + 4);
+        g2.drawString("W", cx - r + 4, cy + 4);
+
+        g2.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateAzimuthChassis(String outputPath) throws Exception {
+        int size = 48;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = img.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int cx = size / 2, cy = size / 2;
+
+        // Armored Hull Rectangle (Facing Up / North)
+        // Left & Right Track Treads
+        g2.setColor(new Color(30, 36, 32, 220));
+        g2.fillRoundRect(cx - 15, cy - 16, 6, 32, 3, 3);
+        g2.fillRoundRect(cx + 9, cy - 16, 6, 32, 3, 3);
+
+        // Main Hull Body
+        g2.setColor(new Color(60, 75, 65, 230));
+        g2.fillRect(cx - 9, cy - 14, 18, 28);
+
+        // Glacis Front Chevron (pointed forward)
+        g2.setColor(new Color(130, 165, 140, 240));
+        int[] xP = {cx - 7, cx, cx + 7};
+        int[] yP = {cy - 8, cy - 14, cy - 8};
+        g2.drawPolyline(xP, yP, 3);
+
+        g2.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
+    }
+
+    private static void generateAzimuthNeedle(String outputPath) throws Exception {
+        int size = 48;
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = img.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int cx = size / 2, cy = size / 2;
+
+        // Turret Center Hub
+        g2.setColor(new Color(15, 20, 15, 240));
+        g2.fillOval(cx - 5, cy - 5, 10, 10);
+
+        // Long Bright Bore Needle (extends to tip y=2)
+        g2.setColor(new Color(50, 240, 120, 255));
+        g2.setStroke(new BasicStroke(2.0f));
+        g2.drawLine(cx, cy - 3, cx, 4);
+
+        // Crossbar & Muzzle Reticle Pip
+        g2.setColor(new Color(255, 255, 255, 255));
+        g2.fillOval(cx - 3, 2, 6, 6);
+        g2.setColor(new Color(20, 255, 100, 255));
+        g2.drawOval(cx - 5, 0, 10, 10);
+
+        g2.dispose();
+        ImageIO.write(img, "PNG", new File(outputPath));
     }
 
     private static void generateUnitPortrait(String typeName, String hullPath, String turretPath,

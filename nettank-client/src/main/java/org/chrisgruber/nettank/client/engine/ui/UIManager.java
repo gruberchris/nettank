@@ -362,6 +362,29 @@ public class UIManager {
     }
 
     /**
+     * Draws a rotated textured quad in UI pixel coordinates (origin at top-left, rotation in degrees).
+     */
+    public void drawRotatedTexture(Texture texture, float x, float y, float width, float height, float rotationDegrees, Vector3f tint, float alpha) {
+        if (texture == null) return;
+        uiShader.bind();
+        texture.bind();
+        uiShader.setUniform4f("u_tintColor", tint.x, tint.y, tint.z, alpha);
+        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
+
+        glBindVertexArray(uiVaoId);
+        float drawX = x + width / 2.0f;
+        float drawY = y + height / 2.0f;
+        uiModelMatrix.identity()
+                .translate(drawX, drawY, 0)
+                .rotate((float) Math.toRadians(rotationDegrees), 0, 0, 1)
+                .scale(width, height, 1);
+        uiShader.setUniformMat4f("u_model", uiModelMatrix);
+
+        glDrawElements(GL_TRIANGLES, INDICES_UI.length, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    /**
      * Releases OpenGL resources (VAO, VBO, EBO, Shader) used by the UIManager.
      * Note: Does not delete fontTexture as it's assumed to be managed elsewhere.
      */
