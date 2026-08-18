@@ -288,6 +288,13 @@ public class AssetPipelineRunner {
         BufferedImage exhaust = generateExhaustPuff(32, 32);
         ImageIO.write(exhaust, "PNG", new File(TEXTURES_DIR + "effects/exhaust.png"));
 
+        // Tactical Laser Sight & Aim Reticle
+        BufferedImage laserSight = generateLaserSight(16, 128);
+        ImageIO.write(laserSight, "PNG", new File(TEXTURES_DIR + "effects/laser_sight.png"));
+
+        BufferedImage aimReticle = generateAimReticle(32);
+        ImageIO.write(aimReticle, "PNG", new File(TEXTURES_DIR + "effects/aim_reticle.png"));
+
         BufferedImage aura = generateAuraRing(64, 64);
         ImageIO.write(aura, "PNG", new File(TEXTURES_DIR + "effects/aura_ring.png"));
     }
@@ -839,6 +846,53 @@ public class AssetPipelineRunner {
         Graphics2D g2 = img.createGraphics();
         g2.setColor(new Color(255, 180, 40, 200));
         g2.fillRect(w / 2 - 2, 0, 4, h);
+        g2.dispose();
+        return img;
+    }
+
+    private static BufferedImage generateLaserSight(int w, int h) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = img.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int cx = w / 2;
+        // High-tech laser beam: brightest at bottom (y=h, at muzzle), fading towards top (y=0)
+        for (int y = 0; y < h; y++) {
+            float fade = (float) y / (float) h; // 0 at top, 1 at bottom (muzzle)
+            int a = (int) (230 * (0.25f + 0.75f * fade));
+            // Outer bloom
+            g2.setColor(new Color(40, 255, 100, a / 4));
+            g2.fillRect(cx - 3, y, 7, 1);
+            // Core beam
+            g2.setColor(new Color(220, 255, 230, a));
+            g2.fillRect(cx - 1, y, 3, 1);
+        }
+        g2.dispose();
+        return img;
+    }
+
+    private static BufferedImage generateAimReticle(int size) {
+        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = img.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int cx = size / 2, cy = size / 2;
+
+        // Outer aiming ring
+        g2.setColor(new Color(50, 240, 120, 210));
+        g2.setStroke(new BasicStroke(1.5f));
+        g2.drawOval(4, 4, size - 8, size - 8);
+
+        // Cardinal corner notches
+        g2.drawLine(cx, 1, cx, 5);
+        g2.drawLine(cx, size - 5, cx, size - 1);
+        g2.drawLine(1, cy, 5, cy);
+        g2.drawLine(size - 5, cy, size - 1, cy);
+
+        // Center aiming pip
+        g2.setColor(new Color(255, 255, 255, 245));
+        g2.fillOval(cx - 2, cy - 2, 4, 4);
+
         g2.dispose();
         return img;
     }

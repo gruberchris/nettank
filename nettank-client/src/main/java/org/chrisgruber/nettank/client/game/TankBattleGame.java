@@ -88,6 +88,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private Texture trackMarkTexture;
     private Texture scorchDecalTexture;
     private Texture auraRingTexture;
+    private Texture laserSightTexture;
+    private Texture aimReticleTexture;
 
     // Sound engine
     private final org.chrisgruber.nettank.client.engine.audio.AudioManager audioManager =
@@ -356,6 +358,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             scorchDecalTexture = new Texture("textures/effects/scorch.png");
             auraRingTexture = new Texture("textures/effects/aura_ring.png");
             exhaustTexture = new Texture("textures/effects/exhaust.png");
+            laserSightTexture = new Texture("textures/effects/laser_sight.png");
+            aimReticleTexture = new Texture("textures/effects/aim_reticle.png");
 
             // AoE2 HUD & Menu Textures
             logger.debug("Loading AoE2 HUD & Menu textures...");
@@ -1158,6 +1162,42 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         shader.setUniformMat4f("u_projection", camera.getProjectionMatrix());
         shader.setUniformMat4f("u_view", camera.getViewMatrix());
 
+        // --- In-World Tactical Turret Laser Sight & Aim Reticle ---
+        if (localTank != null && localTank.getHitPoints() > 0 && !isSpectating && currentGameState == GameState.PLAYING) {
+            float turretAngle = localTank.getTurretRotation();
+            float turretRad = (float) Math.toRadians(turretAngle);
+            float dirX = (float) -Math.sin(turretRad);
+            float dirY = (float) Math.cos(turretRad);
+
+            float muzzleDist = TankData.SIZE * 0.52f;
+            float startX = localTank.getPosition().x + dirX * muzzleDist;
+            float startY = localTank.getPosition().y + dirY * muzzleDist;
+
+            float laserLen = 140.0f;
+            float endX = startX + dirX * laserLen;
+            float endY = startY + dirY * laserLen;
+            float midX = (startX + endX) / 2.0f;
+            float midY = (startY + endY) / 2.0f;
+
+            Vector3f laserColor = autoCenteringTurret ? new Vector3f(0.35f, 0.95f, 1.0f) : new Vector3f(0.25f, 1.0f, 0.45f);
+            float laserAlpha = autoCenteringTurret ? 0.85f : 0.50f;
+
+            if (laserSightTexture != null) {
+                laserSightTexture.bind();
+                shader.setUniform4f("u_tintColor", laserColor.x, laserColor.y, laserColor.z, laserAlpha);
+                renderer.drawQuad(midX, midY, 6.0f, laserLen, turretAngle, shader);
+            }
+
+            if (aimReticleTexture != null) {
+                aimReticleTexture.bind();
+                float pulse = 1.0f + 0.12f * (float) Math.sin(System.currentTimeMillis() / 150.0);
+                float reticleSize = 18.0f * pulse;
+                shader.setUniform4f("u_tintColor", laserColor.x, laserColor.y, laserColor.z, autoCenteringTurret ? 0.95f : 0.70f);
+                renderer.drawQuad(endX, endY, reticleSize, reticleSize, turretAngle, shader);
+            }
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+
         // --- Render Muzzle Flashes ---
         if (!muzzleFlashes.isEmpty()) {
             for (var flash : muzzleFlashes) {
@@ -1502,27 +1542,27 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             float dialCenterY = azY + azPanelH / 2.0f;
             float spriteSize = 40;
 
-            // Draw Hull Chassis schematic at localTank rotation
+            // Draw Hull Chassis schematic at localTank rotation (inverted for UI coordinates)
             if (azimuthChassisTexture != null) {
                 uiManager.drawRotatedTexture(azimuthChassisTexture, dialCenterX - spriteSize / 2.0f, dialCenterY - spriteSize / 2.0f,
-                        spriteSize, spriteSize, localTank.getRotation(), new Vector3f(0.85f, 0.90f, 0.85f), 0.75f);
+                        spriteSize, spriteSize, -localTank.getRotation(), new Vector3f(0.85f, 0.90f, 0.85f), 0.75f);
             }
 
-            // Draw Turret Needle at localTank turretRotation
+            // Draw Turret Needle at localTank turretRotation (inverted for UI coordinates)
             if (azimuthNeedleTexture != null) {
                 Vector3f needleColor = autoCenteringTurret ? new Vector3f(0.35f, 0.95f, 1.0f) : new Vector3f(0.2f, 1.0f, 0.5f);
                 uiManager.drawRotatedTexture(azimuthNeedleTexture, dialCenterX - spriteSize / 2.0f, dialCenterY - spriteSize / 2.0f,
-                        spriteSize, spriteSize, localTank.getTurretRotation(), needleColor, 1.0f);
+                        spriteSize, spriteSize, -localTank.getTurretRotation(), needleColor, 1.0f);
             }
 
-            // Telemetry Readouts
+            // Telemetry Readouts (Standard Compass Azimuth: 000°=N, 090°=E, 180°=S, 270°=W)
             float textX = azX + azDialSize + 12;
-            int turretDeg = (int) ((localTank.getTurretRotation() % 360 + 360) % 360);
+            int compassBearing = (int) (((360 - (localTank.getTurretRotation() % 360)) % 360 + 360) % 360);
             int relDiff = (int) (((localTank.getTurretRotation() - localTank.getRotation()) % 360 + 360) % 360);
             if (relDiff > 180) relDiff -= 360;
 
             uiManager.drawText("BEARING", textX, azY + 12, 0.34f, new Vector3f(0.6f, 0.85f, 0.65f));
-            String azDegStr = String.format("%03d°", turretDeg);
+            String azDegStr = String.format("%03d°", compassBearing);
             uiManager.drawText(azDegStr, textX, azY + 26, 0.44f, new Vector3f(0.95f, 0.95f, 0.95f));
 
             if (autoCenteringTurret) {
@@ -1979,6 +2019,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (scorchDecalTexture != null) scorchDecalTexture.delete(); } catch (Exception e) { logger.error("Error deleting scorchDecalTexture", e); }
         try { if (auraRingTexture != null) auraRingTexture.delete(); } catch (Exception e) { logger.error("Error deleting auraRingTexture", e); }
         try { if (exhaustTexture != null) exhaustTexture.delete(); } catch (Exception e) { logger.error("Error deleting exhaustTexture", e); }
+        try { if (laserSightTexture != null) laserSightTexture.delete(); } catch (Exception ignored) {}
+        try { if (aimReticleTexture != null) aimReticleTexture.delete(); } catch (Exception ignored) {}
         try { if (hudFrameTexture != null) hudFrameTexture.delete(); } catch (Exception ignored) {}
         try { if (ammoShellTexture != null) ammoShellTexture.delete(); } catch (Exception ignored) {}
         try { if (victoryBannerTexture != null) victoryBannerTexture.delete(); } catch (Exception ignored) {}
