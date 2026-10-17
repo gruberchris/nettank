@@ -25,6 +25,7 @@ public class ClientGameMap {
     private static final float FOG_FADE_DISTANCE = 3.5f;
 
     private final Map<TerrainType, Texture> terrainTextures = new HashMap<>();
+    private final Map<TerrainType, java.util.List<Texture>> terrainTextureVariants = new HashMap<>();
     private final Map<TerrainState, Texture> stateOverlayTextures = new HashMap<>();
     private final Map<String, Texture> visualOverlayTextures = new HashMap<>();
 
@@ -39,6 +40,11 @@ public class ClientGameMap {
 
     public void registerTerrainTexture(TerrainType type, Texture texture) {
         terrainTextures.put(type, texture);
+        terrainTextureVariants.computeIfAbsent(type, k -> new java.util.ArrayList<>()).add(texture);
+    }
+
+    public void registerTerrainTextureVariant(TerrainType type, Texture texture) {
+        terrainTextureVariants.computeIfAbsent(type, k -> new java.util.ArrayList<>()).add(texture);
     }
 
     public void registerStateOverlayTexture(TerrainState state, Texture texture) {
@@ -160,7 +166,15 @@ public class ClientGameMap {
                     
                     // Draw base terrain first
                     TerrainType baseType = tile.getBaseType();
-                    Texture baseTexture = terrainTextures.get(baseType);
+                    java.util.List<Texture> baseVariants = terrainTextureVariants.get(baseType);
+                    Texture baseTexture = null;
+                    if (baseVariants != null && !baseVariants.isEmpty()) {
+                        int variantIndex = Math.abs((x * 73856093 ^ y * 19349663) % baseVariants.size());
+                        baseTexture = baseVariants.get(variantIndex);
+                    }
+                    if (baseTexture == null) {
+                        baseTexture = terrainTextures.get(baseType);
+                    }
                     if (baseTexture == null) {
                         baseTexture = (baseType == TerrainType.GRASS) ? grassTexture : dirtTexture;
                     }
@@ -174,7 +188,15 @@ public class ClientGameMap {
                     // Draw overlay terrain on top (if exists) - affects gameplay
                     if (tile.hasOverlay()) {
                         TerrainType overlayType = tile.getOverlayType();
-                        Texture overlayTexture = terrainTextures.get(overlayType);
+                        java.util.List<Texture> overlayVariants = terrainTextureVariants.get(overlayType);
+                        Texture overlayTexture = null;
+                        if (overlayVariants != null && !overlayVariants.isEmpty()) {
+                            int variantIndex = Math.abs((x * 83492791 ^ y * 297121507) % overlayVariants.size());
+                            overlayTexture = overlayVariants.get(variantIndex);
+                        }
+                        if (overlayTexture == null) {
+                            overlayTexture = terrainTextures.get(overlayType);
+                        }
                         
                         if (overlayTexture != null) {
                             overlayTexture.bind();

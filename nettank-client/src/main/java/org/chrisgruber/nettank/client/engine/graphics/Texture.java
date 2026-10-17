@@ -48,6 +48,14 @@ public class Texture {
      * @throws IOException If the file cannot be found or loaded.
      */
     public Texture(String filepath) throws IOException {
+        this(filepath, false);
+    }
+
+    /**
+     * @param smooth use linear filtering instead of NEAREST: for soft glows, shadows and sprites
+     *               that are scaled or animated, where nearest sampling shows stair steps
+     */
+    public Texture(String filepath, boolean smooth) throws IOException {
         logger.debug("Loading texture: {}", filepath);
         ByteBuffer imageBuffer = null; // Initialize to null
 
@@ -151,8 +159,9 @@ public class Texture {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             // GL_NEAREST selects the single nearest pixel, preserving sharp edges (pixelated look)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); // For minification
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); // For magnification
+            int filter = smooth ? GL_LINEAR : GL_NEAREST;
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter); // For minification
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter); // For magnification
             checkGLError("glTexParameteri for " + filepath);
 
             // Upload the decoded image data to the bound texture object on the GPU

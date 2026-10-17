@@ -204,6 +204,15 @@ public class UIManager {
     }
 
     public void drawText(String text, float screenX, float screenY, float scale, Vector3f color, float spaceWidthFactor) {
+        drawText(text, screenX, screenY, scale, color, 1.0f, spaceWidthFactor);
+    }
+
+    /** Draws text with real transparency (alpha 0..1) instead of fading the colour toward black. */
+    public void drawTextAlpha(String text, float screenX, float screenY, float scale, Vector3f color, float alpha) {
+        drawText(text, screenX, screenY, scale, color, alpha, 0.35f);
+    }
+
+    private void drawText(String text, float screenX, float screenY, float scale, Vector3f color, float alpha, float spaceWidthFactor) {
         // Check if prerequisites are met
         if (fontTexture == null || fontTexture.getTextureId() == 0 || uiShader == null || uiVaoId == 0) {
             logger.warn("UI Text rendering prerequisites not met (Font Texture ID: {}, Shader valid: {}, VAO ID: {}).",
@@ -217,7 +226,7 @@ public class UIManager {
 
         // Ensure the correct UI shader is active and set the text color
         uiShader.bind();
-        uiShader.setUniform4f("u_tintColor", color, 1.0f);
+        uiShader.setUniform4f("u_tintColor", color, alpha);
 
         // Calculate the on-screen dimensions of a single character based on font texture size and scale
         final float charBaseWidth = (float)fontTexture.getWidth() / FONT_COLS;
@@ -335,8 +344,58 @@ public class UIManager {
     }
 
     /**
-     * Cleans up all resources used by the UIManager (Texture, Shader, VAO, VBO, EBO).
-     * Should be called when the UI is no longer needed (e.g., game shutdown).
+     * Draws a textured quad in UI pixel coordinates (origin at top-left).
+     */
+    public void drawTexture(Texture texture, float x, float y, float width, float height) {
+        drawTexture(texture, x, y, width, height, new Vector3f(1.0f, 1.0f, 1.0f), 1.0f);
+    }
+
+    /**
+     * Draws a textured quad in UI pixel coordinates with custom tint color and opacity.
+     */
+    public void drawTexture(Texture texture, float x, float y, float width, float height, Vector3f tint, float alpha) {
+        if (texture == null) return;
+        uiShader.bind();
+        texture.bind();
+        uiShader.setUniform4f("u_tintColor", tint.x, tint.y, tint.z, alpha);
+        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
+
+        glBindVertexArray(uiVaoId);
+        float drawX = x + width / 2.0f;
+        float drawY = y + height / 2.0f;
+        uiModelMatrix.identity().translate(drawX, drawY, 0).scale(width, height, 1);
+        uiShader.setUniformMat4f("u_model", uiModelMatrix);
+
+        glDrawElements(GL_TRIANGLES, INDICES_UI.length, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    /**
+     * Draws a rotated textured quad in UI pixel coordinates (origin at top-left, rotation in degrees).
+     */
+    public void drawRotatedTexture(Texture texture, float x, float y, float width, float height, float rotationDegrees, Vector3f tint, float alpha) {
+        if (texture == null) return;
+        uiShader.bind();
+        texture.bind();
+        uiShader.setUniform4f("u_tintColor", tint.x, tint.y, tint.z, alpha);
+        uiShader.setUniform4f("u_texRect", 0.0f, 0.0f, 1.0f, 1.0f);
+
+        glBindVertexArray(uiVaoId);
+        float drawX = x + width / 2.0f;
+        float drawY = y + height / 2.0f;
+        uiModelMatrix.identity()
+                .translate(drawX, drawY, 0)
+                .rotate((float) Math.toRadians(rotationDegrees), 0, 0, 1)
+                .scale(width, height, 1);
+        uiShader.setUniformMat4f("u_model", uiModelMatrix);
+
+        glDrawElements(GL_TRIANGLES, INDICES_UI.length, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    /**
+     * Releases OpenGL resources (VAO, VBO, EBO, Shader) used by the UIManager.
+     * Note: Does not delete fontTexture as it's assumed to be managed elsewhere.
      */
     public void cleanup() {
         logger.debug("Cleaning up UIManager resources...");

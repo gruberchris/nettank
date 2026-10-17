@@ -7,7 +7,6 @@ import java.util.List;
 
 /**
  * Short bright burst rendered at the hull edge of a struck side.
- * PLACEHOLDER ART: reuses scaled explosion frames until a dedicated spark sheet exists.
  */
 public class HitSparkEffect {
 

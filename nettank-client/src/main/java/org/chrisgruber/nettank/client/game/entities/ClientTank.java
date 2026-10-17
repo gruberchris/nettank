@@ -18,6 +18,23 @@ public class ClientTank extends ClientEntity {
     protected float alpha = 1.0f;
     protected float targetAlpha = 1.0f;
 
+    // Firing recoil animation (barrel kickback and recovery)
+    protected float recoilOffset = 0.0f;
+    protected static final float MAX_RECOIL_OFFSET = 5.5f;
+    protected static final float RECOIL_RECOVERY_SPEED = 32.0f;
+
+    // Track movement animation
+    protected float trackDistance = 0.0f;
+    protected final Vector2f lastTrackPosition = new Vector2f();
+    protected float lastTrackRotation = 0.0f;
+
+    // Smoothed movement rates driving engine/track audio; remote tanks only report
+    // positions (at network rate), so these are measured rather than read from input.
+    protected float audioSpeed = 0.0f;     // px/s
+    protected float audioTurnRate = 0.0f;  // deg/s
+    protected static final float AUDIO_RATE_SMOOTHING_SECONDS = 0.15f;
+    protected static final float TELEPORT_DISTANCE = 120.0f; // larger jumps are respawns, not driving
+
     // Hit-confirm flash (white for normal hits, gold for crits) and respawn shimmer
     protected long hitFlashUntilMillis = 0;
     protected boolean hitFlashGold = false;
@@ -30,6 +47,8 @@ public class ClientTank extends ClientEntity {
         this.hitPoints = data.getHitPoints();
         this.turretRotation = data.getTurretRotation();
         this.tankType = data.getTankType();
+        this.lastTrackPosition.set(data.getPosition());
+        this.lastTrackRotation = data.getRotation();
     }
 
     public String getName() { return this.name; }
@@ -92,10 +111,52 @@ public class ClientTank extends ClientEntity {
         this.turretRotation = turretRotation;
     }
 
+    public void triggerFiringRecoil() {
+        this.recoilOffset = MAX_RECOIL_OFFSET;
+    }
+
+    public float getRecoilOffset() {
+        return this.recoilOffset;
+    }
+
+    public float getTrackDistance() {
+        return this.trackDistance;
+    }
+
+    public void updateDynamics(float deltaTime) {
+        if (recoilOffset > 0) {
+            recoilOffset = Math.max(0.0f, recoilOffset - RECOIL_RECOVERY_SPEED * deltaTime);
+        }
+        float moveDist = position.distance(lastTrackPosition);
+        float rotDelta = Math.abs(rotation - lastTrackRotation);
+        trackDistance += moveDist + rotDelta * 0.25f;
+        updateAudioRates(deltaTime, moveDist);
+        lastTrackPosition.set(position);
+        lastTrackRotation = rotation;
+    }
+
+    private void updateAudioRates(float deltaTime, float moveDist) {
+        if (deltaTime <= 0.0f) return;
+        boolean teleported = moveDist > TELEPORT_DISTANCE;
+        float wrappedTurn = Math.abs((((rotation - lastTrackRotation) % 360.0f) + 540.0f) % 360.0f - 180.0f);
+        float instantSpeed = teleported ? 0.0f : moveDist / deltaTime;
+        float instantTurn = teleported ? 0.0f : wrappedTurn / deltaTime;
+        float k = 1.0f - (float) Math.exp(-deltaTime / AUDIO_RATE_SMOOTHING_SECONDS);
+        audioSpeed += (instantSpeed - audioSpeed) * k;
+        audioTurnRate += (instantTurn - audioTurnRate) * k;
+    }
+
+    public float getAudioSpeed() {
+        return audioSpeed;
+    }
+
+    public float getAudioTurnRate() {
+        return audioTurnRate;
+    }
+
     @Override
     public void update(float deltaTime) {
-        // TODO: Client-side prediction or interpolation logic could go here
-        // For now, we rely solely on server updates via addOrUpdateTank/updateTankState
+        updateDynamics(deltaTime);
     }
 
     @Override

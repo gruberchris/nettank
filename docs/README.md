@@ -24,6 +24,7 @@ Developer and architecture documentation uses lowercase filenames:
 ### Game Systems
 
 - **[line_of_sight_system.md](los_system/line_of_sight_system.md)** - Vision blocking and fog of war (future)
+- **[engine_audio.md](audio/engine_audio.md)** - RPM-driven engine/track sound, sound licensing rules, replacing placeholder recordings
 
 ## Documentation Organization
 
