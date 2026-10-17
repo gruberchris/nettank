@@ -2,12 +2,14 @@
 
 Tank engine and track sounds are driven by a simulated engine speed (RPM) per tank, not by which key is pressed. Each tank type maps to one of two engine families:
 
-| TankType | Engine family | Character |
+| TankType (in-game name) | Engine family | Character |
 |---|---|---|
-| `STANDARD` | Gas turbine (Abrams AGT1500 class) | Compressor whine plus roar, with a slow spool-up |
-| `STEALTH` | Gas turbine, quiet variant | Same recordings, lower gain and low-passed ("whispering death") |
-| `HEAVY` | Diesel V12 (Leopard 2 / T-90 class) | Deep rumble, pitched down, slow to rev |
-| `LIGHT` | Diesel V12, light variant | Same recordings, pitched up, quick to rev |
+| `STANDARD` (M1A2 Abrams MBT) | Gas turbine (Abrams AGT1500 class) | Compressor whine plus roar, with a slow spool-up |
+| `STEALTH` (Shadow Stalker) | Gas turbine, quiet variant | Same recordings, lower gain and low-passed ("whispering death") |
+| `HEAVY` (M1A2 TUSK II Heavy) | Diesel V12 | Deep rumble, pitched down, slow to rev |
+| `LIGHT` (LAV-25 Stryker) | Diesel V12, light variant | Same recordings, pitched up, quick to rev; **no track layer** (wheeled) |
+
+Only `STANDARD` and `STEALTH` use the turbine. Any new vehicle gets the diesel. A tracked one, such as a Bradley, should keep the track layer on (`trackGain` > 0). A wheeled one, like the LAV-25, gets `trackGain` 0. `forType` is an exhaustive switch, so adding a `TankType` won't compile until you pick its profile.
 
 The sounds shipped today are **synthesized placeholders** made by `EngineSoundSynth`. They are original work and legally clean, but they are not real recordings. Replace them with sourced recordings as you find them. Each file can be swapped on its own.
 

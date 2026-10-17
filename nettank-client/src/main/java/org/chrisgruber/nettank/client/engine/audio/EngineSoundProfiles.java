@@ -59,9 +59,9 @@ public final class EngineSoundProfiles {
     // Heavy diesel: low, slow to rev, loud tracks
     private static final EngineSoundProfile HEAVY =
             new EngineSoundProfile(DIESEL_V12, 1400f, 1000f, 0.88f, 1.0f, 0.9f, 1.0f, 0.9f);
-    // Light diesel: higher, snappy, thinner
+    // Light diesel: higher, snappy, thinner. The LAV-25 is wheeled, so no track layer.
     private static final EngineSoundProfile LIGHT =
-            new EngineSoundProfile(DIESEL_V12, 3000f, 2200f, 1.12f, 0.85f, 1.0f, 0.75f, 1.15f);
+            new EngineSoundProfile(DIESEL_V12, 3000f, 2200f, 1.12f, 0.85f, 1.0f, 0.0f, 1.15f);
     // Standard turbine: Abrams-like whine with spool lag
     private static final EngineSoundProfile STANDARD =
             new EngineSoundProfile(TURBINE, 22f, 12f, 1.0f, 0.9f, 1.0f, 1.0f, 1.0f);
@@ -71,6 +71,8 @@ public final class EngineSoundProfiles {
 
     private EngineSoundProfiles() {}
 
+    // Only the Abrams-family types (STANDARD, STEALTH) get the turbine. Any other vehicle uses
+    // the diesel, e.g. a future tracked Bradley would be a diesel with the track layer on.
     public static EngineSoundProfile forType(TankType type) {
         if (type == null) return STANDARD;
         return switch (type) {

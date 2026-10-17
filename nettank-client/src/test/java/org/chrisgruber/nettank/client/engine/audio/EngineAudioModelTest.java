@@ -181,6 +181,24 @@ class EngineAudioModelTest {
         assertEquals(0, countTrackShots(fast, 1.0f));
     }
 
+    @Test
+    void wheeledLightVehicleHasNoTrackSound() {
+        EngineAudioModel model = running(TankType.LIGHT);
+        assertEquals(0, countTrackShots(model, 0.2f));
+        run(model, 1.0f, true, 1.0f, 1.0f, 0);
+        assertEquals(0.0f, model.trackSlowGain());
+        assertEquals(0.0f, model.trackFastGain());
+    }
+
+    @Test
+    void onlyStandardAndStealthUseTheTurbine() {
+        for (TankType type : TankType.values()) {
+            boolean turbine = type == TankType.STANDARD || type == TankType.STEALTH;
+            assertEquals(turbine ? EngineSoundProfiles.TURBINE : EngineSoundProfiles.DIESEL_V12,
+                    EngineSoundProfiles.forType(type).sounds(), type.name());
+        }
+    }
+
     private static int countTrackShots(EngineAudioModel model, float speed01) {
         int shots = 0;
         for (float t = 0; t < 10.0f; t += DT) {

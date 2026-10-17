@@ -82,8 +82,10 @@ final class TankAudioEmitter {
             for (int i = 0; i < loops.size(); i++) {
                 engineSources[i] = createLoopSource(buffers.get(loops.get(i).path()), efx, random);
             }
-            trackSlow = createLoopSource(buffers.get(EngineSoundProfiles.TRACK_SLOW), efx, random);
-            trackFast = createLoopSource(buffers.get(EngineSoundProfiles.TRACK_FAST), efx, random);
+            if (profile.trackGain() > 0.0f) { // wheeled vehicles have no track layer
+                trackSlow = createLoopSource(buffers.get(EngineSoundProfiles.TRACK_SLOW), efx, random);
+                trackFast = createLoopSource(buffers.get(EngineSoundProfiles.TRACK_FAST), efx, random);
+            }
             if (efx) {
                 filter = alGenFilters();
                 alFilteri(filter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);

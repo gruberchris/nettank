@@ -191,7 +191,7 @@ public final class EngineAudioModel {
 
     // Occasional squeaks and clanks while crawling; they blur into the loop at speed
     private void updateTrackOneShots(float dt, float trackSpeed) {
-        if (trackOneShotCount <= 0 || trackSpeed < 0.04f || trackSpeed > 0.8f) return;
+        if (trackOneShotCount <= 0 || profile.trackGain() <= 0.0f || trackSpeed < 0.04f || trackSpeed > 0.8f) return;
         oneShotTimer -= dt;
         if (oneShotTimer <= 0.0f) {
             trackOneShotEvent = random.nextInt(trackOneShotCount);
