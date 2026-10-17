@@ -16,6 +16,9 @@ public enum PowerUpType {
 
     public enum Category { DAMAGE, RELOAD, SPEED, AMMO, ARMOR, HEALTH }
 
+    // An unclaimed pickup despawns after this long; clients use it to blink before it goes
+    public static final long UNCLAIMED_LIFETIME_MS = 30000L;
+
     private final Category category;
     private final float multiplier;
     private final long durationMs;

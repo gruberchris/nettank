@@ -204,6 +204,15 @@ public class UIManager {
     }
 
     public void drawText(String text, float screenX, float screenY, float scale, Vector3f color, float spaceWidthFactor) {
+        drawText(text, screenX, screenY, scale, color, 1.0f, spaceWidthFactor);
+    }
+
+    /** Draws text with real transparency (alpha 0..1) instead of fading the colour toward black. */
+    public void drawTextAlpha(String text, float screenX, float screenY, float scale, Vector3f color, float alpha) {
+        drawText(text, screenX, screenY, scale, color, alpha, 0.35f);
+    }
+
+    private void drawText(String text, float screenX, float screenY, float scale, Vector3f color, float alpha, float spaceWidthFactor) {
         // Check if prerequisites are met
         if (fontTexture == null || fontTexture.getTextureId() == 0 || uiShader == null || uiVaoId == 0) {
             logger.warn("UI Text rendering prerequisites not met (Font Texture ID: {}, Shader valid: {}, VAO ID: {}).",
@@ -217,7 +226,7 @@ public class UIManager {
 
         // Ensure the correct UI shader is active and set the text color
         uiShader.bind();
-        uiShader.setUniform4f("u_tintColor", color, 1.0f);
+        uiShader.setUniform4f("u_tintColor", color, alpha);
 
         // Calculate the on-screen dimensions of a single character based on font texture size and scale
         final float charBaseWidth = (float)fontTexture.getWidth() / FONT_COLS;

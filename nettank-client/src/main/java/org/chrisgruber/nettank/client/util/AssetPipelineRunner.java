@@ -36,7 +36,6 @@ public class AssetPipelineRunner {
             processTanksAndTurrets();
             processTerrainAndFlora();
             processVfxAndParticles();
-            processPowerUps();
             processUIAssets();
             generateAudioClips();
             System.out.println("Asset Pipeline Completed Successfully!");
@@ -299,18 +298,6 @@ public class AssetPipelineRunner {
         ImageIO.write(aura, "PNG", new File(TEXTURES_DIR + "effects/aura_ring.png"));
     }
 
-    private static void processPowerUps() throws Exception {
-        System.out.println("Processing Powerups...");
-        String[] powerups = {
-                "speed_2x", "speed_3x", "damage_2x", "damage_3x",
-                "reload_2x", "reload_3x", "unlimited_ammo", "repair_armor", "repair_hp"
-        };
-        for (String p : powerups) {
-            BufferedImage icon = generatePowerupCrate(p, 48);
-            ImageIO.write(icon, "PNG", new File(TEXTURES_DIR + "powerups/" + p + ".png"));
-        }
-    }
-
     // --- Audio Synthesis ---
     private static void generateAudioClips() throws Exception {
         System.out.println("Generating High-Fidelity Audio Clips...");
@@ -337,10 +324,6 @@ public class AssetPipelineRunner {
         // 5. Motorized Armored Turret Traverse Sound (Planetary gear motor + bearing race rumble)
         byte[] turretWav = synthesizeTurretRotate();
         writeWavToOggOrWav(turretWav, SOUNDS_DIR + "turret_rotate.ogg");
-
-        // 6. Tactical Supply Crate Pickup (Crisp high-tech energy chime)
-        byte[] pickupWav = synthesizePowerupChime();
-        writeWavToOggOrWav(pickupWav, SOUNDS_DIR + "powerup_pickup.ogg");
 
         // 6. Tactical UI Switch Clicks
         byte[] uiSelectWav = synthesizeClick(800, 0.04f);
@@ -1100,26 +1083,6 @@ public class AssetPipelineRunner {
         return createWavBytes(samples, sampleRate);
     }
 
-    private static byte[] synthesizePowerupChime() {
-        int sampleRate = 44100;
-        float duration = 0.45f;
-        int numSamples = (int) (sampleRate * duration);
-        short[] samples = new short[numSamples];
-
-        for (int i = 0; i < numSamples; i++) {
-            float t = i / (float) sampleRate;
-            // Tactical radio comms target lock chirp: 1100Hz -> 1760Hz rapid military chirp
-            float freq = t < 0.08f ? 1100.0f : (t < 0.18f ? 1480.0f : 1760.0f);
-            float tone = (float) Math.sin(2.0 * Math.PI * freq * t) * (float) Math.exp(-t * 6.0);
-            float harmonic = (float) Math.sin(4.0 * Math.PI * freq * t) * 0.3f * (float) Math.exp(-t * 8.0);
-            float squelch = (new Random((long)(t * 10000)).nextFloat() * 2.0f - 1.0f) * (float) Math.exp(-t * 25.0) * 0.15f;
-
-            float mix = (tone * 0.65f + harmonic * 0.25f + squelch);
-            samples[i] = (short) (mix * 32767);
-        }
-        return createWavBytes(samples, sampleRate);
-    }
-
     private static byte[] synthesizeClick(float frequency, float duration) {
         int sampleRate = 44100;
         int numSamples = (int) (sampleRate * duration);
@@ -1188,160 +1151,6 @@ public class AssetPipelineRunner {
         try (FileOutputStream fos = new FileOutputStream(outFile)) {
             fos.write(wavData);
         }
-    }
-
-    // --- High-Contrast Tactical Power-Up Crate Icons ---
-
-    private static BufferedImage generatePowerupCrate(String type, int size) {
-        BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-        // Heavy Military Ammo Crate Colors based on type
-        Color primaryColor;
-        Color accentColor;
-        String badgeText;
-        String subText;
-
-        if (type.equals("damage_2x")) {
-            primaryColor = new Color(140, 25, 20); // Crimson Ordnance
-            accentColor = new Color(255, 180, 40); // Hazard Yellow
-            badgeText = "2X";
-            subText = "AP";
-        } else if (type.equals("damage_3x")) {
-            primaryColor = new Color(180, 20, 20);
-            accentColor = new Color(255, 220, 60);
-            badgeText = "3X";
-            subText = "AP";
-        } else if (type.equals("speed_2x")) {
-            primaryColor = new Color(20, 65, 120); // Tactical Cyan/Blue
-            accentColor = new Color(50, 210, 255);
-            badgeText = "2X";
-            subText = "SPD";
-        } else if (type.equals("speed_3x")) {
-            primaryColor = new Color(15, 85, 155);
-            accentColor = new Color(80, 240, 255);
-            badgeText = "3X";
-            subText = "SPD";
-        } else if (type.equals("reload_2x")) {
-            primaryColor = new Color(145, 80, 15); // Tactical Amber/Orange
-            accentColor = new Color(255, 190, 40);
-            badgeText = "2X";
-            subText = "LOAD";
-        } else if (type.equals("reload_3x")) {
-            primaryColor = new Color(180, 95, 15);
-            accentColor = new Color(255, 215, 60);
-            badgeText = "3X";
-            subText = "LOAD";
-        } else if (type.equals("repair_hp")) {
-            primaryColor = new Color(25, 85, 40); // Army Medic Green
-            accentColor = new Color(75, 235, 100);
-            badgeText = "+HP";
-            subText = "MED";
-        } else if (type.equals("repair_armor")) {
-            primaryColor = new Color(40, 55, 75); // Ballistic Kevlar Slate
-            accentColor = new Color(100, 190, 255);
-            badgeText = "+ARM";
-            subText = "DEF";
-        } else { // unlimited_ammo
-            primaryColor = new Color(85, 30, 110); // Special Munitions Purple
-            accentColor = new Color(245, 200, 50);
-            badgeText = "MAX";
-            subText = "AMMO";
-        }
-
-        // Crate Drop Shadow
-        g.setColor(new Color(0, 0, 0, 140));
-        g.fillRoundRect(6, 8, size - 12, size - 12, 10, 10);
-
-        // Mil-Spec Crate Body
-        g.setPaint(new LinearGradientPaint(0, 4, 0, size - 4,
-                new float[]{0.0f, 0.5f, 1.0f},
-                new Color[]{primaryColor.brighter(), primaryColor, primaryColor.darker()}));
-        g.fillRoundRect(4, 4, size - 8, size - 8, 8, 8);
-
-        // Crate Corner Protective Brackets
-        g.setColor(new Color(30, 35, 40));
-        g.fillRect(4, 4, 12, 4);
-        g.fillRect(4, 4, 4, 12);
-        g.fillRect(size - 16, 4, 12, 4);
-        g.fillRect(size - 8, 4, 4, 12);
-        g.fillRect(4, size - 8, 12, 4);
-        g.fillRect(4, size - 16, 4, 12);
-        g.fillRect(size - 16, size - 8, 12, 4);
-        g.fillRect(size - 8, size - 16, 4, 12);
-
-        // High-Contrast Center Tactical Placard
-        int pSize = size - 18;
-        g.setColor(new Color(15, 18, 22, 240));
-        g.fillRoundRect(9, 9, pSize, pSize, 6, 6);
-        g.setColor(accentColor);
-        g.setStroke(new BasicStroke(2));
-        g.drawRoundRect(9, 9, pSize, pSize, 6, 6);
-
-        // Specific Tactical Iconography
-        if (type.equals("repair_hp")) {
-            // Bright Red/White Medic Cross
-            g.setColor(Color.WHITE);
-            g.fillRect(size / 2 - 12, size / 2 - 12, 24, 24);
-            g.setColor(new Color(220, 30, 30));
-            g.fillRect(size / 2 - 3, size / 2 - 10, 6, 20);
-            g.fillRect(size / 2 - 10, size / 2 - 3, 20, 6);
-        } else if (type.equals("repair_armor")) {
-            // Ballistic Shield
-            Polygon shield = new Polygon(
-                    new int[]{size / 2 - 12, size / 2 + 12, size / 2 + 12, size / 2, size / 2 - 12},
-                    new int[]{size / 2 - 12, size / 2 - 12, size / 2 + 2, size / 2 + 12, size / 2 + 2},
-                    5
-            );
-            g.setColor(new Color(60, 160, 255));
-            g.fillPolygon(shield);
-            g.setColor(Color.WHITE);
-            g.setStroke(new BasicStroke(2));
-            g.drawPolygon(shield);
-        } else if (type.startsWith("speed")) {
-            // Dual High-Velocity Propulsion Chevrons >>
-            g.setColor(accentColor);
-            g.setStroke(new BasicStroke(3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_MITER));
-            g.drawLine(size / 2 - 8, size / 2 - 10, size / 2 - 1, size / 2 - 3);
-            g.drawLine(size / 2 - 1, size / 2 - 3, size / 2 - 8, size / 2 + 4);
-            g.drawLine(size / 2, size / 2 - 10, size / 2 + 7, size / 2 - 3);
-            g.drawLine(size / 2 + 7, size / 2 - 3, size / 2, size / 2 + 4);
-        } else if (type.startsWith("damage")) {
-            // APFSDS Sabot Dart
-            g.setColor(accentColor);
-            Polygon dart = new Polygon(
-                    new int[]{size / 2, size / 2 + 6, size / 2 + 2, size / 2 + 2, size / 2 - 2, size / 2 - 2, size / 2 - 6},
-                    new int[]{size / 2 - 13, size / 2 - 3, size / 2 - 3, size / 2 + 5, size / 2 + 5, size / 2 - 3, size / 2 - 3},
-                    7
-            );
-            g.fillPolygon(dart);
-        } else if (type.startsWith("reload")) {
-            // Autoloader Twin Shells
-            g.setColor(accentColor);
-            g.fillRoundRect(size / 2 - 8, size / 2 - 12, 6, 16, 3, 3);
-            g.fillRoundRect(size / 2 + 2, size / 2 - 12, 6, 16, 3, 3);
-        } else {
-            // Infinity Ammo Symbol
-            g.setColor(accentColor);
-            g.setFont(new Font("SansSerif", Font.BOLD, 18));
-            FontMetrics fm = g.getFontMetrics();
-            int iw = fm.stringWidth("∞");
-            g.drawString("∞", (size - iw) / 2, size / 2 + 1);
-        }
-
-        // Bold Stencil Subtext at bottom of crate
-        g.setFont(new Font("SansSerif", Font.BOLD, 11));
-        FontMetrics fm = g.getFontMetrics();
-        int bw = fm.stringWidth(badgeText + " " + subText);
-        g.setColor(new Color(0, 0, 0, 220));
-        g.drawString(badgeText + " " + subText, (size - bw) / 2 + 1, size - 8 + 1);
-        g.setColor(accentColor);
-        g.drawString(badgeText + " " + subText, (size - bw) / 2, size - 8);
-
-        g.dispose();
-        return img;
     }
 
     // --- US Army / USMC Tactical Military UI & HUD Assets ---

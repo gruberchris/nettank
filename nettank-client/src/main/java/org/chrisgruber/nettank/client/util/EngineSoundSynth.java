@@ -489,7 +489,7 @@ public final class EngineSoundSynth {
         return loop;
     }
 
-    private static void writeGroup(Map<String, float[]> clips, float targetPeak, boolean force) throws IOException {
+    static void writeGroup(Map<String, float[]> clips, float targetPeak, boolean force) throws IOException {
         float peak = 0.0f;
         for (float[] clip : clips.values()) {
             for (float s : clip) peak = Math.max(peak, Math.abs(s));

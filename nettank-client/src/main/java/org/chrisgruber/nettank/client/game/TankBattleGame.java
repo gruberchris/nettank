@@ -14,6 +14,8 @@ import org.chrisgruber.nettank.client.engine.ui.StatusMessageKind;
 import org.chrisgruber.nettank.client.engine.ui.UIManager;
 import org.chrisgruber.nettank.client.game.effects.ExplosionEffect;
 import org.chrisgruber.nettank.client.game.effects.FlameEffect;
+import org.chrisgruber.nettank.client.game.effects.PowerUpAnimation;
+import org.chrisgruber.nettank.client.game.effects.PowerUpBurstEffect;
 import org.chrisgruber.nettank.client.game.effects.SmokeEffect;
 import org.chrisgruber.nettank.client.game.entities.ClientBullet;
 import org.chrisgruber.nettank.client.game.entities.ClientTank;
@@ -33,6 +35,7 @@ import javax.swing.*; // For JOptionPane on error/disconnect
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.lwjgl.glfw.GLFW.*;
@@ -143,7 +146,27 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private record ActiveBuff(org.chrisgruber.nettank.common.entities.PowerUpType type, long endTimeMillis) {}
     private final Map<Integer, ClientPowerUp> powerUps = new ConcurrentHashMap<>();
     private final Map<Integer, Map<org.chrisgruber.nettank.common.entities.PowerUpType.Category, ActiveBuff>> activeBuffsByPlayerId = new ConcurrentHashMap<>();
-    private static final float POWERUP_RENDER_SIZE = 24.0f;
+    private static final float POWERUP_RENDER_SIZE = 32.0f;
+    // Labels over pickups fade in as the player gets close, so the field isn't cluttered with text
+    private static final float POWERUP_LABEL_FADE_START = 130.0f;
+    private static final float POWERUP_LABEL_FADE_END = 230.0f;
+    private static final Vector3f RARE_RAYS_GOLD = new Vector3f(1.0f, 0.85f, 0.35f);
+    // Smooth-filtered so the pop-in, coin flip and glows don't shimmer
+    private Texture powerUpGlowTexture;
+    private Texture powerUpShadowTexture;
+    private Texture powerUpRingTexture;
+    private Texture powerUpSparkleTexture;
+    private Texture powerUpRaysTexture;
+    private Texture powerUpParticleTexture;
+    private Texture hudTickTexture;
+    private final List<PowerUpBurstEffect> powerUpBursts = new CopyOnWriteArrayList<>();
+    // Network callbacks run on the client thread; power-up effects and sounds are applied on the main thread
+    private final Queue<Runnable> powerUpEvents = new ConcurrentLinkedQueue<>();
+    // The server ends a boost right before activating its replacement, so the power-down
+    // sound waits briefly and only plays if the category is still empty
+    private record PendingBuffEnd(PowerUpType.Category category, long dueMillis) {}
+    private final List<PendingBuffEnd> pendingBuffEnds = new ArrayList<>();
+    private final Map<PowerUpType.Category, Long> lastBuffWarningSecond = new EnumMap<>(PowerUpType.Category.class);
 
     // Hit feedback effects
     private final List<org.chrisgruber.nettank.client.game.effects.HitSparkEffect> hitSparks = new CopyOnWriteArrayList<>();
@@ -344,8 +367,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             // Power-up pickup icons (tinted per-category at render time)
             logger.debug("Loading power-up icon textures...");
             for (var type : org.chrisgruber.nettank.common.entities.PowerUpType.values()) {
-                powerUpIconTextures.put(type, new Texture("textures/powerups/" + type.name().toLowerCase() + ".png"));
+                powerUpIconTextures.put(type, new Texture(PowerUpStyle.iconPath(type), true));
             }
+            String powerUpFx = "textures/powerups/fx/";
+            powerUpGlowTexture = new Texture(powerUpFx + "glow.png", true);
+            powerUpShadowTexture = new Texture(powerUpFx + "shadow.png", true);
+            powerUpRingTexture = new Texture(powerUpFx + "ring.png", true);
+            powerUpSparkleTexture = new Texture(powerUpFx + "sparkle.png", true);
+            powerUpRaysTexture = new Texture(powerUpFx + "rays.png", true);
+            powerUpParticleTexture = new Texture(powerUpFx + "particle.png", true);
+            hudTickTexture = new Texture(powerUpFx + "tick.png", true);
 
             // Effect sprites
             logger.debug("Loading effect sprite textures...");
@@ -388,12 +419,18 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             audioManager.loadSound("hit", "sounds/hit.ogg");
             audioManager.loadSound("hit_crit", "sounds/hit_crit.ogg");
             audioManager.loadSound("destroyed", "sounds/destroyed.ogg");
-            audioManager.loadSound("powerup_pickup", "sounds/powerup_pickup.ogg");
             audioManager.loadSound("ui_select", "sounds/ui_select.ogg");
             audioManager.loadSound("ui_confirm", "sounds/ui_confirm.ogg");
             audioManager.loadSound("countdown_tick", "sounds/countdown_tick.ogg");
             audioManager.loadTankAudio();
             audioManager.loadTurretRotateLoop("sounds/turret_rotate.ogg");
+            for (PowerUpType.Category category : PowerUpType.Category.values()) {
+                audioManager.loadSoundAnyFormat("sounds/powerups/pickup_" + category.name().toLowerCase());
+            }
+            for (String sound : List.of(PowerUpStyle.SOUND_SPAWN, PowerUpStyle.SOUND_EXPIRE, PowerUpStyle.SOUND_BUFF_END,
+                    PowerUpStyle.SOUND_BUFF_WARNING, PowerUpStyle.SOUND_TIER3_SPARKLE)) {
+                audioManager.loadSoundAnyFormat(sound);
+            }
 
             // --- Load Individual Explosion Frames ---
             logger.debug("Loading explosion frame textures...");
@@ -567,6 +604,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         }
         flyingTurrets.removeIf(org.chrisgruber.nettank.client.game.effects.FlyingTurretEffect::isFinished);
 
+        updatePowerUpEffects();
+
         // --- Hit feedback effects ---
         hitSparks.removeIf(org.chrisgruber.nettank.client.game.effects.HitSparkEffect::update);
         floatingTexts.removeIf(org.chrisgruber.nettank.client.game.effects.FloatingTextEffect::isFinished);
@@ -700,13 +739,19 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             logger.error("Received unknown power-up type '{}' for id {}", type, powerUpId);
             return;
         }
-        powerUps.put(powerUpId, new ClientPowerUp(powerUpId, powerUpType, new Vector2f(x, y), System.currentTimeMillis()));
+        ClientPowerUp powerUp = new ClientPowerUp(powerUpId, powerUpType, new Vector2f(x, y), System.currentTimeMillis());
+        powerUps.put(powerUpId, powerUp);
+        powerUpEvents.add(() -> onPowerUpSpawned(powerUp));
         logger.debug("Power-up spawned: {} ({}) at ({}, {})", powerUpId, type, x, y);
     }
 
     @Override
     public void powerUpRemoved(int powerUpId, String reason) {
-        powerUps.remove(powerUpId);
+        ClientPowerUp removed = powerUps.remove(powerUpId);
+        if (removed != null) {
+            boolean taken = "TAKEN".equals(reason);
+            powerUpEvents.add(() -> onPowerUpRemoved(removed, taken));
+        }
         logger.debug("Power-up removed: {} ({})", powerUpId, reason);
     }
 
@@ -719,9 +764,6 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 .computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
                 .put(powerUpType.getCategory(), new ActiveBuff(powerUpType, System.currentTimeMillis() + durationMs));
 
-        if (playerId == localPlayerId) {
-            audioManager.playSound("powerup_pickup");
-        }
         logger.debug("Power-up activated for player {}: {} ({} ms)", playerId, type, durationMs);
     }
 
@@ -734,32 +776,90 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         if (buffs != null) {
             buffs.remove(powerUpType.getCategory());
         }
+        if (playerId == localPlayerId) {
+            var category = powerUpType.getCategory();
+            powerUpEvents.add(() -> pendingBuffEnds.add(new PendingBuffEnd(category, System.currentTimeMillis() + 150)));
+        }
         logger.debug("Power-up ended for player {}: {}", playerId, type);
     }
 
-    private static Vector3f powerUpCategoryColor(org.chrisgruber.nettank.common.entities.PowerUpType.Category category) {
-        return switch (category) {
-            case DAMAGE -> new Vector3f(1.0f, 0.25f, 0.2f);
-            case RELOAD -> new Vector3f(1.0f, 0.6f, 0.1f);
-            case SPEED -> new Vector3f(0.25f, 0.55f, 1.0f);
-            case AMMO -> new Vector3f(0.9f, 0.7f, 1.0f);
-            case ARMOR -> new Vector3f(0.35f, 0.85f, 1.0f);
-            case HEALTH -> new Vector3f(0.4f, 1.0f, 0.45f);
-        };
+    // --- Power-up feedback (main thread) ---
+
+    // Pickups and effects only show for what the player can see, like the pickups themselves
+    private boolean isVisibleToPlayer(Vector2f position) {
+        Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
+        float rangeSq = isSpectating ? Float.MAX_VALUE : VIEW_RANGE * VIEW_RANGE;
+        return isObjectVisible(position, playerPos, rangeSq);
     }
 
-    public static String powerUpTacticalLabel(PowerUpType type) {
-        return switch (type) {
-            case DAMAGE_2X -> "[2X AP SABOT]";
-            case DAMAGE_3X -> "[3X AP SABOT]";
-            case SPEED_2X -> "[2X TURBO SPD]";
-            case SPEED_3X -> "[3X TURBO SPD]";
-            case RELOAD_2X -> "[2X AUTOLOAD]";
-            case RELOAD_3X -> "[3X AUTOLOAD]";
-            case REPAIR_HP -> "[+HP FIELD MEDIC]";
-            case REPAIR_ARMOR -> "[+ARMOR REPAIR]";
-            case UNLIMITED_AMMO -> "[MAX MUNITIONS]";
-        };
+    private void onPowerUpSpawned(ClientPowerUp powerUp) {
+        if (!isVisibleToPlayer(powerUp.position())) return;
+        audioManager.playSoundAt(PowerUpStyle.SOUND_SPAWN, powerUp.position().x, powerUp.position().y, 0.45f, 1.0f);
+        if (effectsAtLeastLow()) {
+            powerUpBursts.add(new PowerUpBurstEffect(PowerUpBurstEffect.Kind.SPAWN, powerUp.position(),
+                    PowerUpStyle.color(powerUp.type()), System.currentTimeMillis(), powerUp.id()));
+        }
+    }
+
+    private void onPowerUpRemoved(ClientPowerUp powerUp, boolean taken) {
+        if (!isVisibleToPlayer(powerUp.position())) return;
+        Vector2f position = powerUp.position();
+        Vector3f color = PowerUpStyle.color(powerUp.type());
+        long now = System.currentTimeMillis();
+        if (taken) {
+            boolean rare = PowerUpStyle.tier(powerUp.type()) == 3;
+            audioManager.playSoundAt(PowerUpStyle.pickupSound(powerUp.type()), position.x, position.y, 0.8f, rare ? 1.06f : 1.0f);
+            if (rare) {
+                audioManager.playSoundAt(PowerUpStyle.SOUND_TIER3_SPARKLE, position.x, position.y, 0.5f, 1.0f);
+            }
+            if (effectsAtLeastLow()) {
+                powerUpBursts.add(new PowerUpBurstEffect(PowerUpBurstEffect.Kind.PICKUP, position, color, now, powerUp.id()));
+            }
+            floatingTexts.add(new org.chrisgruber.nettank.client.game.effects.FloatingTextEffect(
+                    PowerUpStyle.label(powerUp.type()) + "!", new Vector2f(position.x, position.y + 18.0f), color, 1300));
+        } else {
+            audioManager.playSoundAt(PowerUpStyle.SOUND_EXPIRE, position.x, position.y, 0.5f, 1.0f);
+            if (effectsAtLeastLow()) {
+                powerUpBursts.add(new PowerUpBurstEffect(PowerUpBurstEffect.Kind.EXPIRE, position, color, now, powerUp.id()));
+            }
+        }
+    }
+
+    private void updatePowerUpEffects() {
+        Runnable event;
+        while ((event = powerUpEvents.poll()) != null) {
+            event.run();
+        }
+        long now = System.currentTimeMillis();
+        powerUpBursts.removeIf(burst -> burst.isFinished(now));
+
+        var localBuffs = activeBuffsByPlayerId.get(localPlayerId);
+        boolean localAlive = localTank != null && localTank.getHitPoints() > 0;
+        pendingBuffEnds.removeIf(end -> {
+            if (now < end.dueMillis()) return false;
+            boolean replaced = localBuffs != null && localBuffs.containsKey(end.category());
+            if (!replaced && localAlive) {
+                audioManager.playSound(PowerUpStyle.SOUND_BUFF_END, 0.6f, 1.0f);
+            }
+            return true;
+        });
+
+        // Countdown ticks at 3, 2 and 1 seconds left on each boost
+        if (localBuffs == null) {
+            lastBuffWarningSecond.clear();
+            return;
+        }
+        lastBuffWarningSecond.keySet().removeIf(category -> !localBuffs.containsKey(category));
+        for (ActiveBuff buff : localBuffs.values()) {
+            long secondsLeft = (Math.max(0, buff.endTimeMillis() - now) + 999) / 1000;
+            PowerUpType.Category category = buff.type().getCategory();
+            if (secondsLeft > 3 || secondsLeft == 0) {
+                lastBuffWarningSecond.remove(category);
+            } else if (!Long.valueOf(secondsLeft).equals(lastBuffWarningSecond.get(category))) {
+                lastBuffWarningSecond.put(category, secondsLeft);
+                audioManager.playSound(PowerUpStyle.SOUND_BUFF_WARNING, 0.35f, 1.0f);
+            }
+        }
     }
 
     @Override
@@ -1007,31 +1107,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         // -------------------------
 
         // --- Render Power-Up Pickups ---
-        if (!powerUps.isEmpty() && auraRingTexture != null) {
+        if (!powerUps.isEmpty()) {
             long now = System.currentTimeMillis();
-
             for (ClientPowerUp powerUp : powerUps.values()) {
                 if (!isObjectVisible(powerUp.position(), playerPos, renderRangeSq)) continue;
-
-                float age = (now - powerUp.spawnTime()) / 1000.0f;
-                float bobOffset = (float) Math.sin(age * 3.0f) * 3.0f;
-                float pulse = 0.3f + 0.15f * (float) Math.sin(age * 5.0f);
-                Vector3f color = powerUpCategoryColor(powerUp.type().getCategory());
-
-                // Soft glow ring under the icon
-                auraRingTexture.bind();
-                shader.setUniform4f("u_tintColor", color, pulse);
-                renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
-                        POWERUP_RENDER_SIZE * 2.0f, POWERUP_RENDER_SIZE * 2.0f, 0f, shader);
-
-                // Icon (render crisp in full color)
-                Texture icon = powerUpIconTextures.get(powerUp.type());
-                if (icon != null) {
-                    icon.bind();
-                    shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
-                    renderer.drawQuad(powerUp.position().x, powerUp.position().y + bobOffset,
-                            POWERUP_RENDER_SIZE, POWERUP_RENDER_SIZE, 0f, shader);
-                }
+                renderPowerUp(powerUp, now);
             }
             shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
         }
@@ -1048,7 +1128,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 if (!isObjectVisible(tank.getPosition(), playerPos, renderRangeSq)) continue;
 
                 var firstBuff = entry.getValue().values().iterator().next();
-                Vector3f color = powerUpCategoryColor(firstBuff.type().getCategory());
+                Vector3f color = PowerUpStyle.color(firstBuff.type());
                 float pulse = 0.2f + 0.1f * (float) Math.sin(now / 150.0);
 
                 shader.setUniform4f("u_tintColor", color, pulse);
@@ -1373,6 +1453,9 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
             shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
         }
+
+        // --- Render Power-Up Bursts (over tanks, so a pickup reads on top of the tank) ---
+        renderPowerUpBursts(playerPos, renderRangeSq);
         // -------------------------
 
         // --- Render Tile Fires ---
@@ -1416,10 +1499,182 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         renderUI();
     }
 
+    // Hovering token over a breathing shadow, with glow, a periodic coin flip and twinkles.
+    // x3 power-ups get rotating gold light rays. Blinks faster as it nears despawn.
+    private void renderPowerUp(ClientPowerUp powerUp, long now) {
+        long age = now - powerUp.spawnTime();
+        float x = powerUp.position().x;
+        float y = powerUp.position().y;
+        float pop = PowerUpAnimation.spawnScale(age);
+        float alpha = PowerUpAnimation.expiryAlpha(age, PowerUpType.UNCLAIMED_LIFETIME_MS);
+        float hover = PowerUpAnimation.hoverHeight(age) * Math.min(pop, 1.0f);
+        float size = POWERUP_RENDER_SIZE * pop;
+        float iconY = y + hover;
+        Vector3f color = PowerUpStyle.color(powerUp.type());
+
+        if (powerUpShadowTexture != null) {
+            float shadowScale = PowerUpAnimation.shadowScale(hover);
+            powerUpShadowTexture.bind();
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, PowerUpAnimation.shadowAlpha(hover) * alpha);
+            renderer.drawQuad(x + 2.0f, y - 4.0f, size * 1.1f * shadowScale, size * 0.55f * shadowScale, 0f, shader);
+        }
+
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE); // additive light
+        if (PowerUpStyle.tier(powerUp.type()) == 3 && effectsAtLeastLow() && powerUpRaysTexture != null) {
+            powerUpRaysTexture.bind();
+            shader.setUniform4f("u_tintColor", RARE_RAYS_GOLD, 0.6f * alpha);
+            renderer.drawQuad(x, iconY, size * 2.6f, size * 2.6f, PowerUpAnimation.rayRotation(age), shader);
+        }
+        if (powerUpGlowTexture != null) {
+            powerUpGlowTexture.bind();
+            shader.setUniform4f("u_tintColor", color, PowerUpAnimation.glowPulse(age) * alpha);
+            renderer.drawQuad(x, iconY, size * 2.5f, size * 2.5f, 0f, shader);
+        }
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        Texture icon = powerUpIconTextures.get(powerUp.type());
+        if (icon != null) {
+            icon.bind();
+            shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, alpha);
+            renderer.drawQuad(x, iconY, size * PowerUpAnimation.flipWidth(age, powerUp.id()), size, 0f, shader);
+        }
+
+        if (effectsFull() && powerUpSparkleTexture != null) {
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            powerUpSparkleTexture.bind();
+            Vector3f sparkleColor = new Vector3f(color).lerp(new Vector3f(1.0f), 0.6f);
+            for (int k = 0; k < PowerUpAnimation.SPARKLE_COUNT; k++) {
+                var sparkle = PowerUpAnimation.sparkle(age, powerUp.id(), k);
+                if (sparkle.alpha() < 0.01f) continue;
+                shader.setUniform4f("u_tintColor", sparkleColor, sparkle.alpha() * alpha);
+                renderer.drawQuad(x + sparkle.dx(), iconY + sparkle.dy(), sparkle.size(), sparkle.size(), 0f, shader);
+            }
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
+    }
+
+    // Spawn pops, pickup bursts (additive light) and expiry puffs (alpha smoke)
+    private void renderPowerUpBursts(Vector2f playerPos, float renderRangeSq) {
+        if (powerUpBursts.isEmpty() || powerUpParticleTexture == null || powerUpRingTexture == null) return;
+        long now = System.currentTimeMillis();
+        for (PowerUpBurstEffect burst : powerUpBursts) {
+            if (!isObjectVisible(burst.getPosition(), playerPos, renderRangeSq)) continue;
+            boolean puff = burst.getKind() == PowerUpBurstEffect.Kind.EXPIRE;
+            glBlendFunc(GL_SRC_ALPHA, puff ? GL_ONE_MINUS_SRC_ALPHA : GL_ONE);
+            Vector3f color = burst.getColor();
+            Vector2f pos = burst.getPosition();
+
+            float radius = burst.ringRadius(now);
+            powerUpRingTexture.bind();
+            shader.setUniform4f("u_tintColor", color, burst.ringAlpha(now));
+            renderer.drawQuad(pos.x, pos.y, radius * 2.0f, radius * 2.0f, 0f, shader);
+
+            float flash = burst.flashAlpha(now);
+            if (flash > 0.01f && powerUpGlowTexture != null) {
+                powerUpGlowTexture.bind();
+                shader.setUniform4f("u_tintColor", new Vector3f(color).lerp(new Vector3f(1.0f), 0.5f), flash);
+                renderer.drawQuad(pos.x, pos.y, 80.0f, 80.0f, 0f, shader);
+            }
+
+            powerUpParticleTexture.bind();
+            for (int i = 0; i < burst.particleCount(); i++) {
+                var particle = burst.particle(i, now);
+                shader.setUniform4f("u_tintColor", color, particle.alpha() * (puff ? 0.6f : 1.0f));
+                renderer.drawQuad(particle.x(), particle.y(), particle.size(), particle.size(), 0f, shader);
+            }
+        }
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        shader.setUniform4f("u_tintColor", 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
     // Helper for renderGame
     private boolean isObjectVisible(Vector2f objectPos, Vector2f playerPos, float rangeSq) {
         if (isSpectating || playerPos == null) return true; // Spectators see everything
         return objectPos.distanceSquared(playerPos) <= rangeSq;
+    }
+
+    private static final Vector3f BLACK = new Vector3f(0.0f);
+
+    // Active boosts, stacked above the compass panel: token icon inside a ring of countdown
+    // ticks, label and seconds left. The icon blinks during the last three seconds.
+    private void renderActiveBoosts() {
+        var localBuffs = activeBuffsByPlayerId.get(localPlayerId);
+        if (localBuffs == null || localBuffs.isEmpty() || localTank == null) return;
+        long now = System.currentTimeMillis();
+        final int ticks = 20;
+        final float iconSize = 30.0f;
+        final float ringRadius = 21.0f;
+        final float rowHeight = 50.0f;
+        float centerX = 14.0f + ringRadius + 4.0f;
+        float centerY = windowHeight - 104.0f - 12.0f - rowHeight / 2.0f; // the compass panel is 104 px tall with margin
+
+        List<ActiveBuff> buffs = new ArrayList<>(localBuffs.values());
+        buffs.sort(Comparator.comparing(buff -> buff.type().getCategory()));
+        for (ActiveBuff buff : buffs) {
+            long remainingMs = Math.max(0, buff.endTimeMillis() - now);
+            float fraction = buff.type().getDurationMs() > 0 ? remainingMs / (float) buff.type().getDurationMs() : 0.0f;
+            int litTicks = (int) Math.ceil(fraction * ticks);
+            boolean blinkOff = remainingMs <= 3000 && (now / 150) % 2 == 0;
+            Vector3f color = PowerUpStyle.color(buff.type());
+
+            if (hudTickTexture != null) {
+                for (int k = 0; k < ticks; k++) {
+                    double angle = Math.toRadians(k * 360.0 / ticks);
+                    float tx = centerX + ringRadius * (float) Math.sin(angle);
+                    float ty = centerY - ringRadius * (float) Math.cos(angle);
+                    boolean lit = k < litTicks;
+                    uiManager.drawRotatedTexture(hudTickTexture, tx - 1.5f, ty - 3.5f, 3.0f, 7.0f,
+                            k * 360.0f / ticks, lit ? color : new Vector3f(0.25f, 0.28f, 0.3f), lit ? 1.0f : 0.6f);
+                }
+            }
+            Texture icon = powerUpIconTextures.get(buff.type());
+            if (icon != null) {
+                uiManager.drawTexture(icon, centerX - iconSize / 2.0f, centerY - iconSize / 2.0f, iconSize, iconSize,
+                        new Vector3f(1.0f), blinkOff ? 0.35f : 1.0f);
+            }
+
+            String label = PowerUpStyle.label(buff.type());
+            String seconds = ((remainingMs + 999) / 1000) + "S";
+            float textX = centerX + ringRadius + 10.0f;
+            uiManager.drawTextAlpha(label, textX + 1.0f, centerY - 13.0f, 0.42f, BLACK, 0.7f);
+            uiManager.drawTextAlpha(label, textX, centerY - 14.0f, 0.42f, color, 1.0f);
+            uiManager.drawTextAlpha(seconds, textX, centerY + 2.0f, 0.4f,
+                    remainingMs <= 3000 ? new Vector3f(1.0f, 0.35f, 0.3f) : new Vector3f(0.9f, 0.92f, 0.9f), 1.0f);
+            centerY -= rowHeight;
+        }
+    }
+
+    // Short label above pickups the player can see, fading in as they get close
+    private void renderPowerUpLabels() {
+        if (powerUps.isEmpty() || camera == null) return;
+        Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
+        float viewWidth = camera.getViewRight() - camera.getViewLeft();
+        float viewHeight = camera.getViewTop() - camera.getViewBottom();
+        long now = System.currentTimeMillis();
+
+        for (ClientPowerUp powerUp : powerUps.values()) {
+            if (!isVisibleToPlayer(powerUp.position())) continue;
+            float alpha = 1.0f;
+            if (playerPos != null && !isSpectating) {
+                float distance = powerUp.position().distance(playerPos);
+                alpha = Math.max(0.0f, Math.min(1.0f,
+                        (POWERUP_LABEL_FADE_END - distance) / (POWERUP_LABEL_FADE_END - POWERUP_LABEL_FADE_START)));
+            }
+            long age = now - powerUp.spawnTime();
+            alpha *= Math.min(1.0f, PowerUpAnimation.spawnScale(age))
+                    * PowerUpAnimation.expiryAlpha(age, PowerUpType.UNCLAIMED_LIFETIME_MS);
+            if (alpha < 0.02f) continue;
+
+            float labelWorldY = powerUp.position().y + PowerUpAnimation.hoverHeight(age) + POWERUP_RENDER_SIZE / 2.0f + 6.0f;
+            float screenX = (powerUp.position().x - camera.getViewLeft()) / viewWidth * windowWidth;
+            float screenY = (camera.getViewTop() - labelWorldY) / viewHeight * windowHeight;
+            String label = PowerUpStyle.label(powerUp.type());
+            float scale = 0.36f;
+            float textX = screenX - uiManager.getTextWidth(label, scale) / 2.0f;
+            float textY = screenY - uiManager.getTextHeight(scale);
+            uiManager.drawTextAlpha(label, textX + 1.0f, textY + 1.0f, scale, BLACK, alpha * 0.75f);
+            uiManager.drawTextAlpha(label, textX, textY, scale, PowerUpStyle.color(powerUp.type()), alpha);
+        }
     }
 
     private void renderUI() {
@@ -1672,37 +1927,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             }
         }
 
-        // Active buff stack with countdowns (bottom-left)
-        var localBuffs = activeBuffsByPlayerId.get(localPlayerId);
-        if (localBuffs != null && !localBuffs.isEmpty()) {
-            long now = System.currentTimeMillis();
-            float buffY = windowHeight - 40.0f;
-
-            for (ActiveBuff buff : localBuffs.values()) {
-                long remainingMs = Math.max(0, buff.endTimeMillis() - now);
-                String line = buff.type().name() + " " + ((remainingMs + 999) / 1000) + "S";
-                uiManager.drawText(line, 10, buffY, UI_TEXT_SCALE_NORMAL,
-                        powerUpCategoryColor(buff.type().getCategory()));
-                buffY -= uiManager.getTextHeight(UI_TEXT_SCALE_NORMAL) + 6.0f;
-            }
-        }
-
-        // Floating tactical label directly above in-world powerup pickups
-        if (!powerUps.isEmpty() && camera != null) {
-            float viewWidth = camera.getViewRight() - camera.getViewLeft();
-            float viewHeight = camera.getViewTop() - camera.getViewBottom();
-            for (ClientPowerUp powerUp : powerUps.values()) {
-                float screenX = (powerUp.position().x - camera.getViewLeft()) / viewWidth * windowWidth;
-                float screenY = (camera.getViewTop() - powerUp.position().y) / viewHeight * windowHeight;
-                if (screenX < -50 || screenX > windowWidth + 50 || screenY < -50 || screenY > windowHeight + 50) continue;
-
-                String label = powerUpTacticalLabel(powerUp.type());
-                float scale = 0.35f;
-                float tw = uiManager.getTextWidth(label, scale);
-                Vector3f color = powerUpCategoryColor(powerUp.type().getCategory());
-                uiManager.drawText(label, screenX - tw / 2.0f, screenY - 26, scale, color);
-            }
-        }
+        renderActiveBoosts();
+        renderPowerUpLabels();
 
         // Floating damage text above the player's tank (world -> screen projection)
         if (!floatingTexts.isEmpty() && camera != null) {
@@ -1715,9 +1941,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 float screenY = (camera.getViewTop() - world.y) / viewHeight * windowHeight;
 
                 float alpha = floatingText.getAlpha();
-                Vector3f color = new Vector3f(floatingText.getColor()).mul(alpha);
                 float textWidth = uiManager.getTextWidth(floatingText.getText(), UI_TEXT_SCALE_NORMAL);
-                uiManager.drawText(floatingText.getText(), screenX - textWidth / 2.0f, screenY, UI_TEXT_SCALE_NORMAL, color);
+                float textX = screenX - textWidth / 2.0f;
+                uiManager.drawTextAlpha(floatingText.getText(), textX + 1.5f, screenY + 1.5f, UI_TEXT_SCALE_NORMAL, BLACK, alpha * 0.7f);
+                uiManager.drawTextAlpha(floatingText.getText(), textX, screenY, UI_TEXT_SCALE_NORMAL, floatingText.getColor(), alpha);
             }
         }
 
@@ -2047,6 +2274,10 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
         try { if (trackMarkTexture != null) trackMarkTexture.delete(); } catch (Exception e) { logger.error("Error deleting trackMarkTexture", e); }
         try { if (scorchDecalTexture != null) scorchDecalTexture.delete(); } catch (Exception e) { logger.error("Error deleting scorchDecalTexture", e); }
         try { if (auraRingTexture != null) auraRingTexture.delete(); } catch (Exception e) { logger.error("Error deleting auraRingTexture", e); }
+        for (Texture t : new Texture[] {powerUpGlowTexture, powerUpShadowTexture, powerUpRingTexture, powerUpSparkleTexture,
+                powerUpRaysTexture, powerUpParticleTexture, hudTickTexture}) {
+            try { if (t != null) t.delete(); } catch (Exception ignored) {}
+        }
         try { if (exhaustTexture != null) exhaustTexture.delete(); } catch (Exception e) { logger.error("Error deleting exhaustTexture", e); }
         try { if (laserSightTexture != null) laserSightTexture.delete(); } catch (Exception ignored) {}
         try { if (aimReticleTexture != null) aimReticleTexture.delete(); } catch (Exception ignored) {}

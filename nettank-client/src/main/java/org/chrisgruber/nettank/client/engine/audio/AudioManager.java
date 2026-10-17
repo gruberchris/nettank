@@ -324,8 +324,12 @@ public class AudioManager {
         tanksUpdatedThisFrame.clear();
     }
 
-    // Loads path + ".ogg" if present, else path + ".wav"; the buffer is registered under path
-    private boolean loadSoundAnyFormat(String path) {
+    /**
+     * Loads path + ".ogg" if present, else path + ".wav", registered under {@code path}
+     * (so a sourced .ogg replaces a synthesized .wav placeholder just by being dropped in).
+     */
+    public boolean loadSoundAnyFormat(String path) {
+        if (!initialized) return false;
         for (String extension : new String[] {".ogg", ".wav"}) {
             if (resourceExists(path + extension)) {
                 loadSound(path, path + extension);
