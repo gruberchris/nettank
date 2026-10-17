@@ -23,7 +23,7 @@ public class PowerUpManager {
     static final long SPAWN_INTERVAL_MS = 10000;
     static final long SPAWN_JITTER_MS = 2500;
     static final int MAX_CONCURRENT = 4;
-    static final long UNCLAIMED_DESPAWN_MS = 30000;
+    static final long UNCLAIMED_DESPAWN_MS = PowerUpType.UNCLAIMED_LIFETIME_MS;
     static final float PICKUP_RADIUS = 16.0f;
 
     public static final class SpawnedPowerUp {

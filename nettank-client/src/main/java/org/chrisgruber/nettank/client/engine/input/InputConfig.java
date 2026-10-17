@@ -18,7 +18,7 @@ public class InputConfig {
     private static final String CONFIG_FILE = "input-config.json";
     
     // Bumped when defaults change incompatibly; load() migrates older files
-    public static final int CURRENT_CONFIG_VERSION = 2;
+    public static final int CURRENT_CONFIG_VERSION = 3;
 
     public int configVersion = 0; // 0 = pre-versioning file (or freshly deserialized without the field)
     public KeyboardConfig keyboard = new KeyboardConfig();
@@ -31,6 +31,7 @@ public class InputConfig {
         public String rotateRight = "D";
         public String turretLeft = "Q";
         public String turretRight = "E";
+        public String turretCenter = "F"; // Auto-travel turret to forward hull orientation
         public String shoot = "SPACE";
         public String exit = "ESCAPE";
     }
@@ -40,6 +41,7 @@ public class InputConfig {
         public String backward = "LEFT_TRIGGER";
         public String rotateAxis = "LEFT_STICK_X";
         public String turretAxis = "RIGHT_STICK_X";
+        public String turretCenter = "RIGHT_THUMB"; // Click right stick to auto-center turret
         public String shoot = "BUTTON_A";
         public float stickDeadzone = 0.2f;
         public float triggerThreshold = 0.1f;
@@ -71,8 +73,7 @@ public class InputConfig {
     }
 
     /**
-     * Migrates configs written before turret controls existed: hull rotation moved
-     * from RIGHT_STICK_X to LEFT_STICK_X so the right stick can drive the turret.
+     * Migrates configs across versions
      */
     private static InputConfig migrate(InputConfig config) {
         if (config.configVersion >= CURRENT_CONFIG_VERSION) {
@@ -92,6 +93,12 @@ public class InputConfig {
         }
         if (config.keyboard.turretRight == null) {
             config.keyboard.turretRight = "E";
+        }
+        if (config.keyboard.turretCenter == null) {
+            config.keyboard.turretCenter = "F";
+        }
+        if (config.gamepad.turretCenter == null) {
+            config.gamepad.turretCenter = "RIGHT_THUMB";
         }
 
         config.configVersion = CURRENT_CONFIG_VERSION;
