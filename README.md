@@ -67,6 +67,15 @@ See [GAME_CONFIG.md](docs/GAME_CONFIG.md) for complete configuration documentati
 - **[Documentation Index](docs/README.md)** - Complete documentation overview
 - **[Terrain System](docs/terrain_system/terrain_system.md)** - Game terrain architecture and features
 - **[Quick Reference](docs/terrain_system/terrain_quick_reference.md)** - Fast setup guide for terrain system
+- **[Engine Audio](docs/audio/engine_audio.md)** - RPM-driven engine sound, licensing rules for sound files, replacing placeholders
+
+## Audio Credits
+
+The source and license of every sound effect is listed in
+[`nettank-client/src/main/resources/sounds/credits.json`](nettank-client/src/main/resources/sounds/credits.json),
+which also ships inside the client JAR. Sounds credited to "nettank contributors" were synthesized for this
+project. Third-party recordings are credited there with their author, source link and license, as their
+licenses require. See [docs/audio/engine_audio.md](docs/audio/engine_audio.md) for which licenses may be added.
 
 ## Launching The Game Client
 

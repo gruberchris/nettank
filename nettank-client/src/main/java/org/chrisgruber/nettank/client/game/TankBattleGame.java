@@ -202,6 +202,8 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
     private boolean prevKeyD = false;
     private float prevTurretTurn = 0.0f;
     private boolean autoCenteringTurret = false;
+    // Local driver demand for engine audio: 1 forward, lower in reverse/pivot, 0 idle
+    private float localEngineThrottle = 0.0f;
 
     // Config
     public static final float VIEW_RANGE = 400.0f;
@@ -390,7 +392,7 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
             audioManager.loadSound("ui_select", "sounds/ui_select.ogg");
             audioManager.loadSound("ui_confirm", "sounds/ui_confirm.ogg");
             audioManager.loadSound("countdown_tick", "sounds/countdown_tick.ogg");
-            audioManager.loadEngineLoops("sounds/engine_idle.ogg", "sounds/engine_forward.ogg", "sounds/engine_reverse.ogg");
+            audioManager.loadTankAudio();
             audioManager.loadTurretRotateLoop("sounds/turret_rotate.ogg");
 
             // --- Load Individual Explosion Frames ---
@@ -640,11 +642,39 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
 
         camera.update(); // Update camera matrices
 
+        updateTankAudio(deltaTime);
+
         // Update announcements display timer
         if (!announcements.isEmpty() && (now - lastAnnouncementTime > ANNOUNCEMENT_DISPLAY_TIME_MS)) {
             announcements.removeFirst();    // Remove the oldest announcement
             lastAnnouncementTime = announcements.isEmpty() ? 0 : now;   // Reset timer
         }
+    }
+
+    // Engine and track sound for every tank: the player's own, plus enemies while they're drawn
+    private void updateTankAudio(float deltaTime) {
+        if (!audioManager.isInitialized()) return;
+        boolean roundActive = currentGameState == GameState.PLAYING || currentGameState == GameState.COUNTDOWN;
+        Vector2f playerPos = (localTank != null) ? localTank.getPosition() : null;
+        float audibleRangeSq = isSpectating ? Float.MAX_VALUE : VIEW_RANGE * VIEW_RANGE;
+
+        for (ClientTank tank : tanks.values()) {
+            boolean isLocal = tank == localTank;
+            var stats = tank.getTankType().getDefaultStats();
+            float speed01 = stats.moveSpeed() > 0 ? tank.getAudioSpeed() / stats.moveSpeed() : 0.0f;
+            float turn01 = stats.turnSpeed() > 0 ? tank.getAudioTurnRate() / stats.turnSpeed() : 0.0f;
+            // Enemies are audible only while visible, so engines can't give away cloaked or hidden tanks
+            float audibility = isLocal ? 1.0f
+                    : (isObjectVisible(tank.getPosition(), playerPos, audibleRangeSq) ? tank.getAlpha() : 0.0f);
+
+            audioManager.updateTankAudio(tank.getPlayerId(), new AudioManager.TankAudioState(
+                    tank.getTankType(),
+                    tank.getPosition().x, tank.getPosition().y,
+                    roundActive && tank.getHitPoints() > 0,
+                    isLocal ? localEngineThrottle : -1.0f, // remote demand is estimated from movement
+                    speed01, turn01, audibility), deltaTime);
+        }
+        audioManager.endTankAudioFrame();
     }
 
     @Override
@@ -1891,17 +1921,16 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                 inputHandler.resetKey(GLFW_KEY_SPACE); // Consume press event
             }
 
-            // Modern Military Tank Engine Audio: IDLE when stopped, FORWARD when moving ahead, REVERSE when backing up
+            // Engine audio demand (sound itself is driven per tank in updateTankAudio)
             if (localTank != null && localTank.getHitPoints() > 0 && currentGameState == GameState.PLAYING) {
                 if (keyW) {
-                    audioManager.setEngineState(AudioManager.EngineState.FORWARD, 1.0f);
+                    localEngineThrottle = 1.0f;
                 } else if (keyS) {
-                    audioManager.setEngineState(AudioManager.EngineState.REVERSE, 1.0f);
+                    localEngineThrottle = 0.8f; // reverse gear
                 } else if (keyA || keyD) {
-                    // Pivot steering rev
-                    audioManager.setEngineState(AudioManager.EngineState.FORWARD, 0.9f);
+                    localEngineThrottle = 0.7f; // pivot steer
                 } else {
-                    audioManager.setEngineState(AudioManager.EngineState.IDLE, 1.0f);
+                    localEngineThrottle = 0.0f;
                 }
 
                 // Motorized Armored Turret Traverse Sound
@@ -1916,11 +1945,11 @@ public class TankBattleGame extends GameEngine implements NetworkCallbackHandler
                     audioManager.setTurretRotateState(false, 1.0f, 0f);
                 }
             } else {
-                audioManager.setEngineState(AudioManager.EngineState.OFF, 0f);
+                localEngineThrottle = 0.0f;
                 audioManager.setTurretRotateState(false, 1.0f, 0f);
             }
         } else {
-            audioManager.setEngineState(AudioManager.EngineState.OFF, 0f);
+            localEngineThrottle = 0.0f;
             audioManager.setTurretRotateState(false, 1.0f, 0f);
         }
     }

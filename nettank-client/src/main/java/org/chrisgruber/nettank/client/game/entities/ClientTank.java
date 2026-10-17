@@ -28,6 +28,13 @@ public class ClientTank extends ClientEntity {
     protected final Vector2f lastTrackPosition = new Vector2f();
     protected float lastTrackRotation = 0.0f;
 
+    // Smoothed movement rates driving engine/track audio; remote tanks only report
+    // positions (at network rate), so these are measured rather than read from input.
+    protected float audioSpeed = 0.0f;     // px/s
+    protected float audioTurnRate = 0.0f;  // deg/s
+    protected static final float AUDIO_RATE_SMOOTHING_SECONDS = 0.15f;
+    protected static final float TELEPORT_DISTANCE = 120.0f; // larger jumps are respawns, not driving
+
     // Hit-confirm flash (white for normal hits, gold for crits) and respawn shimmer
     protected long hitFlashUntilMillis = 0;
     protected boolean hitFlashGold = false;
@@ -123,8 +130,28 @@ public class ClientTank extends ClientEntity {
         float moveDist = position.distance(lastTrackPosition);
         float rotDelta = Math.abs(rotation - lastTrackRotation);
         trackDistance += moveDist + rotDelta * 0.25f;
+        updateAudioRates(deltaTime, moveDist);
         lastTrackPosition.set(position);
         lastTrackRotation = rotation;
+    }
+
+    private void updateAudioRates(float deltaTime, float moveDist) {
+        if (deltaTime <= 0.0f) return;
+        boolean teleported = moveDist > TELEPORT_DISTANCE;
+        float wrappedTurn = Math.abs((((rotation - lastTrackRotation) % 360.0f) + 540.0f) % 360.0f - 180.0f);
+        float instantSpeed = teleported ? 0.0f : moveDist / deltaTime;
+        float instantTurn = teleported ? 0.0f : wrappedTurn / deltaTime;
+        float k = 1.0f - (float) Math.exp(-deltaTime / AUDIO_RATE_SMOOTHING_SECONDS);
+        audioSpeed += (instantSpeed - audioSpeed) * k;
+        audioTurnRate += (instantTurn - audioTurnRate) * k;
+    }
+
+    public float getAudioSpeed() {
+        return audioSpeed;
+    }
+
+    public float getAudioTurnRate() {
+        return audioTurnRate;
     }
 
     @Override

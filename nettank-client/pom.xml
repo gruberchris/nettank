@@ -284,6 +284,7 @@
                     <include>**/*.frag</include>
                     <include>**/*.png</include>
                     <include>**/*.ogg</include>
+                    <include>**/*.wav</include>
                     <include>**/*.json</include>
                     <include>logback.xml</include>
                 </includes>

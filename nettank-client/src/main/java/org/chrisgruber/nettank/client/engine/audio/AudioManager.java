@@ -1,5 +1,6 @@
 package org.chrisgruber.nettank.client.engine.audio;
 
+import org.chrisgruber.nettank.common.entities.TankType;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.openal.*;
 import org.lwjgl.system.MemoryStack;
@@ -15,8 +16,14 @@ import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 
 import static org.lwjgl.openal.AL10.*;
 import static org.lwjgl.openal.ALC10.*;
@@ -24,10 +31,10 @@ import static org.lwjgl.stb.STBVorbis.*;
 import static org.lwjgl.system.MemoryStack.stackPush;
 
 /**
- * Minimal OpenAL sound engine: decodes OGG Vorbis clips with STB, plays them
- * through a small round-robin pool of sources (positional 2D, z=0), and drives
- * one dedicated looping source for the local tank's engine hum. UI/one-shot
- * sounds that aren't tied to a world position play at the listener's location.
+ * Minimal OpenAL sound engine: decodes OGG Vorbis (or WAV) clips, plays them through a
+ * small round-robin pool of sources (positional 2D, z=0), and runs one
+ * {@link TankAudioEmitter} per audible tank for RPM-driven engine and track loops.
+ * UI/one-shot sounds that aren't tied to a world position play at the listener's location.
  */
 public class AudioManager {
 
@@ -36,31 +43,44 @@ public class AudioManager {
     private static final float REFERENCE_DISTANCE = 250.0f;
     private static final float MAX_DISTANCE = 2000.0f;
     private static final float ROLLOFF_FACTOR = 1.0f;
+    // The listener hovers above the battlefield so nearby sounds pan gently instead of
+    // snapping hard left/right; this stays below REFERENCE_DISTANCE so close sounds keep full gain.
+    private static final float LISTENER_HEIGHT = 150.0f;
+    // Each emitter holds ~7 sources; OpenAL Soft defaults to 256 in total
+    private static final int MAX_TANK_EMITTERS = 12;
+
+    /** Per-frame input for one tank's engine sound. */
+    public record TankAudioState(
+            TankType type,
+            float x,
+            float y,
+            boolean engineRunning,
+            float throttle,      // 0..1, or negative to estimate from movement (remote tanks)
+            float speed01,       // ground speed / tank type move speed
+            float turn01,        // hull turn rate / tank type turn speed
+            float audibility     // 0..1; 0 for tanks the player can't see
+    ) {}
 
     private long device = 0;
     private long context = 0;
     private boolean initialized = false;
+    private boolean efxAvailable = false;
 
     private final Map<String, Integer> soundBuffers = new HashMap<>();
     private final int[] sourcePool = new int[SOURCE_POOL_SIZE];
     private int nextSource = 0;
 
-    public enum EngineState {
-        OFF,
-        IDLE,
-        FORWARD,
-        REVERSE
-    }
-
-    private int engineSource = 0;
-    private int engineIdleSource = 0;
-    private int engineForwardSource = 0;
-    private int engineReverseSource = 0;
     private int turretRotateSource = 0;
-    private boolean engineLoaded = false;
     private boolean turretRotateLoaded = false;
     private float listenerX = 0f;
     private float listenerY = 0f;
+
+    private final Map<TankType, EngineSoundProfile> tankProfiles = new EnumMap<>(TankType.class);
+    private final List<String> trackOneShots = new ArrayList<>();
+    private final Map<Integer, TankAudioEmitter> tankEmitters = new HashMap<>();
+    private final Set<Integer> tanksUpdatedThisFrame = new HashSet<>();
+    private final Random random = new Random();
+    private boolean tankAudioLoaded = false;
 
     public void init() {
         try {
@@ -81,28 +101,14 @@ public class AudioManager {
             }
             alcMakeContextCurrent(context);
             AL.createCapabilities(alcCaps);
+            // EFX gives per-tank low-pass (load, stealth) and distance air absorption
+            efxAvailable = alcCaps.ALC_EXT_EFX;
 
             for (int i = 0; i < SOURCE_POOL_SIZE; i++) {
                 sourcePool[i] = alGenSources();
                 configureDistanceModel(sourcePool[i]);
             }
-
-            // Dedicated looping engine sources
-            engineSource = alGenSources();
-            configureDistanceModel(engineSource);
-            alSourcei(engineSource, AL_LOOPING, AL_TRUE);
-
-            engineIdleSource = alGenSources();
-            configureDistanceModel(engineIdleSource);
-            alSourcei(engineIdleSource, AL_LOOPING, AL_TRUE);
-
-            engineForwardSource = alGenSources();
-            configureDistanceModel(engineForwardSource);
-            alSourcei(engineForwardSource, AL_LOOPING, AL_TRUE);
-
-            engineReverseSource = alGenSources();
-            configureDistanceModel(engineReverseSource);
-            alSourcei(engineReverseSource, AL_LOOPING, AL_TRUE);
+            alListener3f(AL_POSITION, 0f, 0f, LISTENER_HEIGHT);
 
             // Dedicated looping turret traverse source
             turretRotateSource = alGenSources();
@@ -110,14 +116,14 @@ public class AudioManager {
             alSourcei(turretRotateSource, AL_LOOPING, AL_TRUE);
 
             initialized = true;
-            logger.info("AudioManager initialized (device: {})", defaultDeviceName);
+            logger.info("AudioManager initialized (device: {}, EFX: {})", defaultDeviceName, efxAvailable);
         } catch (Exception e) {
             logger.error("Failed to initialize OpenAL audio; continuing without sound.", e);
             initialized = false;
         }
     }
 
-    private void configureDistanceModel(int source) {
+    static void configureDistanceModel(int source) {
         alSourcef(source, AL_REFERENCE_DISTANCE, REFERENCE_DISTANCE);
         alSourcef(source, AL_MAX_DISTANCE, MAX_DISTANCE);
         alSourcef(source, AL_ROLLOFF_FACTOR, ROLLOFF_FACTOR);
@@ -242,101 +248,97 @@ public class AudioManager {
         if (!initialized) return;
         this.listenerX = x;
         this.listenerY = y;
-        alListener3f(AL_POSITION, x, y, 0f);
+        alListener3f(AL_POSITION, x, y, LISTENER_HEIGHT);
     }
 
-    /** Starts/updates or stops the looping local-tank engine hum. Call every frame. */
-    public void setEngineLoopActive(boolean active, float gain, float pitch) {
-        if (!initialized || !engineLoaded) return;
-        int state = alGetSourcei(engineSource, AL_SOURCE_STATE);
-        if (active) {
-            alSourcef(engineSource, AL_GAIN, gain);
-            alSourcef(engineSource, AL_PITCH, pitch);
-            alSource3f(engineSource, AL_POSITION, listenerX, listenerY, 0f);
-            if (state != AL_PLAYING) {
-                alSourcePlay(engineSource);
-            }
-        } else if (state == AL_PLAYING) {
-            alSourceStop(engineSource);
-        }
-    }
-
-    public void loadEngineLoop(String classpathOgg) {
-        loadSound("__engine_loop", classpathOgg);
-        Integer bufferId = soundBuffers.get("__engine_loop");
-        if (bufferId != null) {
-            alSourcei(engineSource, AL_BUFFER, bufferId);
-            engineLoaded = true;
-        }
-    }
-
-    /** Loads the 3 modern military engine loops: idle, forward high-power, reverse gear. */
-    public void loadEngineLoops(String idlePath, String forwardPath, String reversePath) {
+    /**
+     * Loads every engine family, the track loops and track one-shots. Each sound is looked
+     * up as .ogg first, then .wav, so a sourced recording replaces a placeholder by just
+     * dropping it in. Missing loops are skipped; the remaining ones still crossfade.
+     */
+    public void loadTankAudio() {
         if (!initialized) return;
-        loadSound("__engine_idle", idlePath);
-        loadSound("__engine_forward", forwardPath);
-        loadSound("__engine_reverse", reversePath);
+        Map<String, EngineSoundProfile.EngineSoundSet> resolvedSets = new HashMap<>();
+        for (EngineSoundProfile.EngineSoundSet set : EngineSoundProfiles.allSets()) {
+            List<EngineSoundProfile.EngineLoop> loaded = new ArrayList<>();
+            for (EngineSoundProfile.EngineLoop loop : set.loops()) {
+                if (loadSoundAnyFormat(loop.path())) loaded.add(loop);
+            }
+            loadSoundAnyFormat(set.startPath());
+            loadSoundAnyFormat(set.stopPath());
+            resolvedSets.put(set.id(), set.withLoops(loaded));
+            if (!loaded.isEmpty()) tankAudioLoaded = true;
+            logger.info("Engine sound set '{}': {}/{} loops loaded", set.id(), loaded.size(), set.loops().size());
+        }
 
-        Integer idleBuf = soundBuffers.get("__engine_idle");
-        Integer fwdBuf = soundBuffers.get("__engine_forward");
-        Integer revBuf = soundBuffers.get("__engine_reverse");
+        loadSoundAnyFormat(EngineSoundProfiles.TRACK_SLOW);
+        loadSoundAnyFormat(EngineSoundProfiles.TRACK_FAST);
+        trackOneShots.clear();
+        for (String path : EngineSoundProfiles.TRACK_ONE_SHOTS) {
+            if (loadSoundAnyFormat(path)) trackOneShots.add(path);
+        }
 
-        if (idleBuf != null) alSourcei(engineIdleSource, AL_BUFFER, idleBuf);
-        if (fwdBuf != null) alSourcei(engineForwardSource, AL_BUFFER, fwdBuf);
-        if (revBuf != null) alSourcei(engineReverseSource, AL_BUFFER, revBuf);
-
-        if (idleBuf != null || fwdBuf != null || revBuf != null) {
-            engineLoaded = true;
+        for (TankType type : TankType.values()) {
+            EngineSoundProfile profile = EngineSoundProfiles.forType(type);
+            tankProfiles.put(type, profile.withSounds(resolvedSets.get(profile.sounds().id())));
         }
     }
 
-    /** Updates the modern military engine state: OFF, IDLE, FORWARD, or REVERSE. */
-    public void setEngineState(EngineState state, float speedFactor) {
-        if (!initialized || !engineLoaded) return;
+    /**
+     * Updates (creating if needed) the engine sound of one tank. Call once per tank per
+     * frame, then {@link #endTankAudioFrame()} to release tanks that weren't updated.
+     */
+    public void updateTankAudio(int tankId, TankAudioState state, float deltaTime) {
+        if (!initialized || !tankAudioLoaded || state.type() == null) return;
+        tanksUpdatedThisFrame.add(tankId);
 
-        alSource3f(engineIdleSource, AL_POSITION, listenerX, listenerY, 0f);
-        alSource3f(engineForwardSource, AL_POSITION, listenerX, listenerY, 0f);
-        alSource3f(engineReverseSource, AL_POSITION, listenerX, listenerY, 0f);
+        TankAudioEmitter emitter = tankEmitters.get(tankId);
+        if (emitter != null && emitter.tankType() != state.type()) {
+            emitter.dispose(); // tank type changed (lobby re-selection)
+            tankEmitters.remove(tankId);
+            emitter = null;
+        }
+        if (emitter == null) {
+            if (state.audibility() <= 0.01f || tankEmitters.size() >= MAX_TANK_EMITTERS) return;
+            emitter = TankAudioEmitter.create(state.type(), tankProfiles.get(state.type()), soundBuffers,
+                    trackOneShots, this::playSound, efxAvailable, state.engineRunning(), state.audibility(), random);
+            if (emitter == null) return;
+            tankEmitters.put(tankId, emitter);
+        }
 
-        switch (state) {
-            case OFF -> {
-                alSourcef(engineIdleSource, AL_GAIN, 0f);
-                alSourcef(engineForwardSource, AL_GAIN, 0f);
-                alSourcef(engineReverseSource, AL_GAIN, 0f);
-                if (alGetSourcei(engineIdleSource, AL_SOURCE_STATE) == AL_PLAYING) alSourceStop(engineIdleSource);
-                if (alGetSourcei(engineForwardSource, AL_SOURCE_STATE) == AL_PLAYING) alSourceStop(engineForwardSource);
-                if (alGetSourcei(engineReverseSource, AL_SOURCE_STATE) == AL_PLAYING) alSourceStop(engineReverseSource);
-            }
-            case IDLE -> {
-                ensurePlaying(engineIdleSource);
-                alSourcef(engineIdleSource, AL_GAIN, 0.52f);
-                alSourcef(engineIdleSource, AL_PITCH, 1.0f);
+        emitter.update(deltaTime, state, listenerX, listenerY);
+        if (state.audibility() <= 0.01f && emitter.isSilent()) {
+            emitter.dispose();
+            tankEmitters.remove(tankId);
+        }
+    }
 
-                alSourcef(engineForwardSource, AL_GAIN, 0f);
-                alSourcef(engineReverseSource, AL_GAIN, 0f);
-            }
-            case FORWARD -> {
-                ensurePlaying(engineForwardSource);
-                ensurePlaying(engineIdleSource);
+    /** Releases emitters for tanks that left or weren't updated this frame. */
+    public void endTankAudioFrame() {
+        if (!initialized) return;
+        tankEmitters.entrySet().removeIf(entry -> {
+            if (tanksUpdatedThisFrame.contains(entry.getKey())) return false;
+            entry.getValue().dispose();
+            return true;
+        });
+        tanksUpdatedThisFrame.clear();
+    }
 
-                float pitch = Math.max(0.88f, Math.min(1.30f, 1.0f + (speedFactor - 1.0f) * 0.20f));
-                alSourcef(engineForwardSource, AL_GAIN, 0.82f);
-                alSourcef(engineForwardSource, AL_PITCH, pitch);
-
-                alSourcef(engineIdleSource, AL_GAIN, 0.12f);
-                alSourcef(engineReverseSource, AL_GAIN, 0f);
-            }
-            case REVERSE -> {
-                ensurePlaying(engineReverseSource);
-                ensurePlaying(engineIdleSource);
-
-                alSourcef(engineReverseSource, AL_GAIN, 0.78f);
-                alSourcef(engineReverseSource, AL_PITCH, 0.95f);
-
-                alSourcef(engineIdleSource, AL_GAIN, 0.12f);
-                alSourcef(engineForwardSource, AL_GAIN, 0f);
+    // Loads path + ".ogg" if present, else path + ".wav"; the buffer is registered under path
+    private boolean loadSoundAnyFormat(String path) {
+        for (String extension : new String[] {".ogg", ".wav"}) {
+            if (resourceExists(path + extension)) {
+                loadSound(path, path + extension);
+                return soundBuffers.containsKey(path);
             }
         }
+        logger.warn("Missing sound resource: {}.ogg / .wav", path);
+        return false;
+    }
+
+    private static boolean resourceExists(String resource) {
+        if (java.nio.file.Files.isReadable(java.nio.file.Paths.get(resource))) return true;
+        return AudioManager.class.getClassLoader().getResource(resource) != null;
     }
 
     /** Loads the looping motorized turret traverse sound effect. */
@@ -374,25 +376,14 @@ public class AudioManager {
 
     public void cleanup() {
         if (!initialized) return;
+        // Emitter sources reference buffers, so they must go before the buffers do
+        for (TankAudioEmitter emitter : tankEmitters.values()) {
+            emitter.dispose();
+        }
+        tankEmitters.clear();
         for (int source : sourcePool) {
             alSourceStop(source);
             alDeleteSources(source);
-        }
-        if (engineSource != 0) {
-            alSourceStop(engineSource);
-            alDeleteSources(engineSource);
-        }
-        if (engineIdleSource != 0) {
-            alSourceStop(engineIdleSource);
-            alDeleteSources(engineIdleSource);
-        }
-        if (engineForwardSource != 0) {
-            alSourceStop(engineForwardSource);
-            alDeleteSources(engineForwardSource);
-        }
-        if (engineReverseSource != 0) {
-            alSourceStop(engineReverseSource);
-            alDeleteSources(engineReverseSource);
         }
         if (turretRotateSource != 0) {
             alSourceStop(turretRotateSource);
